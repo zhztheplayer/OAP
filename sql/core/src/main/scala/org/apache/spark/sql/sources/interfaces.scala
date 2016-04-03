@@ -33,7 +33,7 @@ import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
 import org.apache.spark.sql.execution.{FileRelation, RDDConversions}
-import org.apache.spark.sql.execution.datasources.{PartitioningUtils, PartitionSpec, Partition}
+import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.types.{StringType, StructType}
 import org.apache.spark.sql._
 import org.apache.spark.util.SerializableConfiguration
@@ -530,6 +530,26 @@ abstract class HadoopFsRelation private[sql](
         }
     }
     _partitionSpec
+  }
+
+  def createWriteContainer(df: DataFrame, isAppend: Boolean, job: Job) = {
+    if (partitionColumns.isEmpty) {
+      new DefaultWriterContainer(this, job, isAppend)
+    } else {
+      val output = df.queryExecution.executedPlan.output
+      val (partitionOutput, dataOutput) =
+        output.partition(a => partitionColumns.contains(a.name))
+
+      new DynamicPartitionWriterContainer(
+        this,
+        job,
+        partitionOutput,
+        dataOutput,
+        output,
+        PartitioningUtils.DEFAULT_PARTITION_NAME,
+        sqlContext.conf.getConf(SQLConf.PARTITION_MAX_FILES),
+        isAppend)
+    }
   }
 
   /**
