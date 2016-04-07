@@ -532,7 +532,7 @@ abstract class HadoopFsRelation private[sql](
     _partitionSpec
   }
 
-  def createWriteContainer(df: DataFrame, isAppend: Boolean, job: Job) = {
+  def createWriteContainer(df: DataFrame, isAppend: Boolean, job: Job): BaseWriterContainer = {
     if (partitionColumns.isEmpty) {
       new DefaultWriterContainer(this, job, isAppend)
     } else {
