@@ -243,17 +243,17 @@ streaming_flume_assembly = Module(
 )
 
 
-mllib = Module(
-    name="mllib",
-    dependencies=[streaming, sql],
-    source_file_regexes=[
-        "data/mllib/",
-        "mllib/",
-    ],
-    sbt_test_goals=[
-        "mllib/test",
-    ]
-)
+#mllib = Module(
+#    name="mllib",
+#    dependencies=[streaming, sql],
+#    source_file_regexes=[
+#        "data/mllib/",
+#        "mllib/",
+#    ],
+#    sbt_test_goals=[
+#        "mllib/test",
+#    ]
+#)
 
 
 examples = Module(
@@ -406,30 +406,30 @@ build = Module(
     should_run_build_tests=True
 )
 
-ec2 = Module(
-    name="ec2",
-    dependencies=[],
-    source_file_regexes=[
-        "ec2/",
-    ]
-)
+#ec2 = Module(
+#    name="ec2",
+#    dependencies=[],
+#    source_file_regexes=[
+#        "ec2/",
+#    ]
+#)
 
 
-yarn = Module(
-    name="yarn",
-    dependencies=[],
-    source_file_regexes=[
-        "yarn/",
-        "network/yarn/",
-    ],
-    sbt_test_goals=[
-        "yarn/test",
-        "network-yarn/test",
-    ],
-    test_tags=[
-        "org.apache.spark.tags.ExtendedYarnTest"
-    ]
-)
+#yarn = Module(
+#    name="yarn",
+#    dependencies=[],
+#    source_file_regexes=[
+#        "yarn/",
+#        "network/yarn/",
+#    ],
+#    sbt_test_goals=[
+#        "yarn/test",
+#        "network-yarn/test",
+#    ],
+#    test_tags=[
+#        "org.apache.spark.tags.ExtendedYarnTest"
+#    ]
+#)
 
 # The root module is a dummy module which is used to run all of the tests.
 # No other modules should directly depend on this module.
