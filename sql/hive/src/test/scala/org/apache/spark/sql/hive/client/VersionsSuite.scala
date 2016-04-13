@@ -54,7 +54,7 @@ class VersionsSuite extends SparkFunSuite with Logging {
       "hive.metastore.warehouse.dir" -> warehousePath.toString)
   }
 
-  test("success sanity check") {
+  ignore("success sanity check") {
     val badClient = IsolatedClientLoader.forVersion(
       hiveMetastoreVersion = HiveContext.hiveExecutionVersion,
       hadoopVersion = VersionInfo.getVersion,
