@@ -45,7 +45,8 @@ class YarnShuffleIntegrationSuite extends BaseYarnClusterSuite {
     yarnConfig
   }
 
-  test("external shuffle service") {
+  // TODO Spinach
+  ignore("external shuffle service") {
     val shuffleServicePort = YarnTestAccessor.getShuffleServicePort
     val shuffleService = YarnTestAccessor.getShuffleServiceInstance
 

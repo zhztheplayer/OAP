@@ -243,22 +243,9 @@ streaming_flume_assembly = Module(
 )
 
 
-mllib = Module(
-    name="mllib",
-    dependencies=[streaming, sql],
-    source_file_regexes=[
-        "data/mllib/",
-        "mllib/",
-    ],
-    sbt_test_goals=[
-        "mllib/test",
-    ]
-)
-
-
 examples = Module(
     name="examples",
-    dependencies=[graphx, mllib, streaming, sql],
+    dependencies=[graphx, streaming, sql],
     source_file_regexes=[
         "examples/",
     ],
@@ -272,7 +259,7 @@ pyspark_core = Module(
     name="pyspark-core",
     dependencies=[],
     source_file_regexes=[
-        "python/(?!pyspark/(ml|mllib|sql|streaming))"
+        "python/(?!pyspark/(sql|streaming))"
     ],
     python_test_goals=[
         "pyspark.rdd",
@@ -328,59 +315,9 @@ pyspark_streaming = Module(
 )
 
 
-pyspark_mllib = Module(
-    name="pyspark-mllib",
-    dependencies=[pyspark_core, pyspark_streaming, pyspark_sql, mllib],
-    source_file_regexes=[
-        "python/pyspark/mllib"
-    ],
-    python_test_goals=[
-        "pyspark.mllib.classification",
-        "pyspark.mllib.clustering",
-        "pyspark.mllib.evaluation",
-        "pyspark.mllib.feature",
-        "pyspark.mllib.fpm",
-        "pyspark.mllib.linalg.__init__",
-        "pyspark.mllib.linalg.distributed",
-        "pyspark.mllib.random",
-        "pyspark.mllib.recommendation",
-        "pyspark.mllib.regression",
-        "pyspark.mllib.stat._statistics",
-        "pyspark.mllib.stat.KernelDensity",
-        "pyspark.mllib.tree",
-        "pyspark.mllib.util",
-        "pyspark.mllib.tests",
-    ],
-    blacklisted_python_implementations=[
-        "PyPy"  # Skip these tests under PyPy since they require numpy and it isn't available there
-    ]
-)
-
-
-pyspark_ml = Module(
-    name="pyspark-ml",
-    dependencies=[pyspark_core, pyspark_mllib],
-    source_file_regexes=[
-        "python/pyspark/ml/"
-    ],
-    python_test_goals=[
-        "pyspark.ml.feature",
-        "pyspark.ml.classification",
-        "pyspark.ml.clustering",
-        "pyspark.ml.recommendation",
-        "pyspark.ml.regression",
-        "pyspark.ml.tuning",
-        "pyspark.ml.tests",
-        "pyspark.ml.evaluation",
-    ],
-    blacklisted_python_implementations=[
-        "PyPy"  # Skip these tests under PyPy since they require numpy and it isn't available there
-    ]
-)
-
 sparkr = Module(
     name="sparkr",
-    dependencies=[sql, mllib],
+    dependencies=[sql],
     source_file_regexes=[
         "R/",
     ],
@@ -404,31 +341,6 @@ build = Module(
         "dev/test-dependencies.sh",
     ],
     should_run_build_tests=True
-)
-
-ec2 = Module(
-    name="ec2",
-    dependencies=[],
-    source_file_regexes=[
-        "ec2/",
-    ]
-)
-
-
-yarn = Module(
-    name="yarn",
-    dependencies=[],
-    source_file_regexes=[
-        "yarn/",
-        "network/yarn/",
-    ],
-    sbt_test_goals=[
-        "yarn/test",
-        "network-yarn/test",
-    ],
-    test_tags=[
-        "org.apache.spark.tags.ExtendedYarnTest"
-    ]
 )
 
 # The root module is a dummy module which is used to run all of the tests.
