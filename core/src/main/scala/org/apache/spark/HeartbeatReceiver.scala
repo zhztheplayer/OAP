@@ -36,7 +36,8 @@ import org.apache.spark.util.{Clock, SystemClock, ThreadUtils, Utils}
 private[spark] case class Heartbeat(
     executorId: String,
     taskMetrics: Array[(Long, TaskMetrics)], // taskId -> TaskMetrics
-    blockManagerId: BlockManagerId)
+    blockManagerId: BlockManagerId,
+    custimizedInfo: Option[(String, String)] = None)
 
 /**
  * An event that SparkContext uses to notify HeartbeatReceiver that SparkContext.taskScheduler is
@@ -119,7 +120,7 @@ private[spark] class HeartbeatReceiver(sc: SparkContext, clock: Clock)
       context.reply(true)
 
     // Messages received from executors
-    case heartbeat @ Heartbeat(executorId, taskMetrics, blockManagerId) =>
+    case heartbeat @ Heartbeat(executorId, taskMetrics, blockManagerId, customizedInfo) =>
       if (scheduler != null) {
         if (executorLastSeen.contains(executorId)) {
           executorLastSeen(executorId) = clock.getTimeMillis()
@@ -146,6 +147,7 @@ private[spark] class HeartbeatReceiver(sc: SparkContext, clock: Clock)
         logWarning(s"Dropping $heartbeat because TaskScheduler is not ready yet")
         context.reply(HeartbeatResponse(reregisterBlockManager = true))
       }
+      customizedInfo.foreach(x => sc.listenerBus.post(SparkListenerCustomInfoUpdate(executorId, x)))
   }
 
   /**
@@ -222,4 +224,13 @@ private[spark] class HeartbeatReceiver(sc: SparkContext, clock: Clock)
 
 object HeartbeatReceiver {
   val ENDPOINT_NAME = "HeartbeatReceiver"
+}
+
+/**
+ * This class is only used for test.
+ */
+class DummySparkListener() extends SparkListener with Logging {
+  override def onCustomInfoUpdate(customInfoUpdate: SparkListenerCustomInfoUpdate): Unit = {
+    logInfo(s"${customInfoUpdate.customizedInfo}, local time: ${System.currentTimeMillis()}")
+  }
 }

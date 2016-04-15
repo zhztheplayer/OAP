@@ -114,6 +114,14 @@ private[spark] class Executor(
   private val heartbeatReceiverRef =
     RpcUtils.makeDriverRef(HeartbeatReceiver.ENDPOINT_NAME, conf, env.rpcEnv)
 
+  // get the singleton instance that user configured
+  val classLoader = Thread.currentThread.getContextClassLoader
+  private val customInfoClassName = conf.getOption("spark.executor.custonInfoClass")
+  val customManager: Option[CustomManager] = customInfoClassName
+    .map(Class.forName(_, true, classLoader)
+    .newInstance()
+    .asInstanceOf[CustomManager])
+
   startDriverHeartbeater()
 
   def launchTask(
@@ -444,7 +452,11 @@ private[spark] class Executor(
       }
     }
 
-    val message = Heartbeat(executorId, tasksMetrics.toArray, env.blockManager.blockManagerId)
+    val message = Heartbeat(
+      executorId,
+      tasksMetrics.toArray,
+      env.blockManager.blockManagerId,
+      customManager.map(_.status(conf)))
     try {
       val response = heartbeatReceiverRef.askWithRetry[HeartbeatResponse](
           message, RpcTimeout(conf, "spark.executor.heartbeatInterval", "10s"))

@@ -118,4 +118,9 @@ public class SparkFirehoseListener implements SparkListener {
         onEvent(blockUpdated);
     }
 
+    @Override
+    public void onCustomInfoUpdate(SparkListenerCustomInfoUpdate customInfoUpdate) {
+        onEvent(customInfoUpdate);
+    }
+
 }
