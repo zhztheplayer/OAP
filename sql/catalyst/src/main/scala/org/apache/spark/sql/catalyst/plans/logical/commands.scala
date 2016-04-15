@@ -17,8 +17,9 @@
 
 package org.apache.spark.sql.catalyst.plans.logical
 
+import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Attribute}
-import org.apache.spark.sql.types.StringType
+import org.apache.spark.sql.types.{ArrayType, StringType}
 
 /**
  * A logical node that represents a non-query command to be executed by the system.  For example,
@@ -50,4 +51,16 @@ private[sql] case class ShowFunctions(
   override def children: Seq[LogicalPlan] = Seq.empty
   override val output: Seq[Attribute] = Seq(
     AttributeReference("function", StringType, nullable = false)())
+}
+
+/**
+ * Returned for the "SHOW INDEX" command, which will list all of the
+ * registered function list.
+ */
+private[sql] case class ShowIndex(table: TableIdentifier) extends LogicalPlan with Command {
+  override def children: Seq[LogicalPlan] = Seq.empty
+  override val output: Seq[Attribute] = Seq(
+    AttributeReference("table", StringType, nullable = false)(),
+    AttributeReference("key_name", StringType, nullable = false)(),
+    AttributeReference("column_name", ArrayType(StringType), nullable = false)())
 }

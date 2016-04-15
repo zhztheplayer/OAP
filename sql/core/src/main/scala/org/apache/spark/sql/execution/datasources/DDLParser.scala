@@ -61,9 +61,37 @@ class DDLParser(parseQuery: String => LogicalPlan)
   protected val COMMENT = Keyword("COMMENT")
   protected val REFRESH = Keyword("REFRESH")
 
+  protected val DROP = Keyword("DROP")
+  protected val INDEX = Keyword("INDEX")
+  protected val ON = Keyword("ON")
+
   protected lazy val ddl: Parser[LogicalPlan] = createTable | describeTable | refreshTable
 
   protected def start: Parser[LogicalPlan] = ddl
+
+  /**
+   * CREATE INDEX [IF NOT EXISTS] indexName ON tableName (col1, col2, ...)
+   */
+  protected lazy val createIndex: Parser[LogicalPlan] = {
+    // TODO: Support database.table.
+    (CREATE ~ INDEX) ~> (IF ~> NOT <~ EXISTS).? ~ ident ~ (ON ~> tableIdentifier) ~ indexCols ^^ {
+      case allowExisting ~ indexIdent ~ tableIdent ~ indexColumns =>
+        CreateIndex(indexIdent, tableIdent, indexColumns.toArray, allowExisting.isDefined)
+    }
+  }
+
+  /**
+   * DROP INDEX [IF NOT EXISTS] indexName
+   */
+  protected lazy val dropIndex: Parser[LogicalPlan] = {
+    // TODO: Support database.table.
+    (DROP ~ INDEX) ~> (IF ~> NOT <~ EXISTS).? ~ ident ^^ {
+      case allowExisting ~ indexIdent =>
+        DropIndex(indexIdent, allowExisting.isDefined)
+    }
+  }
+
+  protected lazy val indexCols: Parser[Seq[String]] = "(" ~> repsep(ident, ",") <~ ")"
 
   /**
    * `CREATE [TEMPORARY] TABLE [IF NOT EXISTS] avroTable

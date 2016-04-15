@@ -163,6 +163,32 @@ class CaseInsensitiveMap(map: Map[String, String]) extends Map[String, String]
 }
 
 /**
+ * Creates an index for table on indexColumns
+ */
+case class CreateIndex(
+    indexIdent: String,
+    table: TableIdentifier,
+    indexColumns: Array[String],
+    ifNotExists: Boolean) extends LogicalPlan with Command {
+
+  override def children: Seq[LogicalPlan] = Seq.empty
+
+  override val output: Seq[Attribute] = Seq.empty
+}
+
+/**
+ * Drops an index
+ */
+case class DropIndex(
+    indexIdent: String,
+    ifNotExists: Boolean) extends LogicalPlan with Command {
+
+  override def children: Seq[LogicalPlan] = Seq.empty
+
+  override val output: Seq[Attribute] = Seq.empty
+}
+
+/**
  * The exception thrown from the DDL parser.
  */
 class DDLException(message: String) extends RuntimeException(message)
