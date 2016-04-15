@@ -116,7 +116,7 @@ private[spark] class Executor(
 
   // get the singleton instance that user configured
   val classLoader = Thread.currentThread.getContextClassLoader
-  private val customInfoClassName = conf.getOption("spark.executor.custonInfoClass")
+  private val customInfoClassName = conf.getOption("spark.executor.customInfoClass")
   val customManager: Option[CustomManager] = customInfoClassName
     .map(Class.forName(_, true, classLoader)
     .newInstance()
