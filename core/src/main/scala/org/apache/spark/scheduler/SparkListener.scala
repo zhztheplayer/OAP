@@ -130,6 +130,10 @@ case class SparkListenerApplicationEnd(time: Long) extends SparkListenerEvent
  */
 private[spark] case class SparkListenerLogStart(sparkVersion: String) extends SparkListenerEvent
 
+@DeveloperApi
+case class SparkListenerCustomInfoUpdate(executorId: String, customizedInfo: (String, String))
+  extends SparkListenerEvent
+
 /**
  * :: DeveloperApi ::
  * Interface for listening to events from the Spark scheduler. Note that this is an internal
@@ -223,6 +227,11 @@ trait SparkListener {
    * Called when the driver receives a block update info.
    */
   def onBlockUpdated(blockUpdated: SparkListenerBlockUpdated) { }
+
+  /**
+   * Called when the driver receives some user customized info.
+   */
+  def onCustomInfoUpdate(customInfoUpdate: SparkListenerCustomInfoUpdate) { }
 }
 
 /**
