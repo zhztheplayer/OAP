@@ -32,12 +32,3 @@ trait CustomManager {
    */
   def status(conf: SparkConf): (String, String)
 }
-
-/**
- * this class is showed as and example for test how CustomManager is return the status.
- */
-class exampleCustomManager extends CustomManager {
-  def status(conf: SparkConf): (String, String) =
-    (System.currentTimeMillis().toString, "FiberStatus")
-}
-

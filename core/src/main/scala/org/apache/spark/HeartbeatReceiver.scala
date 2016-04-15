@@ -225,12 +225,3 @@ private[spark] class HeartbeatReceiver(sc: SparkContext, clock: Clock)
 object HeartbeatReceiver {
   val ENDPOINT_NAME = "HeartbeatReceiver"
 }
-
-/**
- * This class is only used for custom info update example.
- */
-class DummySparkListener() extends SparkListener with Logging {
-  override def onCustomInfoUpdate(customInfoUpdate: SparkListenerCustomInfoUpdate): Unit = {
-    logInfo(s"${customInfoUpdate.customizedInfo}, local time: ${System.currentTimeMillis()}")
-  }
-}
