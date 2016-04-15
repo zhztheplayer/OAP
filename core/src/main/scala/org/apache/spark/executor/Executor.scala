@@ -115,9 +115,9 @@ private[spark] class Executor(
     RpcUtils.makeDriverRef(HeartbeatReceiver.ENDPOINT_NAME, conf, env.rpcEnv)
 
   // get the singleton instance that user configured
-  val classLoader = Thread.currentThread.getContextClassLoader
+  private val classLoader = Thread.currentThread.getContextClassLoader
   private val customInfoClassName = conf.getOption("spark.executor.customInfoClass")
-  val customManager: Option[CustomManager] = customInfoClassName
+  private val customManager: Option[CustomManager] = customInfoClassName
     .map(Class.forName(_, true, classLoader)
     .newInstance()
     .asInstanceOf[CustomManager])
