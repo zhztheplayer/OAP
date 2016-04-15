@@ -20,11 +20,24 @@ package org.apache.spark.executor
 import org.apache.spark._
 
 /**
- * This should be a abstract class, user can extends the class to implement method [status], after
- * that, user can add a configuration of `spark.executor.custonInfoClass` to identify the class
- * that user defined.
+ * User can extends the Trait to implement method `status`, after that, user can add a
+ * configuration of `spark.executor.customInfoClass` to identify the class that user defined.
  */
-class CustomManager extends Logging {
+trait CustomManager {
+  /**
+   * get the status for users long run service, the status' format is a string Tuble like a
+   * key-value pair, e.g. (topic, topicDetails)
+   * @param conf take SparkConf as input for user to handle
+   * @return
+   */
+  def status(conf: SparkConf): (String, String)
+}
+
+/**
+ * this class is showed as and example for test how CustomManager is return the status.
+ */
+class exampleCustomManager extends CustomManager {
   def status(conf: SparkConf): (String, String) =
     (System.currentTimeMillis().toString, "FiberStatus")
 }
+

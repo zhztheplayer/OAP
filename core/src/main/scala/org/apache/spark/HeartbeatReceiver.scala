@@ -227,7 +227,7 @@ object HeartbeatReceiver {
 }
 
 /**
- * This class is only used for test.
+ * This class is only used for custom info update example.
  */
 class DummySparkListener() extends SparkListener with Logging {
   override def onCustomInfoUpdate(customInfoUpdate: SparkListenerCustomInfoUpdate): Unit = {
