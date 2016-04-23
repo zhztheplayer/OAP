@@ -17,18 +17,20 @@
 
 package org.apache.spark.sql.execution.datasources.spinach
 
-import java.util
 import java.util.concurrent.TimeUnit
 
 import com.google.common.cache._
 import org.apache.hadoop.fs.{FSDataInputStream, FileSystem, Path}
+import org.apache.hadoop.mapreduce.TaskAttemptContext
 import org.apache.hadoop.util.StringUtils
 import org.apache.spark.Logging
 import org.apache.spark.deploy.SparkHadoopUtil
-import org.apache.spark.sql.types.{AtomicType, DataType}
-import org.apache.spark.unsafe.Platform
-import org.apache.spark.unsafe.types.UTF8String
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.types.StructType
 
+/**
+  * Fiber Cache Manager
+  */
 object FiberCacheManager extends Logging {
   @transient private val cache =
     CacheBuilder
@@ -44,10 +46,7 @@ object FiberCacheManager extends Logging {
         }
       }).build(new CacheLoader[Fiber, FiberByteData] {
       override def load(key: Fiber): FiberByteData = {
-        val in: FSDataInputStream = FiberDataFileHandler(key.file)
-
-        // TODO load the data fiber
-        throw new NotImplementedError("")
+        key.file.getFiberData(key.rowGroupId, key.columnIndex)
       }
     })
 
@@ -60,6 +59,26 @@ object FiberCacheManager extends Logging {
   def update(status: String): Unit = throw new NotImplementedError()
 }
 
+private[spinach] case class InputDataFileDescriptor(fin: FSDataInputStream, len: Long)
+
+private[spinach] object DataMetaCacheManager extends Logging {
+  @transient private val cache =
+    CacheBuilder
+      .newBuilder()
+      .maximumSize(MemoryManager.SPINACH_DATA_META_CACHE_SIZE)
+      .build(new CacheLoader[DataFileScanner, DataFileMeta] {
+      override def load(key: DataFileScanner): DataFileMeta = {
+        val meta = new DataFileMeta()
+        val fd = FiberDataFileHandler(key)
+        new DataFileMeta().read(fd.fin, fd.len)
+      }
+    })
+
+  def apply(fiberCache: DataFileScanner): DataFileMeta = {
+    cache(fiberCache)
+  }
+}
+
 private[spinach] object FiberDataFileHandler extends Logging {
   @transient private val cache =
     CacheBuilder
@@ -67,92 +86,79 @@ private[spinach] object FiberDataFileHandler extends Logging {
       .concurrencyLevel(4) // DEFAULT_CONCURRENCY_LEVEL TODO verify that if it works
       .maximumSize(MemoryManager.SPINACH_FIBER_CACHE_SIZE_IN_BYTES)
       .expireAfterAccess(100, TimeUnit.SECONDS) // auto expire after 100 seconds.
-      .removalListener(new RemovalListener[DataFile, FSDataInputStream] {
-        override def onRemoval(n: RemovalNotification[DataFile, FSDataInputStream])
+      .removalListener(new RemovalListener[DataFileScanner, InputDataFileDescriptor] {
+        override def onRemoval(n: RemovalNotification[DataFileScanner, InputDataFileDescriptor])
         : Unit = {
-          n.getValue.close()
+          n.getValue.fin.close()
         }
-      }).build(new CacheLoader[DataFile, FSDataInputStream] {
-      override def load(key: DataFile): FSDataInputStream = {
-        // TODO make the ctx also cached?
+      }).build(new CacheLoader[DataFileScanner, InputDataFileDescriptor] {
+      override def load(key: DataFileScanner): InputDataFileDescriptor = {
         val ctx = SparkHadoopUtil.get.getConfigurationFromJobContext(key.context)
-        FileSystem.get(ctx).open(new Path(StringUtils.unEscapeString(key.path)))
+        val path = new Path(StringUtils.unEscapeString(key.path))
+        val fs = FileSystem.get(ctx)
+
+        InputDataFileDescriptor(fs.open(path), fs.getFileStatus(path).getLen)
       }
     })
 
-  def apply(fiberCache: DataFile): FSDataInputStream = {
+  def apply(fiberCache: DataFileScanner): InputDataFileDescriptor = {
     cache(fiberCache)
   }
 }
 
 case class FiberByteData(buf: Array[Byte]) // TODO add FiberDirectByteData
 
-class ColumnValues(dataType: DataType, val raw: FiberByteData) {
-  require(dataType.isInstanceOf[AtomicType], "Only atomic type accepted for now.")
+private[spinach] case class Fiber(file: DataFileScanner, columnIndex: Int, rowGroupId: Int)
 
-  // TODO get the bitset from the FiberByteData
-  val bitset: util.BitSet = throw new NotImplementedError()
-  def isNullAt(idx: Int): Boolean = bitset.get(idx)
+private[spinach] case class DataFileScanner(
+    path: String, schema: StructType, context: TaskAttemptContext) {
+  val meta: DataFileMeta = DataMetaCacheManager(this)
 
-  def getBooleanValue(idx: Int): Boolean = {
-    Platform.getBoolean(raw.buf, Platform.BYTE_ARRAY_OFFSET + idx)
+  override def hashCode(): Int = path.hashCode
+  override def equals(that: Any): Boolean = that match {
+    case DataFileScanner(thatPath, _, _) => path == thatPath
+    case _ => false
   }
-  def getByteValue(idx: Int): Byte = {
-    Platform.getByte(raw.buf, Platform.BYTE_ARRAY_OFFSET + idx)
-  }
-  def getShortValue(idx: Int): Short = {
-    Platform.getShort(raw.buf, Platform.BYTE_ARRAY_OFFSET + idx)
-  }
-  def getFloatValue(idx: Int): Float = {
-    Platform.getFloat(raw.buf, Platform.BYTE_ARRAY_OFFSET + idx)
-  }
-  def getInt(idx: Int): Int = {
-    Platform.getInt(raw.buf, Platform.BYTE_ARRAY_OFFSET + idx)
-  }
-  def getDouble(idx: Int): Double = {
-    Platform.getDouble(raw.buf, Platform.BYTE_ARRAY_OFFSET + idx)
-  }
-  def getLong(idx: Int): Long = {
-    Platform.getLong(raw.buf, Platform.BYTE_ARRAY_OFFSET + idx)
-  }
-  def getString(idx: Int): UTF8String = {
-    //  The byte data format like:
-    //    value #1 length (int)
-    //    value #1 offset, (0 - based to the start of this Fiber Group)
-    //    value #2 length
-    //    value #2 offset, (0 - based to the start of this Fiber Group)
-    //    …
-    //    …
-    //    value #N length
-    //    value #N offset, (0 - based to the start of this Fiber Group)
-    //    value #1
-    //    value #2
-    //    …
-    //    value #N
-    val length = getInt(idx * 2)
-    val offset = getInt(idx * 2 + 1)
-    UTF8String.fromAddress(raw.buf, Platform.BYTE_ARRAY_OFFSET + offset, length)
-  }
-  def getBinary(idx: Int): Array[Byte] = {
-    //  The byte data format like:
-    //    value #1 length (int)
-    //    value #1 offset, (0 - based to the start of this Fiber Group)
-    //    value #2 length
-    //    value #2 offset, (0 - based to the start of this Fiber Group)
-    //    …
-    //    …
-    //    value #N length
-    //    value #N offset, (0 - based to the start of this Fiber Group)
-    //    value #1
-    //    value #2
-    //    …
-    //    value #N
-    val length = getInt(idx * 2)
-    val offset = getInt(idx * 2 + 1)
-    val result = new Array[Byte](length)
-    Platform.copyMemory(raw.buf, Platform.BYTE_ARRAY_OFFSET + offset, result,
-      Platform.BYTE_ARRAY_OFFSET, length)
 
-    result
+  def getFiberData(groupId: Int, fiberId: Int): FiberByteData = {
+    val is = FiberDataFileHandler(this).fin
+    val groupMeta = meta.rowGroupsMeta(groupId)
+    // get the fiber data start position TODO update the meta to store the fiber start pos
+    var i = 0
+    var fiberStart = groupMeta.start
+    while (i < fiberId) {
+      fiberStart += groupMeta.fiberLens(i)
+      i += 1
+    }
+    val lens = groupMeta.fiberLens(fiberId)
+    val bytes = new Array[Byte](lens)
+
+    is.synchronized {
+      is.seek(fiberStart)
+      is.read(bytes)
+    }
+    new FiberByteData(bytes)
+  }
+
+  def iterator(requiredIds: Array[Int]): Iterator[InternalRow] = {
+    val row = new BatchColumn()
+    val columns: Array[ColumnValues] = new Array[ColumnValues](requiredIds.length)
+    (0 until meta.groupCount).iterator.flatMap { groupId =>
+      val fibers: Array[Fiber] = requiredIds.map(i => Fiber(this, requiredIds(i), groupId))
+      var i = 0
+      while (i < columns.length) {
+        columns(i) = new ColumnValues(
+          meta.rowCountInEachGroup,
+          schema(requiredIds(i)).dataType,
+          FiberCacheManager(fibers(i)))
+        i += 1
+      }
+      if (groupId < meta.groupCount - 1) {
+        // not the last row group
+        row.reset(meta.rowCountInEachGroup, columns).toIterator
+      } else {
+        row.reset(meta.rowCountInLastGroup, columns).toIterator
+      }
+    }
   }
 }
