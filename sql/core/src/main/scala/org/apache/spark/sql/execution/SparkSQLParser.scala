@@ -19,7 +19,7 @@ package org.apache.spark.sql.execution
 
 import scala.util.parsing.combinator.RegexParsers
 
-import org.apache.spark.sql.catalyst.AbstractSparkSQLParser
+import org.apache.spark.sql.catalyst.{TableIdentifier, AbstractSparkSQLParser}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference}
 import org.apache.spark.sql.catalyst.plans.logical
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
@@ -68,6 +68,10 @@ class SparkSQLParser(fallback: String => LogicalPlan) extends AbstractSparkSQLPa
   protected val TABLES = Keyword("TABLES")
   protected val UNCACHE = Keyword("UNCACHE")
 
+  protected val INDEX = Keyword("INDEX")
+  protected val INDEXES = Keyword("INDEXES")
+  protected val FROM = Keyword("FROM")
+
   override protected lazy val start: Parser[LogicalPlan] =
     cache | uncache | set | show | desc | others
 
@@ -102,7 +106,25 @@ class SparkSQLParser(fallback: String => LogicalPlan) extends AbstractSparkSQLPa
         case Some(f) => logical.ShowFunctions(f._1, Some(f._2))
         case None => logical.ShowFunctions(None, None)
       }
+    | SHOW ~ (INDEXES | INDEX) ~> ((FROM | IN) ~> tableIdentifier) ~ ((FROM | IN) ~> ident).? ^^ {
+        case tableIdent ~ dbName =>
+          if (dbName.isDefined) {
+            if (tableIdent.database.isDefined) {
+              val db = tableIdent.database
+              assert(db.isEmpty || db == dbName)
+            }
+            logical.ShowIndex(TableIdentifier(tableIdent.table, dbName))
+          } else {
+            logical.ShowIndex(tableIdent)
+          }
+      }
     )
+
+  // This is the same as tableIdentifier in SqlParser.
+  protected lazy val tableIdentifier: Parser[TableIdentifier] =
+    (ident <~ ".").? ~ ident ^^ {
+      case maybeDbName ~ tableName => TableIdentifier(tableName, maybeDbName)
+    }
 
   private lazy val desc: Parser[LogicalPlan] =
     DESCRIBE ~ FUNCTION ~> EXTENDED.? ~ (ident | stringLit) ^^ {
