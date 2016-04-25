@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.execution.datasources
 
-import org.apache.spark.sql.catalyst.TableIdentifier
+import org.apache.spark.sql.catalyst.{IndexColumn, TableIdentifier}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference}
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.execution.RunnableCommand
@@ -168,7 +168,7 @@ class CaseInsensitiveMap(map: Map[String, String]) extends Map[String, String]
 case class CreateIndex(
     indexIdent: String,
     table: TableIdentifier,
-    indexColumns: Array[String],
+    indexColumns: Array[IndexColumn],
     ifNotExists: Boolean) extends LogicalPlan with Command {
 
   override def children: Seq[LogicalPlan] = Seq.empty
