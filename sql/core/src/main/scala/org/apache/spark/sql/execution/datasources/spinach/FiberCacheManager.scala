@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.execution.datasources.spinach
 
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 import scala.collection.JavaConverters._
@@ -64,7 +65,7 @@ private[spinach] trait AbstractFiberCacheManger extends Logging {
       })
 
   def apply(fiberCache: Fiber): FiberCacheData = {
-    cache(fiberCache)
+    cache.get(fiberCache)
   }
 
   def status: String = {
@@ -119,7 +120,7 @@ private[spinach] object DataMetaCacheManager extends Logging {
     })
 
   def apply(fiberCache: DataFileScanner): DataFileMeta = {
-    cache(fiberCache)
+    cache.get(fiberCache)
   }
 }
 
@@ -129,7 +130,7 @@ private[spinach] object FiberDataFileHandler extends Logging {
       .newBuilder()
       .concurrencyLevel(4) // DEFAULT_CONCURRENCY_LEVEL TODO verify that if it works
       .maximumSize(MemoryManager.getCapacity())
-      .expireAfterAccess(100, TimeUnit.SECONDS) // auto expire after 100 seconds.
+      .expireAfterAccess(1000, TimeUnit.SECONDS) // auto expire after 1000 seconds.
       .removalListener(new RemovalListener[DataFileScanner, InputDataFileDescriptor] {
         override def onRemoval(n: RemovalNotification[DataFileScanner, InputDataFileDescriptor])
         : Unit = {
@@ -146,7 +147,7 @@ private[spinach] object FiberDataFileHandler extends Logging {
     })
 
   def apply(fiberCache: DataFileScanner): InputDataFileDescriptor = {
-    cache(fiberCache)
+    cache.get(fiberCache)
   }
 
 }
@@ -189,14 +190,19 @@ private[spinach] case class DataFileScanner(
     var offset: Long = 0L
     val dataSize = fiberCacheData.fiberData.size()
     while (offset < dataSize) {
-      val readLen = is.readFully(buf)
+      var readLen: Int = if (dataSize - offset > buf.length) {
+        buf.length
+      } else {
+        (dataSize - offset).toInt
+      }
+      readLen = is.readFully(buf, 0, readLen)
       if (readLen > 0) {
-        offset += readLen
         Platform.copyMemory(buf, Platform.BYTE_ARRAY_OFFSET, fiberCacheData.fiberData.getBaseObject,
           fiberCacheData.fiberData.getBaseOffset + offset, readLen)
+        offset += readLen
       } else {
-        throw new IOException("Failed to fully read fiber data! expected: " + dataSize +
-          ", actual: " + offset)
+        throw new IOException(s"Failed to fully read fiber data! expected: $dataSize bytes" +
+          s", actual: $offset bytes")
       }
     }
   }
