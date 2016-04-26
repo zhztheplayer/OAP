@@ -32,6 +32,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.spinach.utils.CacheStatusSerDe
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.collection.BitSet
+import org.apache.spark.unsafe.Platform
 
 // TODO need to register within the SparkContext
 class SpinachHeartBeatMessager extends CustomManager with Logging {
@@ -47,22 +48,22 @@ private[spinach] trait AbstractFiberCacheManger extends Logging {
     CacheBuilder
       .newBuilder()
       .concurrencyLevel(4) // DEFAULT_CONCURRENCY_LEVEL TODO verify that if it works
-      .weigher(new Weigher[Fiber, FiberByteData] {
-        override def weigh(key: Fiber, value: FiberByteData): Int = value.buf.length
+      .weigher(new Weigher[Fiber, FiberCacheData] {
+        override def weigh(key: Fiber, value: FiberCacheData): Int = value.fiberData.size().toInt
       })
       .maximumWeight(MemoryManager.SPINACH_FIBER_CACHE_SIZE_IN_BYTES)
-      .removalListener(new RemovalListener[Fiber, FiberByteData] {
-        override def onRemoval(n: RemovalNotification[Fiber, FiberByteData]): Unit = {
+      .removalListener(new RemovalListener[Fiber, FiberCacheData] {
+        override def onRemoval(n: RemovalNotification[Fiber, FiberCacheData]): Unit = {
           MemoryManager.instance.free(n.getValue)
         }
       })
-      .build(new CacheLoader[Fiber, FiberByteData] {
-        override def load(key: Fiber): FiberByteData = {
+      .build(new CacheLoader[Fiber, FiberCacheData] {
+        override def load(key: Fiber): FiberCacheData = {
           fiber2Data(key)
         }
       })
 
-  def apply(fiberCache: Fiber): FiberByteData = {
+  def apply(fiberCache: Fiber): FiberCacheData = {
     cache(fiberCache)
   }
 
@@ -147,8 +148,6 @@ private[spinach] object FiberDataFileHandler extends Logging {
 
 }
 
-private[spinach] case class FiberByteData(buf: Array[Byte]) // TODO add FiberDirectByteData
-
 private[spinach] case class Fiber(file: DataFileScanner, columnIndex: Int, rowGroupId: Int)
 
 private[spinach] case class DataFileScanner(
@@ -161,7 +160,7 @@ private[spinach] case class DataFileScanner(
     case _ => false
   }
 
-  def getFiberData(groupId: Int, fiberId: Int): FiberByteData = {
+  def getFiberData(groupId: Int, fiberId: Int): FiberCacheData = {
     val is = FiberDataFileHandler(this).fin
     val groupMeta = meta.rowGroupsMeta(groupId)
     // get the fiber data start position TODO update the meta to store the fiber start pos
@@ -171,14 +170,28 @@ private[spinach] case class DataFileScanner(
       fiberStart += groupMeta.fiberLens(i)
       i += 1
     }
-    val lens = groupMeta.fiberLens(fiberId)
-    val bytes = new Array[Byte](lens)
+    val len = groupMeta.fiberLens(fiberId)
+    val fiberCacheData = MemoryManager.instance.allocate(len)
 
     is.synchronized {
       is.seek(fiberStart)
-      is.readFully(bytes)
+      readFiberData(is, fiberCacheData)
     }
-    new FiberByteData(bytes)
+    fiberCacheData
+  }
+
+  def readFiberData(is: FSDataInputStream, fiberCacheData: FiberCacheData): Unit = {
+    // TODO: make it configurable
+    val buf = new Array[Byte](1024 * 32)
+    var offset: Long = 0L
+    while (offset < fiberCacheData.fiberData.size()) {
+      val readLen = is.readFully(buf)
+      if (readLen > 0) {
+        offset += readLen
+        Platform.copyMemory(buf, Platform.BYTE_ARRAY_OFFSET, fiberCacheData.fiberData.getBaseObject,
+          fiberCacheData.fiberData.getBaseOffset + offset, readLen)
+      }
+    }
   }
 
   def iterator(requiredIds: Array[Int]): Iterator[InternalRow] = {

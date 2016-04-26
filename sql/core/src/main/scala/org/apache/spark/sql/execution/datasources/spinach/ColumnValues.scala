@@ -25,9 +25,10 @@ import org.apache.spark.unsafe.Platform
 import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
 import org.apache.spark.util.collection.BitSet
 
-class ColumnValues(defaultSize: Int, dataType: DataType, val raw: FiberByteData) {
+class ColumnValues(defaultSize: Int, dataType: DataType, val raw: FiberCacheData) {
   require(dataType.isInstanceOf[AtomicType], "Only atomic type accepted for now.")
 
+  private val baseObject = raw.fiberData.getBaseObject
   // for any FiberData, the first defaultSize / 8 will be the bitmask
   // TODO what if defaultSize / 8 is not an integer?
 
@@ -35,13 +36,13 @@ class ColumnValues(defaultSize: Int, dataType: DataType, val raw: FiberByteData)
   val bitset: BitSet = {
     val bs = new BitSet(defaultSize)
     val longs = bs.toLongArray()
-    Platform.copyMemory(raw.buf, Platform.BYTE_ARRAY_OFFSET,
+    Platform.copyMemory(baseObject, raw.fiberData.getBaseOffset,
       longs, Platform.LONG_ARRAY_OFFSET, longs.length * 8)
     bs
   }
 
   // TODO should be in FiberByteData
-  private val baseOffset = Platform.BYTE_ARRAY_OFFSET + defaultSize / 8
+  private val baseOffset = raw.fiberData.getBaseOffset + defaultSize / 8
 
   def isNullAt(idx: Int): Boolean = !bitset.get(idx)
 
@@ -52,25 +53,25 @@ class ColumnValues(defaultSize: Int, dataType: DataType, val raw: FiberByteData)
   }
 
   def getBooleanValue(idx: Int): Boolean = {
-    Platform.getBoolean(raw.buf, baseOffset + idx * 4)
+    Platform.getBoolean(baseObject, baseOffset + idx * 4)
   }
   def getByteValue(idx: Int): Byte = {
-    Platform.getByte(raw.buf, baseOffset + idx * 1)
+    Platform.getByte(baseObject, baseOffset + idx * 1)
   }
   def getShortValue(idx: Int): Short = {
-    Platform.getShort(raw.buf, baseOffset + idx * 2)
+    Platform.getShort(baseObject, baseOffset + idx * 2)
   }
   def getFloatValue(idx: Int): Float = {
-    Platform.getFloat(raw.buf, baseOffset + idx * 4)
+    Platform.getFloat(baseObject, baseOffset + idx * 4)
   }
   def getInt(idx: Int): Int = {
-    Platform.getInt(raw.buf, baseOffset + idx * 4)
+    Platform.getInt(baseObject, baseOffset + idx * 4)
   }
   def getDouble(idx: Int): Double = {
-    Platform.getDouble(raw.buf, baseOffset + idx * 4)
+    Platform.getDouble(baseObject, baseOffset + idx * 4)
   }
   def getLong(idx: Int): Long = {
-    Platform.getLong(raw.buf, baseOffset + idx * 8)
+    Platform.getLong(baseObject, baseOffset + idx * 8)
   }
   def getString(idx: Int): UTF8String = {
     //  The byte data format like:
@@ -88,7 +89,7 @@ class ColumnValues(defaultSize: Int, dataType: DataType, val raw: FiberByteData)
     //    value #N
     val length = getInt(idx * 2)
     val offset = getInt(idx * 2 + 1)
-    UTF8String.fromAddress(raw.buf, Platform.BYTE_ARRAY_OFFSET + offset, length)
+    UTF8String.fromAddress(baseObject, Platform.BYTE_ARRAY_OFFSET + offset, length)
   }
   def getBinary(idx: Int): Array[Byte] = {
     //  The byte data format like:
@@ -107,7 +108,7 @@ class ColumnValues(defaultSize: Int, dataType: DataType, val raw: FiberByteData)
     val length = getInt(idx * 2)
     val offset = getInt(idx * 2 + 1)
     val result = new Array[Byte](length)
-    Platform.copyMemory(raw.buf, Platform.BYTE_ARRAY_OFFSET + offset, result,
+    Platform.copyMemory(baseObject, Platform.BYTE_ARRAY_OFFSET + offset, result,
       Platform.BYTE_ARRAY_OFFSET, length)
 
     result

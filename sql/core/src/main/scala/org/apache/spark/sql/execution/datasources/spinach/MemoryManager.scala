@@ -17,10 +17,17 @@
 
 package org.apache.spark.sql.execution.datasources.spinach
 
+import org.apache.spark.unsafe.memory.{MemoryAllocator, MemoryBlock}
+
+/**
+  * Used to cache data in MemoryBlock (on-heap or off-heap)
+  */
+case class FiberCacheData(fiberData: MemoryBlock)
+
 private[spinach] trait MemoryManager {
   def maxMemoryInByte: Long
-  def allocate(numOfBytes: Int): FiberByteData
-  def free(fiber: FiberByteData)
+  def allocate(numOfBytes: Int): FiberCacheData
+  def free(fiber: FiberCacheData)
   def remain(): Long
 }
 
@@ -28,30 +35,36 @@ private[spinach] trait MemoryMode
 private[spinach] case object OffHeap extends MemoryMode
 private[spinach] case object OnHeap extends MemoryMode
 
-private[spinach] class OnHeapMemoryManager(var maxMemoryInByte: Long) extends MemoryManager {
-  def allocate(numOfBytes: Int): FiberByteData = synchronized {
+private[spinach] class CommonMemoryManager(var maxMemoryInByte: Long, var memoryMode: MemoryMode)
+  extends MemoryManager {
+
+  def getMemoryMode: MemoryMode = memoryMode
+
+  def setMemoryMode(memoryMode: MemoryMode): Unit = {
+    this.memoryMode = memoryMode
+  }
+
+  def allocate(numOfBytes: Int): FiberCacheData = synchronized {
     if (maxMemoryInByte - numOfBytes >= 0) {
       maxMemoryInByte -= numOfBytes
-      FiberByteData(new Array[Byte](numOfBytes))
+      val fiberData = memoryMode match {
+        case OnHeap => MemoryAllocator.HEAP.allocate(numOfBytes)
+        case OffHeap => MemoryAllocator.UNSAFE.allocate(numOfBytes)
+        case _ => MemoryAllocator.HEAP.allocate(numOfBytes)
+      }
+      FiberCacheData(fiberData)
     } else {
       null
     }
   }
 
-  def free(fiber: FiberByteData): Unit = synchronized {
-    maxMemoryInByte += fiber.buf.length
-  }
-
-  def remain(): Long = maxMemoryInByte
-}
-
-private[spinach] class OffHeapMemoryManager(var maxMemoryInByte: Long) extends MemoryManager {
-  def allocate(numOfBytes: Int): FiberByteData = synchronized {
-    throw new NotImplementedError("")
-  }
-
-  def free(fiber: FiberByteData): Unit = synchronized {
-    throw new NotImplementedError("")
+  def free(fiber: FiberCacheData): Unit = synchronized {
+    memoryMode match {
+      case OnHeap => MemoryAllocator.HEAP.free(fiber.fiberData)
+      case OffHeap => MemoryAllocator.UNSAFE.free(fiber.fiberData)
+      case _ => MemoryAllocator.HEAP.free(fiber.fiberData)
+    }
+    maxMemoryInByte += fiber.fiberData.size()
   }
 
   def remain(): Long = maxMemoryInByte
@@ -63,9 +76,6 @@ private[spinach] object MemoryManager {
   val SPINACH_DATA_META_CACHE_SIZE: Int = 1024
   val MEMORY_MODE: MemoryMode = OnHeap
 
-  val instance: MemoryManager = MEMORY_MODE match {
-    case OnHeap => new OnHeapMemoryManager(SPINACH_FIBER_CACHE_SIZE_IN_BYTES)
-    case OffHeap => new OffHeapMemoryManager(SPINACH_FIBER_CACHE_SIZE_IN_BYTES)
-    case a => throw new NotImplementedError(a.toString)
-  }
+  val instance: MemoryManager =
+    new CommonMemoryManager(SPINACH_FIBER_CACHE_SIZE_IN_BYTES, MEMORY_MODE)
 }
