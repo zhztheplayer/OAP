@@ -42,7 +42,7 @@ class SpinachHeartBeatMessager extends CustomManager with Logging {
 }
 
 private[spinach] trait AbstractFiberCacheManger extends Logging {
-  protected def fiber2Data(key: Fiber): FiberByteData
+  protected def fiber2Data(key: Fiber): FiberCacheData
 
   @transient protected val cache =
     CacheBuilder
@@ -184,12 +184,16 @@ private[spinach] case class DataFileScanner(
     // TODO: make it configurable
     val buf = new Array[Byte](1024 * 32)
     var offset: Long = 0L
-    while (offset < fiberCacheData.fiberData.size()) {
+    val dataSize = fiberCacheData.fiberData.size()
+    while (offset < dataSize) {
       val readLen = is.readFully(buf)
       if (readLen > 0) {
         offset += readLen
         Platform.copyMemory(buf, Platform.BYTE_ARRAY_OFFSET, fiberCacheData.fiberData.getBaseObject,
           fiberCacheData.fiberData.getBaseOffset + offset, readLen)
+      } else {
+        throw new IOException("Failed to fully read fiber data! expected: " + dataSize +
+          ", actual: " + offset)
       }
     }
   }
