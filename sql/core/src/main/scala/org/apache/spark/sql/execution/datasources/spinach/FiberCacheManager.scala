@@ -51,10 +51,10 @@ private[spinach] trait AbstractFiberCacheManger extends Logging {
       .weigher(new Weigher[Fiber, FiberCacheData] {
         override def weigh(key: Fiber, value: FiberCacheData): Int = value.fiberData.size().toInt
       })
-      .maximumWeight(MemoryManager.SPINACH_FIBER_CACHE_SIZE_IN_BYTES)
+      .maximumWeight(MemoryManager.getCapacity())
       .removalListener(new RemovalListener[Fiber, FiberCacheData] {
         override def onRemoval(n: RemovalNotification[Fiber, FiberCacheData]): Unit = {
-          MemoryManager.instance.free(n.getValue)
+          MemoryManager.free(n.getValue)
         }
       })
       .build(new CacheLoader[Fiber, FiberCacheData] {
@@ -104,10 +104,13 @@ object FiberCacheManager extends AbstractFiberCacheManger {
 private[spinach] case class InputDataFileDescriptor(fin: FSDataInputStream, len: Long)
 
 private[spinach] object DataMetaCacheManager extends Logging {
+  // TODO: make it configurable
+  val spinachDataMetaCacheSize = 1024
+
   @transient private val cache =
     CacheBuilder
       .newBuilder()
-      .maximumSize(MemoryManager.SPINACH_DATA_META_CACHE_SIZE)
+      .maximumSize(spinachDataMetaCacheSize)
       .build(new CacheLoader[DataFileScanner, DataFileMeta] {
       override def load(key: DataFileScanner): DataFileMeta = {
         val fd = FiberDataFileHandler(key)
@@ -125,7 +128,7 @@ private[spinach] object FiberDataFileHandler extends Logging {
     CacheBuilder
       .newBuilder()
       .concurrencyLevel(4) // DEFAULT_CONCURRENCY_LEVEL TODO verify that if it works
-      .maximumSize(MemoryManager.SPINACH_FIBER_CACHE_SIZE_IN_BYTES)
+      .maximumSize(MemoryManager.getCapacity())
       .expireAfterAccess(100, TimeUnit.SECONDS) // auto expire after 100 seconds.
       .removalListener(new RemovalListener[DataFileScanner, InputDataFileDescriptor] {
         override def onRemoval(n: RemovalNotification[DataFileScanner, InputDataFileDescriptor])
@@ -171,7 +174,7 @@ private[spinach] case class DataFileScanner(
       i += 1
     }
     val len = groupMeta.fiberLens(fiberId)
-    val fiberCacheData = MemoryManager.instance.allocate(len)
+    val fiberCacheData = MemoryManager.allocate(len)
 
     is.synchronized {
       is.seek(fiberStart)

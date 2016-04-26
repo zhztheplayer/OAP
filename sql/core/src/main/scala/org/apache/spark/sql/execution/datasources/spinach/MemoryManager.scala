@@ -22,21 +22,18 @@ import org.apache.spark.unsafe.memory.{MemoryAllocator, MemoryBlock}
 /**
   * Used to cache data in MemoryBlock (on-heap or off-heap)
   */
+// TODO: make it an alias of MemoryBlock
 case class FiberCacheData(fiberData: MemoryBlock)
-
-private[spinach] trait MemoryManager {
-  def maxMemoryInByte: Long
-  def allocate(numOfBytes: Int): FiberCacheData
-  def free(fiber: FiberCacheData)
-  def remain(): Long
-}
 
 private[spinach] trait MemoryMode
 private[spinach] case object OffHeap extends MemoryMode
 private[spinach] case object OnHeap extends MemoryMode
 
-private[spinach] class CommonMemoryManager(var maxMemoryInByte: Long, var memoryMode: MemoryMode)
-  extends MemoryManager {
+private[spinach] object MemoryManager {
+  // TODO make it configurable
+  val capacity: Long = 1024 * 1024 * 1024L // 1GB
+  var maxMemoryInByte: Long = capacity
+  var memoryMode: MemoryMode = OnHeap
 
   def getMemoryMode: MemoryMode = memoryMode
 
@@ -67,15 +64,7 @@ private[spinach] class CommonMemoryManager(var maxMemoryInByte: Long, var memory
     maxMemoryInByte += fiber.fiberData.size()
   }
 
+  def getCapacity(): Long = capacity
+
   def remain(): Long = maxMemoryInByte
-}
-
-private[spinach] object MemoryManager {
-  // TODO make it configurable
-  val SPINACH_FIBER_CACHE_SIZE_IN_BYTES: Long = 1024 * 1024 * 1024L // 1GB
-  val SPINACH_DATA_META_CACHE_SIZE: Int = 1024
-  val MEMORY_MODE: MemoryMode = OnHeap
-
-  val instance: MemoryManager =
-    new CommonMemoryManager(SPINACH_FIBER_CACHE_SIZE_IN_BYTES, MEMORY_MODE)
 }
