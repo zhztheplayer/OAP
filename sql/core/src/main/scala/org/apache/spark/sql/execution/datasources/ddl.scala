@@ -169,11 +169,15 @@ case class CreateIndex(
     indexIdent: String,
     table: TableIdentifier,
     indexColumns: Array[IndexColumn],
-    ifNotExists: Boolean) extends LogicalPlan with Command {
+    ifNotExists: Boolean) extends LogicalPlan with RunnableCommand {
 
   override def children: Seq[LogicalPlan] = Seq.empty
 
   override val output: Seq[Attribute] = Seq.empty
+
+  override def run(sqlContext: SQLContext): Seq[Row] = {
+    Seq.empty
+  }
 }
 
 /**
@@ -181,11 +185,15 @@ case class CreateIndex(
  */
 case class DropIndex(
     indexIdent: String,
-    ifNotExists: Boolean) extends LogicalPlan with Command {
+    ifNotExists: Boolean) extends LogicalPlan with RunnableCommand {
 
   override def children: Seq[LogicalPlan] = Seq.empty
 
   override val output: Seq[Attribute] = Seq.empty
+
+  override def run(sqlContext: SQLContext): Seq[Row] = {
+    Seq.empty
+  }
 }
 
 /**
