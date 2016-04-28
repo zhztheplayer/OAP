@@ -26,6 +26,7 @@ import org.apache.spark.sql.catalyst.{IndexColumn, TableIdentifier, AbstractSpar
 import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.util.DataTypeParser
+import org.apache.spark.sql.execution.datasources.spinach.{CreateIndex, DropIndex}
 import org.apache.spark.sql.types._
 
 
@@ -73,7 +74,8 @@ class DDLParser(parseQuery: String => LogicalPlan)
   protected def start: Parser[LogicalPlan] = ddl
 
   /**
-   * CREATE INDEX [IF NOT EXISTS] indexName ON tableName (col1, col2, ...)
+   * CREATE INDEX [IF NOT EXISTS] indexName ON tableName (col1 [ASC | DESC], col2, ...)
+   * [USING BTREE]
    */
   protected lazy val createIndex: Parser[LogicalPlan] = {
     // TODO: Support database.table.
