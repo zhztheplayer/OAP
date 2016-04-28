@@ -65,10 +65,10 @@ object BTreeUtils {
   }
 
   /**
-   * Estimates height of BTree.
+   * Estimates height of BTree. `public` for unit test
    */
-  private def height(size: Long): Int = {
-    math.ceil(math.log(size) / math.log(BRANCHING)).toInt
+  def height(size: Long): Int = {
+    if (size > 1) math.ceil(math.log(size) / math.log(BRANCHING)).toInt else 1
   }
 
   /**
