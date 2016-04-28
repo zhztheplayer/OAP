@@ -23,6 +23,14 @@ package org.apache.spark.sql.execution.datasources.spinach
 object BTreeUtils {
   private val BRANCHING: Int = 5
 
+  case class BTreeNode(root: Int, children: Seq[BTreeNode]) {
+    override def toString: String = if (children.nonEmpty) {
+      "[" + root.toString + " " + children.map(_.toString).reduce(_ + " " + _) + "]"
+    } else {
+      root.toString
+    }
+  }
+
   /**
    * Splits an array of n
    */
@@ -40,10 +48,27 @@ object BTreeUtils {
   }
 
   /**
+   * Splits an array of n
+   */
+  private def shape2(n: Long, height: Int): BTreeNode = {
+    if (height == 1) {
+      return BTreeNode(n.toInt, Nil)
+    }
+    val maxSubTree = math.pow(BRANCHING, height - 1).toLong
+    val numOfSubTree = (if (n % maxSubTree == 0) n / maxSubTree else n / maxSubTree + 1).toInt
+    val baseSubTreeSize = n / numOfSubTree
+    val remainingSize = (n % numOfSubTree).toInt
+    val children = (1 to numOfSubTree).map(i => baseSubTreeSize + (if (i <= remainingSize) 1 else 0)).map(
+      subSize => shape2(subSize, height - 1)
+    )
+    BTreeNode(numOfSubTree, children)
+  }
+
+  /**
    * Estimates height of BTree.
    */
   private def height(size: Long): Int = {
-    math.ceil(math.log(size + 1) / math.log(BRANCHING)).toInt
+    math.ceil(math.log(size) / math.log(BRANCHING)).toInt
   }
 
   /**
@@ -51,5 +76,9 @@ object BTreeUtils {
    */
   def generate(n: Long): Seq[Int] = {
     shape(n, height(n))
+  }
+
+  def generate2(n: Long): Unit = {
+    println(shape2(n, height(n)))
   }
 }
