@@ -78,7 +78,6 @@ class DDLParser(parseQuery: String => LogicalPlan)
    * [USING BTREE]
    */
   protected lazy val createIndex: Parser[LogicalPlan] = {
-    // TODO: Support database.table.
     (CREATE ~ INDEX) ~> (IF ~> NOT <~ EXISTS).? ~ ident ~ (ON ~> tableIdentifier) ~
       indexCols ~ indexOpts.? ^^ {
       case allowExisting ~ indexIdent ~ tableIdent ~ indexColumns ~ maybeOpts =>
@@ -90,7 +89,6 @@ class DDLParser(parseQuery: String => LogicalPlan)
    * DROP INDEX [IF NOT EXISTS] indexName
    */
   protected lazy val dropIndex: Parser[LogicalPlan] = {
-    // TODO: Support database.table.
     (DROP ~ INDEX) ~> (IF ~> NOT <~ EXISTS).? ~ ident ^^ {
       case allowExisting ~ indexIdent =>
         DropIndex(indexIdent, allowExisting.isDefined)
