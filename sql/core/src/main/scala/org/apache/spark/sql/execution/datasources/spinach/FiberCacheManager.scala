@@ -97,7 +97,7 @@ private[spinach] trait AbstractFiberCacheManger extends Logging {
   * Fiber Cache Manager
   */
 object FiberCacheManager extends AbstractFiberCacheManger {
-  override def fiber2Data(key: Fiber): FiberByteData = {
+  override def fiber2Data(key: Fiber): FiberCacheData = {
     key.file.getFiberData(key.rowGroupId, key.columnIndex)
   }
 }
@@ -195,7 +195,7 @@ private[spinach] case class DataFileScanner(
       } else {
         (dataSize - offset).toInt
       }
-      readLen = is.readFully(buf, 0, readLen)
+      readLen = is.read(buf, 0, readLen)
       if (readLen > 0) {
         Platform.copyMemory(buf, Platform.BYTE_ARRAY_OFFSET, fiberCacheData.fiberData.getBaseObject,
           fiberCacheData.fiberData.getBaseOffset + offset, readLen)
