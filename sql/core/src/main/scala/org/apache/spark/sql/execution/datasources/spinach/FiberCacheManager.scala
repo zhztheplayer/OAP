@@ -29,6 +29,7 @@ import org.apache.hadoop.util.StringUtils
 import org.apache.spark.{Logging, SparkConf}
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.executor.CustomManager
+import org.apache.spark.io.CompressionCodec
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.spinach.utils.CacheStatusSerDe
 import org.apache.spark.sql.types.StructType
@@ -157,6 +158,8 @@ private[spinach] case class Fiber(file: DataFileScanner, columnIndex: Int, rowGr
 private[spinach] case class DataFileScanner(
     path: String, schema: StructType, context: TaskAttemptContext) {
   lazy val meta: DataFileMeta = DataMetaCacheManager(this)
+  // TODO: add SparkConf
+  val compCodec = CompressionCodec.createCodec(new SparkConf())
 
   override def hashCode(): Int = path.hashCode
   override def equals(that: Any): Boolean = that match {
@@ -167,7 +170,8 @@ private[spinach] case class DataFileScanner(
   def getFiberData(groupId: Int, fiberId: Int): FiberCacheData = {
     val is = FiberDataFileHandler(this).fin
     val groupMeta = meta.rowGroupsMeta(groupId)
-    // get the fiber data start position TODO update the meta to store the fiber start pos
+    // get the fiber data start position
+    // TODO: update the meta to store the fiber start pos
     var i = 0
     var fiberStart = groupMeta.start
     while (i < fiberId) {
@@ -175,36 +179,27 @@ private[spinach] case class DataFileScanner(
       i += 1
     }
     val len = groupMeta.fiberLens(fiberId)
-    val fiberCacheData = MemoryManager.allocate(len)
+    val bytes = new Array[Byte](len)
 
     is.synchronized {
       is.seek(fiberStart)
-      readFiberData(is, fiberCacheData)
+      is.read(bytes)
+      putToFiberCache(bytes)
     }
-    fiberCacheData
+
   }
 
-  def readFiberData(is: FSDataInputStream, fiberCacheData: FiberCacheData): Unit = {
+  def putToFiberCache(buf: Array[Byte]): FiberCacheData = {
     // TODO: make it configurable
-    val buf = new Array[Byte](1024 * 32)
-    var offset: Long = 0L
-    val dataSize = fiberCacheData.fiberData.size()
-    while (offset < dataSize) {
-      var readLen: Int = if (dataSize - offset > buf.length) {
-        buf.length
-      } else {
-        (dataSize - offset).toInt
-      }
-      readLen = is.read(buf, 0, readLen)
-      if (readLen > 0) {
-        Platform.copyMemory(buf, Platform.BYTE_ARRAY_OFFSET, fiberCacheData.fiberData.getBaseObject,
-          fiberCacheData.fiberData.getBaseOffset + offset, readLen)
-        offset += readLen
-      } else {
-        throw new IOException(s"Failed to fully read fiber data! expected: $dataSize bytes" +
-          s", actual: $offset bytes")
-      }
+    val newBuf = if (true) {
+      compCodec.compressedInputBuffer(buf)
+    } else {
+      buf
     }
+    val fiberCacheData = MemoryManager.allocate(newBuf.length)
+    Platform.copyMemory(newBuf, Platform.BYTE_ARRAY_OFFSET, fiberCacheData.fiberData.getBaseObject,
+      fiberCacheData.fiberData.getBaseOffset, newBuf.length)
+    fiberCacheData
   }
 
   def iterator(requiredIds: Array[Int]): Iterator[InternalRow] = {
