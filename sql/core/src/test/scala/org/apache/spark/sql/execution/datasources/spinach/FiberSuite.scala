@@ -27,7 +27,8 @@ import org.apache.hadoop.mapreduce.{JobID, TaskAttemptContext, TaskAttemptID, Ta
 import org.apache.hadoop.util.StringUtils
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.sql.catalyst.expressions.GenericMutableRow
-import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
+import org.apache.spark.sql.catalyst.util.DateTimeUtils
+import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.util.Utils
 import org.apache.spark.{Logging, SparkFunSuite}
@@ -39,7 +40,6 @@ class FiberSuite extends SparkFunSuite with Logging with BeforeAndAfterAll {
     new Configuration(),
     new TaskAttemptID(new TaskID(new JobID(), true, 0), 0))
   val ctx: Configuration = SparkHadoopUtil.get.getConfigurationFromJobContext(attemptContext)
-  val schema = new StructType().add("a", IntegerType).add("b", StringType).add("c", IntegerType)
 
   override def beforeAll(): Unit = {
     file = Utils.createTempDir()
@@ -50,7 +50,12 @@ class FiberSuite extends SparkFunSuite with Logging with BeforeAndAfterAll {
     Utils.deleteRecursively(file)
   }
 
-  test("reading / writing spinach file") {
+  test("test reading / writing spinach file") {
+    val schema = (new StructType)
+      .add("a", IntegerType)
+      .add("b", StringType)
+      .add("c", IntegerType)
+
     val recordCount = 3
     val path = new Path(file.getAbsolutePath, "test1")
     writeData(ctx, path, schema, recordCount, attemptContext)
@@ -62,12 +67,35 @@ class FiberSuite extends SparkFunSuite with Logging with BeforeAndAfterAll {
     assertData(path, schema, Array(2, 1), split, attemptContext, recordCount)
   }
 
-  // a simple algorithm to check if it's should be null
-  private def shouldBeNull(rowId: Int, fieldId: Int): Boolean = {
-    rowId % (fieldId + 3) == 0
+  test("test different data types") {
+    val childPath = new Path(file.getAbsolutePath + "test2")
+    val recordCount = 100
+    // TODO, add more data types when other data types implemented. e.g. ArrayType,
+    // CalendarIntervalType, DecimalType, MapType, StructType, TimestampType, etc.
+    val schema = (new StructType)
+      .add("a", BinaryType)
+      .add("b", BooleanType)
+      .add("c", ByteType)
+      .add("d", DateType)
+      .add("e", DoubleType)
+      .add("f", FloatType)
+      .add("g", IntegerType)
+      .add("h", LongType)
+      .add("i", ShortType)
+      .add("j", StringType)
+    writeData(ctx, childPath, schema, recordCount, attemptContext)
+    val split = new FileSplit(
+      childPath, 0, FileSystem.get(ctx).getFileStatus(childPath).getLen(), Array.empty[String])
+    assertData(childPath, schema, Array(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), split, attemptContext,
+      recordCount)
+
   }
 
   test("test data file meta") {
+    val schema = new StructType()
+      .add("a", IntegerType)
+      .add("b", StringType)
+      .add("c", IntegerType)
     val rowCounts = Array(0, 1023, 1024, 1025)
     val rowCountInLastGroups = Array(0, 1023, 1024, 1)
     val rowGroupCounts = Array(0, 1, 1, 2)
@@ -85,6 +113,11 @@ class FiberSuite extends SparkFunSuite with Logging with BeforeAndAfterAll {
     }
   }
 
+  // a simple algorithm to check if it's should be null
+  private def shouldBeNull(rowId: Int, fieldId: Int): Boolean = {
+    rowId % (fieldId + 3) == 0
+  }
+
   def writeData(
       ctx: Configuration, path: Path,
       schema: StructType, count: Int,
@@ -99,8 +132,25 @@ class FiberSuite extends SparkFunSuite with Logging with BeforeAndAfterAll {
           row.setNullAt(entry._2)
         } else {
           entry match {
+            case (StructField(name, BinaryType, true, _), idx) =>
+              row.update(idx, Array[Byte](i.toByte, i.toByte))
+            case (StructField(name, BooleanType, true, _), idx) =>
+              val bool = if (i % 2 == 0) true else false
+              row.setBoolean(idx, bool)
+            case (StructField(name, ByteType, true, _), idx) =>
+              row.setByte(idx, i.toByte)
+            case (StructField(name, DateType, true, _), idx) =>
+              row.setInt(idx, i)
+            case (StructField(name, DoubleType, true, _), idx) =>
+              row.setDouble(idx, i.toDouble / 3)
+            case (StructField(name, FloatType, true, _), idx) =>
+              row.setFloat(idx, i.toFloat / 3)
             case (StructField(name, IntegerType, true, _), idx) =>
               row.setInt(idx, i)
+            case (StructField(name, LongType, true, _), idx) =>
+              row.setLong(idx, i.toLong * 41)
+            case (StructField(name, ShortType, true, _), idx) =>
+              row.setShort(idx, i.toShort)
             case (StructField(name, StringType, true, _), idx) =>
               row.update(idx, UTF8String.fromString(s"$name Row $i"))
             case _ => throw new NotImplementedError("TODO")
@@ -131,8 +181,25 @@ class FiberSuite extends SparkFunSuite with Logging with BeforeAndAfterAll {
           assert(row.isNullAt(outputId))
         } else {
           schema(fid) match {
+            case StructField(name, BinaryType, true, _) =>
+              assert(Array[Byte](idx.toByte, idx.toByte) === row.getBinary(outputId))
+            case StructField(name, BooleanType, true, _) =>
+              val bool = if (idx % 2 == 0) true else false
+              assert(bool === row.getBoolean(outputId))
+            case StructField(name, ByteType, true, _) =>
+              assert(idx.toByte === row.getByte(outputId))
+            case StructField(name, DateType, true, _) =>
+              assert(idx === row.get(outputId, DateType))
+            case StructField(name, DoubleType, true, _) =>
+              assert(idx.toDouble / 3 === row.getDouble(outputId))
+            case StructField(name, FloatType, true, _) =>
+              assert(idx.toFloat / 3 === row.getFloat(outputId))
             case StructField(name, IntegerType, true, _) =>
               assert(idx === row.getInt(outputId))
+            case StructField(name, LongType, true, _) =>
+              assert(idx.toLong * 41 === row.getLong(outputId))
+            case StructField(name, ShortType, true, _) =>
+              assert(idx.toShort === row.getShort(outputId))
             case StructField(name, StringType, true, _) =>
               assert(s"$name Row $idx" === row.getString(outputId))
             case _ => throw new NotImplementedError("TODO")
