@@ -20,8 +20,8 @@ package org.apache.spark.sql.execution.datasources.spinach
 import org.apache.hadoop.fs.{FSDataOutputStream, Path}
 import org.apache.hadoop.io.NullWritable
 import org.apache.hadoop.mapreduce.{InputSplit, RecordReader, RecordWriter, TaskAttemptContext}
-import org.apache.spark.{SparkConf, SparkEnv}
-import org.apache.spark.io.CompressionCodec
+import org.apache.spark.SparkConf
+import org.apache.spark.io.SnappyCompressionCodec
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.types.StructType
 
@@ -40,7 +40,7 @@ private[spinach] class SpinachDataWriter2(
   private val fiberMeta = new DataFileMeta(
     rowCountInEachGroup = DEFAULT_ROW_GROUP_SIZE, fieldCount = schema.length)
 
-  private val compCodec = CompressionCodec.createCodec(new SparkConf())
+  private val compCodec = new SnappyCompressionCodec(new SparkConf())
 
   override def write(ignore: NullWritable, row: InternalRow) {
     var idx = 0

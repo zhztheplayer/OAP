@@ -29,7 +29,7 @@ import org.apache.hadoop.util.StringUtils
 import org.apache.spark.{Logging, SparkConf}
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.executor.CustomManager
-import org.apache.spark.io.CompressionCodec
+import org.apache.spark.io.SnappyCompressionCodec
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.spinach.utils.CacheStatusSerDe
 import org.apache.spark.sql.types.StructType
@@ -159,7 +159,7 @@ private[spinach] case class DataFileScanner(
     path: String, schema: StructType, context: TaskAttemptContext) {
   lazy val meta: DataFileMeta = DataMetaCacheManager(this)
   // TODO: add SparkConf
-  val compCodec = CompressionCodec.createCodec(new SparkConf())
+  val compCodec = new SnappyCompressionCodec(new SparkConf())
 
   override def hashCode(): Int = path.hashCode
   override def equals(that: Any): Boolean = that match {
