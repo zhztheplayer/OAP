@@ -46,34 +46,55 @@ class ColumnValues(defaultSize: Int, dataType: DataType, val raw: FiberCacheData
 
   def isNullAt(idx: Int): Boolean = !bitset.get(idx)
 
-  def get(idx: Int): AnyRef = dataType match {
-    case IntegerType => new Integer(getInt(idx))
-    case StringType => getString(idx)
+  private def genericGet(idx: Int): Any = dataType match {
+    case BinaryType => getBinaryValue(idx)
+    case BooleanType => getBooleanValue(idx)
+    case ByteType => getByteValue(idx)
+    case DateType => getDateValue(idx)
+    case DoubleType => getDoubleValue(idx)
+    case FloatType => getFloatValue(idx)
+    case IntegerType => getIntValue(idx)
+    case LongType => getLongValue(idx)
+    case ShortType => getShortValue(idx)
+    case StringType => getStringValue(idx)
+    case _: ArrayType => throw new NotImplementedError(s"Array")
+    case CalendarIntervalType => throw new NotImplementedError(s"CalendarInterval")
+    case _: DecimalType => throw new NotImplementedError(s"Decimal")
+    case _: MapType => throw new NotImplementedError(s"Map")
+    case _: StructType => throw new NotImplementedError(s"Struct")
+    case TimestampType => throw new NotImplementedError(s"Timestamp")
     case other => throw new NotImplementedError(s"other")
   }
 
+  private def getAs[T](idx: Int): T = genericGet(idx).asInstanceOf[T]
+  def get(idx: Int): AnyRef = getAs(idx)
+
   def getBooleanValue(idx: Int): Boolean = {
-    Platform.getBoolean(baseObject, baseOffset + idx * 4)
+    Platform.getBoolean(baseObject, baseOffset + idx * BooleanType.defaultSize)
   }
   def getByteValue(idx: Int): Byte = {
-    Platform.getByte(baseObject, baseOffset + idx * 1)
+    Platform.getByte(baseObject, baseOffset + idx * ByteType.defaultSize)
+  }
+  def getDateValue(idx: Int): Int = {
+    Platform.getInt(baseObject, baseOffset + idx * IntegerType.defaultSize)
+  }
+  def getDoubleValue(idx: Int): Double = {
+    Platform.getDouble(baseObject, baseOffset + idx * DoubleType.defaultSize)
+  }
+  def getIntValue(idx: Int): Int = {
+    Platform.getInt(baseObject, baseOffset + idx * IntegerType.defaultSize)
+  }
+  def getLongValue(idx: Int): Long = {
+    Platform.getLong(baseObject, baseOffset + idx * LongType.defaultSize)
   }
   def getShortValue(idx: Int): Short = {
-    Platform.getShort(baseObject, baseOffset + idx * 2)
+    Platform.getShort(baseObject, baseOffset + idx * ShortType.defaultSize)
   }
   def getFloatValue(idx: Int): Float = {
-    Platform.getFloat(baseObject, baseOffset + idx * 4)
+    Platform.getFloat(baseObject, baseOffset + idx * FloatType.defaultSize)
   }
-  def getInt(idx: Int): Int = {
-    Platform.getInt(baseObject, baseOffset + idx * 4)
-  }
-  def getDouble(idx: Int): Double = {
-    Platform.getDouble(baseObject, baseOffset + idx * 4)
-  }
-  def getLong(idx: Int): Long = {
-    Platform.getLong(baseObject, baseOffset + idx * 8)
-  }
-  def getString(idx: Int): UTF8String = {
+
+  def getStringValue(idx: Int): UTF8String = {
     //  The byte data format like:
     //    value #1 length (int)
     //    value #1 offset, (0 - based to the start of this Fiber Group)
@@ -87,11 +108,12 @@ class ColumnValues(defaultSize: Int, dataType: DataType, val raw: FiberCacheData
     //    value #2
     //    …
     //    value #N
-    val length = getInt(idx * 2)
-    val offset = getInt(idx * 2 + 1)
+    val length = getIntValue(idx * 2)
+    val offset = getIntValue(idx * 2 + 1)
     UTF8String.fromAddress(baseObject, Platform.BYTE_ARRAY_OFFSET + offset, length)
   }
-  def getBinary(idx: Int): Array[Byte] = {
+
+  def getBinaryValue(idx: Int): Array[Byte] = {
     //  The byte data format like:
     //    value #1 length (int)
     //    value #1 offset, (0 - based to the start of this Fiber Group)
@@ -105,8 +127,8 @@ class ColumnValues(defaultSize: Int, dataType: DataType, val raw: FiberCacheData
     //    value #2
     //    …
     //    value #N
-    val length = getInt(idx * 2)
-    val offset = getInt(idx * 2 + 1)
+    val length = getIntValue(idx * 2)
+    val offset = getIntValue(idx * 2 + 1)
     val result = new Array[Byte](length)
     Platform.copyMemory(baseObject, Platform.BYTE_ARRAY_OFFSET + offset, result,
       Platform.BYTE_ARRAY_OFFSET, length)
@@ -158,47 +180,41 @@ class BatchColumn {
       return false
     }
 
-    override def getUTF8String(ordinal: Int): UTF8String = values(ordinal).getString(currentIndex)
+    override def getUTF8String(ordinal: Int): UTF8String =
+      values(ordinal).getStringValue(currentIndex)
 
     override def get(ordinal: Int, dataType: DataType): AnyRef = values(ordinal).get(currentIndex)
-
-    override def getBinary(ordinal: Int): Array[Byte] =
-      throw new NotImplementedError("")
-
-    override def getDouble(ordinal: Int): Double =
-      throw new NotImplementedError("")
 
     override def getArray(ordinal: Int): ArrayData =
       throw new NotImplementedError("")
 
-    override def getInterval(ordinal: Int): CalendarInterval =
-      throw new NotImplementedError("")
+    override def getBinary(ordinal: Int): Array[Byte] = values(ordinal).getBinaryValue(currentIndex)
 
-    override def getFloat(ordinal: Int): Float =
-      throw new NotImplementedError("")
+    override def getBoolean(ordinal: Int): Boolean = values(ordinal).getBooleanValue(currentIndex)
 
-    override def getLong(ordinal: Int): Long =
-      throw new NotImplementedError("")
-
-    override def getMap(ordinal: Int): MapData =
-      throw new NotImplementedError("")
-
-    override def getByte(ordinal: Int): Byte =
-      throw new NotImplementedError("")
+    override def getByte(ordinal: Int): Byte = values(ordinal).getByteValue(currentIndex)
 
     override def getDecimal(ordinal: Int, precision: Int, scale: Int): Decimal =
       throw new NotImplementedError("")
 
-    override def getBoolean(ordinal: Int): Boolean =
+    override def getDouble(ordinal: Int): Double = values(ordinal).getDoubleValue(currentIndex)
+
+    override def getFloat(ordinal: Int): Float = values(ordinal).getFloatValue(currentIndex)
+
+    override def getInt(ordinal: Int): Int = values(ordinal).getIntValue(currentIndex)
+
+    override def getInterval(ordinal: Int): CalendarInterval =
       throw new NotImplementedError("")
 
-    override def getShort(ordinal: Int): Short =
+    override def getLong(ordinal: Int): Long = values(ordinal).getLongValue(currentIndex)
+
+    override def getMap(ordinal: Int): MapData =
       throw new NotImplementedError("")
+
+    override def getShort(ordinal: Int): Short = values(ordinal).getShortValue(currentIndex)
 
     override def getStruct(ordinal: Int, numFields: Int): InternalRow =
       throw new NotImplementedError("")
-
-    override def getInt(ordinal: Int): Int = values(ordinal).getInt(currentIndex)
 
     override def isNullAt(ordinal: Int): Boolean = values(ordinal).isNullAt(currentIndex)
   }
