@@ -19,10 +19,9 @@ package org.apache.spark.io
 
 import java.io.{IOException, InputStream, OutputStream}
 
-import com.ning.compress.lzf.{LZFInputStream, LZFOutputStream}
-import net.jpountz.lz4.{LZ4BlockInputStream, LZ4BlockOutputStream}
+import com.ning.compress.lzf.{LZFDecoder, LZFEncoder, LZFInputStream, LZFOutputStream}
+import net.jpountz.lz4.{LZ4BlockInputStream, LZ4BlockOutputStream, LZ4Exception, LZ4Factory}
 import org.xerial.snappy.{Snappy, SnappyInputStream, SnappyOutputStream}
-
 import org.apache.spark.SparkConf
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.util.Utils
@@ -42,6 +41,10 @@ trait CompressionCodec {
   def compressedOutputStream(s: OutputStream): OutputStream
 
   def compressedInputStream(s: InputStream): InputStream
+
+  def compressedOutputBuffer(buf: Array[Byte]): Array[Byte]
+
+  def compressedInputBuffer(buf: Array[Byte]): Array[Byte]
 }
 
 private[spark] object CompressionCodec {
@@ -109,6 +112,9 @@ private[spark] object CompressionCodec {
  */
 @DeveloperApi
 class LZ4CompressionCodec(conf: SparkConf) extends CompressionCodec {
+  final val maxAttemp: Int = 5
+  val encoder = LZ4Factory.fastestInstance().fastCompressor()
+  val decoder = LZ4Factory.fastestInstance().fastDecompressor()
 
   override def compressedOutputStream(s: OutputStream): OutputStream = {
     val blockSize = conf.getSizeAsBytes("spark.io.compression.lz4.blockSize", "32k").toInt
@@ -116,6 +122,24 @@ class LZ4CompressionCodec(conf: SparkConf) extends CompressionCodec {
   }
 
   override def compressedInputStream(s: InputStream): InputStream = new LZ4BlockInputStream(s)
+
+  override def compressedOutputBuffer(buf: Array[Byte]): Array[Byte] = {
+    encoder.compress(buf)
+  }
+
+  override def compressedInputBuffer(buf: Array[Byte]): Array[Byte] = {
+    var attempt: Int = 0
+    while (attempt < maxAttemp) {
+      try {
+        val dstBuf = new Array[Byte](buf.length * (2 + attempt))
+        val dstLen = decoder.decompress(buf, dstBuf, dstBuf.length)
+        return dstBuf.take(dstLen)
+      } catch {
+        case e: LZ4Exception => attempt += 1
+      }
+    }
+    throw new IOException("Failed to uncompress input data!")
+  }
 }
 
 
@@ -135,6 +159,14 @@ class LZFCompressionCodec(conf: SparkConf) extends CompressionCodec {
   }
 
   override def compressedInputStream(s: InputStream): InputStream = new LZFInputStream(s)
+
+  override def compressedOutputBuffer(buf: Array[Byte]): Array[Byte] = {
+    return LZFEncoder.encode(buf)
+  }
+
+  override def compressedInputBuffer(buf: Array[Byte]): Array[Byte] = {
+    return LZFDecoder.decode(buf)
+  }
 }
 
 
@@ -157,6 +189,14 @@ class SnappyCompressionCodec(conf: SparkConf) extends CompressionCodec {
   }
 
   override def compressedInputStream(s: InputStream): InputStream = new SnappyInputStream(s)
+
+  override def compressedOutputBuffer(buf: Array[Byte]): Array[Byte] = {
+    return Snappy.compress(buf)
+  }
+
+  override def compressedInputBuffer(buf: Array[Byte]): Array[Byte] = {
+    return Snappy.uncompress(buf)
+  }
 }
 
 /**
