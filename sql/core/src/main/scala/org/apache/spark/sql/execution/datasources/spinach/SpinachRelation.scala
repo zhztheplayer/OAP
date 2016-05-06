@@ -162,22 +162,31 @@ private[spinach] class SpinachRelation(
       val ids = indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
       assert(!ids.exists(id => id < 0), "Index column not exists in schema.")
       val ordering = buildOrdering(ids)
-      data.map(d => {
+      val trees = data.map(d => {
         // scan every data file
         val file = new Path(d)
         val reader = new SpinachDataReader2(file, schema, ids)
-        val hashSet = new java.util.HashSet[InternalRow]()
-        while (reader.nextKeyValue()) {
+        // TODO maybe use Long?
+        // TODO use KeyGenerator like HashSemiJoin
+        val hashMap = new java.util.HashMap[InternalRow, java.util.ArrayList[Int]]()
+        var cnt = 0
+        while (reader.nextKeyValue) {
           val v = reader.getCurrentValue
-          if (!hashSet.contains(v)) {
-            hashSet.add(v)
+          if (!hashMap.containsKey(v)) {
+            val list = new java.util.ArrayList[Int]()
+            list.add(cnt)
+            hashMap.put(v, list)
+          } else {
+            hashMap.get(v).add(cnt)
           }
+          cnt = cnt + 1
         }
-        val partitionUniqueSize = hashSet.size()
+        val partitionUniqueSize = hashMap.size()
+        val keys = hashMap.keySet
+        // val orderedKeys = sort(a)
         // BTreeUtils.generate2(partitionUniqueSize)
       })
       // TODO build index file
-      // TODO
     }
 
     def buildOrdering(requiredIds: Array[Int]): Ordering[InternalRow] = {
