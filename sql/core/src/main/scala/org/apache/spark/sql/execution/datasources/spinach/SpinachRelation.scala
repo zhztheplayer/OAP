@@ -28,10 +28,12 @@ import org.apache.spark.Logging
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, Descending, Ascending, SortOrder}
+import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
 import org.apache.spark.sql.catalyst.{IndexColumn, InternalRow, TableIdentifier}
 import org.apache.spark.sql.execution.datasources.{BaseWriterContainer, PartitionSpec}
 import org.apache.spark.sql.sources.{DataSourceRegister, Filter, HadoopFsRelation, HadoopFsRelationProvider, OutputWriter, OutputWriterFactory}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{StructField, StructType}
 import org.apache.spark.sql.{DataFrame, Row, SQLContext}
 import org.apache.spark.util.SerializableConfiguration
 
@@ -156,9 +158,33 @@ private[spinach] class SpinachRelation(
     if (paths.isEmpty) {
       // the input path probably be pruned, do nothing
     } else {
+      val data = paths.filter(_.endsWith(SpinachFileFormat.SPINACH_DATA_EXTENSION))
+      val ids = indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
+      assert(!ids.exists(id => id < 0), "Index column not exists in schema.")
+      val ordering = buildOrdering(ids)
+      data.map(d => {
+        // scan every data file
+        val file = new Path(d)
+        val reader = new SpinachDataReader2(file, schema, ids)
+        val hashSet = new java.util.HashSet[InternalRow]()
+        while (reader.nextKeyValue()) {
+          val v = reader.getCurrentValue
+          if (!hashSet.contains(v)) {
+            hashSet.add(v)
+          }
+        }
+        val partitionUniqueSize = hashSet.size()
+        // BTreeUtils.generate2(partitionUniqueSize)
+      })
       // TODO build index file
       // TODO
-      // TODO
+    }
+
+    def buildOrdering(requiredIds: Array[Int]): Ordering[InternalRow] = {
+      val order = requiredIds.toSeq.map(id => SortOrder(
+        BoundReference(id, schema(id).dataType, nullable = true),
+        if (indexColumns(requiredIds.indexOf(id)).isAscending) Ascending else Descending))
+      GenerateOrdering.generate(order, schema.toAttributes)
     }
   }
 }
