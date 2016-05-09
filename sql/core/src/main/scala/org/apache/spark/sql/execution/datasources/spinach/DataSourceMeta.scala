@@ -61,7 +61,7 @@ import org.apache.spark.sql.catalyst.expressions.{Ascending, Descending, SortDir
 
 private[spinach] trait IndexType
 
-private[spinach] case class BTreeIndexEntry(ordinal: Int, dir: SortDirection)
+private[spinach] case class BTreeIndexEntry(ordinal: Int, dir: SortDirection = Ascending)
 
 private[spinach] case class BTreeIndex(entries: Seq[BTreeIndexEntry] = Nil) extends IndexType {
   def appendEntry(entry: BTreeIndexEntry): BTreeIndex = BTreeIndex(entries :+ entry)
@@ -111,10 +111,9 @@ private[spinach] object FileMeta {
   }
 }
 
-private[spinach] class IndexMeta {
+private[spinach] class IndexMeta(var name: String = null, var indexType: IndexType = null) {
   import IndexMeta._
-  var name: String = _
-  var indexType: IndexType = _
+  def open(context: TaskAttemptContext): IndexNode = throw new NotImplementedError("TBD")
 
   private def writeBitSet(value: BitSet, totalSizeToWrite: Int, out: FSDataOutputStream): Unit = {
     val sizeBefore = out.size
