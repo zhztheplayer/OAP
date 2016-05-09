@@ -159,7 +159,7 @@ private[spinach] class SpinachRelation(
     }
   }
 
-  def createIndex(indexName: TableIdentifier, indexColumns: Array[IndexColumn]): RDD[Path] = {
+  def createIndex(indexName: TableIdentifier, indexColumns: Array[IndexColumn]): RDD[String] = {
     // TODO Also write into Spinach general meta
     SpinachIndexBuild(sqlContext, indexName, indexColumns, schema, paths).execute()
   }
@@ -252,10 +252,10 @@ private[spinach] case class SpinachIndexBuild(
     indexColumns: Array[IndexColumn],
     schema: StructType,
     paths: Array[String]) extends Logging {
-  def execute(): RDD[Path] = {
+  def execute(): RDD[String] = {
     if (paths.isEmpty) {
       // the input path probably be pruned, do nothing
-      sqlContext.sparkContext.emptyRDD[Path]
+      sqlContext.sparkContext.emptyRDD[String]
     } else {
       // TODO confirm this
       val path = paths(0)
@@ -346,7 +346,7 @@ private[spinach] case class SpinachIndexBuild(
         // write index meta
         fileOut.write(intToBytes(offsetMap.get(uniqueKeysList.getFirst)))
         fileOut.close()
-        indexFile
+        indexFile.toString
       })
     }
   }
