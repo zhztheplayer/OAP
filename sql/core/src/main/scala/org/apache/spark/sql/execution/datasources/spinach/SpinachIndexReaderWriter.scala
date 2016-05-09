@@ -25,8 +25,7 @@ import org.apache.spark.sql.types.StructType
 
 private[spinach] class SpinachIndexDataWriter(
     isCompressed: Boolean,
-    out: FSDataOutputStream,
-    schema: StructType) extends RecordWriter[NullWritable, InternalRow] {
+    out: FSDataOutputStream) extends RecordWriter[NullWritable, InternalRow] {
   private val indexMeta = new DataFileMeta()
 
   override def write(ignore: NullWritable, row: InternalRow): Unit = {
@@ -50,7 +49,7 @@ private[spinach] class SpinachIndexDataReader(
 
   override def nextKeyValue(): Boolean = true
 
-  def getCurrentValue: InternalRow = currentRow
+  def getCurrentValue: InternalRow = InternalRow.empty
 
   override def getCurrentKey: NullWritable = NullWritable.get()
 

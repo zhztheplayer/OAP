@@ -23,14 +23,6 @@ package org.apache.spark.sql.execution.datasources.spinach
 object BTreeUtils {
   private val BRANCHING: Int = 5
 
-  case class BTreeNode(root: Int, children: Seq[BTreeNode]) {
-    override def toString: String = if (children.nonEmpty) {
-      "[" + root.toString + " " + children.map(_.toString).reduce(_ + " " + _) + "]"
-    } else {
-      root.toString
-    }
-  }
-
   /**
    * Splits an array of n
    */
@@ -78,7 +70,15 @@ object BTreeUtils {
     shape(n, height(n))
   }
 
-  def generate2(n: Long): Unit = {
-    println(shape2(n, height(n)))
+  def generate2(n: Long): BTreeNode = {
+    shape2(n, height(n))
+  }
+}
+
+case class BTreeNode(root: Int, children: Seq[BTreeNode]) {
+  override def toString: String = if (children.nonEmpty) {
+    "[" + root.toString + " " + children.map(_.toString).reduce(_ + " " + _) + "]"
+  } else {
+    root.toString
   }
 }
