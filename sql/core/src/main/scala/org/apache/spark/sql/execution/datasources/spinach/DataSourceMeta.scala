@@ -119,7 +119,10 @@ private[spinach] class IndexMeta {
   var indexType: IndexType = _
 
   def ordering: Ordering[InternalRow] = sys.error("not implemented")
-  def open(context: TaskAttemptContext): IndexNode = sys.error("not implemented")
+  def open(context: TaskAttemptContext): IndexNode = {
+
+    sys.error("not implemented")
+  }
 
   private def writeBitSet(value: BitSet, totalSizeToWrite: Int, out: FSDataOutputStream): Unit = {
     val sizeBefore = out.size
