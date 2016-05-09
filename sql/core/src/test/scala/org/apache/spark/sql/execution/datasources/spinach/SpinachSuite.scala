@@ -59,8 +59,7 @@ class SpinachSuite extends QueryTest with SharedSQLContext with BeforeAndAfter {
     val df = sqlContext.read.format("spn").load(path.getAbsolutePath)
     df.registerTempTable("spntable1")
     sqlContext.executePlan(CreateIndex(
-      "index1", TableIdentifier("spntable1"), Seq(IndexColumn("a", true)).toArray, false))
-
+      "index1", TableIdentifier("spntable1"), Seq(IndexColumn("a", true)).toArray, false)).toRdd
   }
 
   /** Verifies data and schema. */

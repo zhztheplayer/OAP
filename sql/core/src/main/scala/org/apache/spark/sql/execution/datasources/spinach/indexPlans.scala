@@ -44,7 +44,7 @@ case class CreateIndex(
   override def run(sqlContext: SQLContext): Seq[Row] = {
     val catalog = sqlContext.catalog
     assert(catalog.tableExists(tableName), s"$tableName not exists")
-    val indexIdent = TableIdentifier(indexIdent)
+    val indexIdent = TableIdentifier(indexName)
     if (catalog.tableExists(indexIdent)) {
       val msg = s"already exists a index named $indexName"
       if (ifNotExists) {

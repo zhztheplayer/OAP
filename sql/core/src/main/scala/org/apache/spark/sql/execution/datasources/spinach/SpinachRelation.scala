@@ -25,7 +25,8 @@ import org.apache.hadoop.fs.{FSDataOutputStream, FileStatus, FileSystem, Path}
 import org.apache.hadoop.io.NullWritable
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat
-import org.apache.hadoop.mapreduce.{Job, RecordWriter, TaskAttemptContext}
+import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
+import org.apache.hadoop.mapreduce._
 import org.apache.spark.Logging
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.deploy.SparkHadoopUtil
@@ -163,15 +164,28 @@ private[spinach] class SpinachRelation(
     if (paths.isEmpty) {
       // the input path probably be pruned, do nothing
     } else {
-      val data = paths.filter(_.endsWith(SpinachFileFormat.SPINACH_DATA_EXTENSION))
+      // TODO confirm this
+      val path = paths(0)
+      val p = new Path(path)
+      val fs = p.getFileSystem(sqlContext.sparkContext.hadoopConfiguration)
+      val fileIter = fs.listFiles(p, true)
+      val dataPaths = new Iterator[Path] {
+        override def hasNext: Boolean = fileIter.hasNext
+        override def next(): Path = fileIter.next().getPath
+      }.toSeq
+      val data = dataPaths.filter(_.toString.endsWith(SpinachFileFormat.SPINACH_DATA_EXTENSION))
       val ids = indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
       val keySchema = StructType(ids.map(schema.toIndexedSeq(_)))
       assert(!ids.exists(id => id < 0), "Index column not exists in schema.")
       val ordering = buildOrdering(ids)
-      val trees = data.foreach(d => {
+      data.foreach(d => {
         // scan every data file
-        val file = new Path(d)
-        val reader = new SpinachDataReader2(file, schema, ids)
+        val reader = new SpinachDataReader2(d, schema, ids)
+        // TODO better initialize it elegantly
+        val attemptContext: TaskAttemptContext = new TaskAttemptContextImpl(
+          new Configuration(),
+          new TaskAttemptID(new TaskID(new JobID(), true, 0), 0))
+        reader.initialize(null, attemptContext)
         // TODO maybe use Long?
         // TODO use KeyGenerator like HashSemiJoin
         val hashMap = new java.util.HashMap[InternalRow, java.util.ArrayList[Int]]()
@@ -189,7 +203,8 @@ private[spinach] class SpinachRelation(
         }
         reader.close()
         val partitionUniqueSize = hashMap.size()
-        val uniqueKeys = hashMap.keySet().toArray.asInstanceOf[Array[InternalRow]]
+        val uniqueKeys = hashMap.keySet().toArray(new Array[InternalRow](partitionUniqueSize))
+        assert(uniqueKeys.size == partitionUniqueSize)
         lazy val comparator: Comparator[InternalRow] = new Comparator[InternalRow]() {
           override def compare(o1: InternalRow, o2: InternalRow): Int = {
             if (o1 == null && o2 == null) {
@@ -206,7 +221,7 @@ private[spinach] class SpinachRelation(
         // sort keys
         java.util.Arrays.sort(uniqueKeys, comparator)
         // build index file
-        val indexFile = new Path(d.replace(
+        val indexFile = new Path(d.toString.replace(
           SpinachFileFormat.SPINACH_DATA_EXTENSION, SpinachFileFormat.SPINACH_INDEX_EXTENSION))
         val fs: FileSystem = indexFile.getFileSystem(sqlContext.sparkContext.hadoopConfiguration)
         val fileOut: FSDataOutputStream = fs.create(indexFile, false)
@@ -217,7 +232,7 @@ private[spinach] class SpinachRelation(
           offsetMap.put(uniqueKeys(i), fileOffset)
           val byteDataFromKey = internalRowToByte(uniqueKeys(i), keySchema)
           fileOut.write(byteDataFromKey)
-          fileOffset = fileOffset + byteDataFromKey.size
+          fileOffset = fileOffset + byteDataFromKey.length
           val rowIds = hashMap.get(uniqueKeys(i))
           // write size
           fileOut.write(intToBytes(rowIds.size()))
@@ -259,8 +274,8 @@ private[spinach] class SpinachRelation(
           // TODO
           case _ => sys.error("Not implemented yet!")
         }
-        idx = idx + 1
         offset = offset + types(idx).defaultSize
+        idx = idx + 1
       }
       buffer
     }

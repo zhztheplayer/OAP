@@ -26,7 +26,6 @@ import org.apache.spark.sql.types.StructType
 private[spinach] class SpinachIndexDataWriter(
     isCompressed: Boolean,
     out: FSDataOutputStream) extends RecordWriter[NullWritable, InternalRow] {
-  private val indexMeta = new DataFileMeta()
 
   override def write(ignore: NullWritable, row: InternalRow): Unit = {
     var idx = 0
