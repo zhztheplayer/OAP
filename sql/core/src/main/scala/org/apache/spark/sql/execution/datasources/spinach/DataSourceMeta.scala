@@ -20,6 +20,8 @@ package org.apache.spark.sql.execution.datasources.spinach
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 
+import org.apache.spark.sql.catalyst.InternalRow
+
 import scala.collection.mutable.{ArrayBuffer, BitSet}
 
 import org.apache.hadoop.conf.Configuration
@@ -115,6 +117,9 @@ private[spinach] class IndexMeta {
   import IndexMeta._
   var name: String = _
   var indexType: IndexType = _
+
+  def ordering: Ordering[InternalRow] = sys.error("not implemented")
+  def open(context: TaskAttemptContext): IndexNode = sys.error("not implemented")
 
   private def writeBitSet(value: BitSet, totalSizeToWrite: Int, out: FSDataOutputStream): Unit = {
     val sizeBefore = out.size
