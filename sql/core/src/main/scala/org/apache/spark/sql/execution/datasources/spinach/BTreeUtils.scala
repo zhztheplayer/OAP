@@ -50,8 +50,9 @@ object BTreeUtils {
     val numOfSubTree = (if (n % maxSubTree == 0) n / maxSubTree else n / maxSubTree + 1).toInt
     val baseSubTreeSize = n / numOfSubTree
     val remainingSize = (n % numOfSubTree).toInt
-    val children = (1 to numOfSubTree).map(i => baseSubTreeSize + (if (i <= remainingSize) 1 else 0)).map(
-      subSize => shape2(subSize, height - 1)
+    val children = (1 to numOfSubTree).map(i =>
+      baseSubTreeSize + (if (i <= remainingSize) 1 else 0)).map(
+        subSize => shape2(subSize, height - 1)
     )
     BTreeNode(numOfSubTree, children)
   }

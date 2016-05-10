@@ -41,8 +41,6 @@ import org.apache.spark.sql.{DataFrame, Row, SQLContext}
 import org.apache.spark.unsafe.Platform
 import org.apache.spark.util.SerializableConfiguration
 
-import scala.collection.JavaConversions
-
 class DefaultSource extends HadoopFsRelationProvider with DataSourceRegister {
 
   override def shortName(): String = "spn"
@@ -328,7 +326,8 @@ private[spinach] case class SpinachIndexBuild(
         override def hasNext: Boolean = fileIter.hasNext
         override def next(): Path = fileIter.next().getPath
       }.toSeq
-      val data = dataPaths.map(_.toString).filter(_.endsWith(SpinachFileFormat.SPINACH_DATA_EXTENSION))
+      val data = dataPaths.map(_.toString).filter(
+        _.endsWith(SpinachFileFormat.SPINACH_DATA_EXTENSION))
       val ids = indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
       @transient val keySchema = StructType(ids.map(schema.toIndexedSeq(_)))
       assert(!ids.exists(id => id < 0), "Index column not exists in schema.")
@@ -409,7 +408,8 @@ private[spinach] case class SpinachIndexBuild(
         // write index segement.
         val treeShape = BTreeUtils.generate2(partitionUniqueSize)
         val uniqueKeysList = new java.util.LinkedList[InternalRow]()
-        uniqueKeysList.addAll(JavaConversions.asJavaList(uniqueKeys))
+        import scala.collection.JavaConverters._
+        uniqueKeysList.addAll(uniqueKeys.toSeq.asJava)
         writeTreeToOut(treeShape, fileOut, offsetMap, fileOffset, uniqueKeysList, keySchema, 0)
         assert(uniqueKeysList.size == 1)
         // write dataEnd and root node position to index file, actually they are the same

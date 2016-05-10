@@ -26,6 +26,7 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs._
 import org.apache.hadoop.mapreduce.TaskAttemptContext
 
+import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Ascending, Descending, SortDirection}
 import org.apache.spark.sql.types._
@@ -119,7 +120,7 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
   import IndexMeta._
   def open(path: String, schema: StructType, context: TaskAttemptContext): IndexNode = {
     val file = new Path(path)
-    val fs = file.getFileSystem(context.getConfiguration)
+    val fs = file.getFileSystem(SparkHadoopUtil.get.getConfigurationFromJobContext(context))
     val fin = fs.open(file)
     // wind to end of file to get tree root
     // TODO check if enough to fit in Int
