@@ -160,12 +160,15 @@ private[spinach] trait RangeScanner extends Iterator[Int] {
     }
 
     if (notFind) {
-      // if we didn't find the exact value, then we need to pick the right close one
-      m = e + 1
+      m = if (e < 0) 0 else e
     }
 
     if (node.isLeaf) {
       currentKey = new CurrentKey(node, m, 0)
+      if (notFind) {
+        // if not find, then let's move forward a key
+        currentKey.moveNextValue
+      }
     } else {
       moveTo(node.childAt(m), candidate)
     }
