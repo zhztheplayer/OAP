@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.execution.datasources.spinach
 
+import java.nio.ByteBuffer
+
 import org.apache.hadoop.mapreduce.TaskAttemptContext
 import org.apache.spark.Logging
 import org.apache.spark.sql.catalyst.InternalRow
@@ -53,6 +55,45 @@ private[spinach] trait IndexNode {
   def valueAt(idx: Int): IndexNodeValue
   def next: IndexNode
   def isLeaf: Boolean
+}
+
+private[spinach] case class InMemoryIndexNodeValue(values: Seq[Int]) extends IndexNodeValue {
+  override def length: Int = values.length
+  override def apply(idx: Int): Int = values(idx)
+}
+
+private[spinach] case class InMemoryIndexNode(
+    keys: Seq[InternalRow],
+    children: Seq[IndexNode],
+    values: Seq[IndexNodeValue],
+    next: IndexNode,
+    isLeaf: Boolean) extends IndexNode {
+  override def length: Int = keys.length
+  override def keyAt(idx: Int): Key = keys(idx)
+  override def childAt(idx: Int): IndexNode =
+    if (isLeaf) sys.error("No child for index leaf!") else children(idx)
+  override def valueAt(idx: Int): IndexNodeValue =
+    if (isLeaf) values(idx) else sys.error("No value for index non-leaf!")
+}
+
+private[spinach] abstract class UnsafeIndexNodeValue(buffer: ByteBuffer) extends IndexNodeValue {
+}
+
+private[spinach] class UnsafeMemoryIndexNode(
+                                          keys: Seq[InternalRow],
+                                          children: Seq[IndexNode],
+                                          values: Seq[IndexNodeValue],
+                                          nextNode: IndexNode,
+                                          isLeafNode: Boolean) extends IndexNode {
+  override def length: Int = keys.length
+  override def keyAt(idx: Int): Key = keys(idx)
+  override def childAt(idx: Int): IndexNode =
+    if (isLeafNode) sys.error("No child for index leaf!") else children(idx)
+  override def valueAt(idx: Int): IndexNodeValue =
+    if (isLeafNode) values(idx) else sys.error("No value for index non-leaf!")
+  override def next: IndexNode =
+    if (isLeafNode) nextNode else sys.error("Cannot call next on non-leaf node!")
+  override def isLeaf: Boolean = isLeafNode
 }
 
 private[spinach] class CurrentKey(node: IndexNode, keyIdx: Int, valueIdx: Int) {
@@ -115,9 +156,11 @@ private[spinach] class CurrentKey(node: IndexNode, keyIdx: Int, valueIdx: Int) {
 private[spinach] trait RangeScanner extends Iterator[Int] {
   @transient protected var currentKey: CurrentKey = _
   protected var ordering: Ordering[Key] = _
+  protected var schema: StructType = _
 
   def meta: IndexMeta
   def start: Key // the start node
+  def path: String = ""
 
   def withOrdering(newOrdering: Ordering[Key]): RangeScanner = {
     this.ordering = newOrdering
@@ -125,7 +168,7 @@ private[spinach] trait RangeScanner extends Iterator[Int] {
   }
 
   def initialize(context: TaskAttemptContext): RangeScanner = {
-    val root = meta.open(context)
+    val root = meta.open(path, schema, context)
 
     if (start eq RangeScanner.DUMMY_KEY_START) {
       // find the first key in the left-most leaf node

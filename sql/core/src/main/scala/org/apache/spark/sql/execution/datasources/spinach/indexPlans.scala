@@ -18,16 +18,12 @@
 package org.apache.spark.sql.execution.datasources.spinach
 
 import org.apache.spark.Logging
-import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.catalyst.util.{MapData, ArrayData}
 import org.apache.spark.sql.execution.datasources.LogicalRelation
-import org.apache.spark.sql.types.{Decimal, DataType}
 import org.apache.spark.sql.{Row, SQLContext}
-import org.apache.spark.sql.catalyst.expressions.{Attribute, SortOrder}
+import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.plans.logical.{LeafNode, LogicalPlan, Subquery}
-import org.apache.spark.sql.catalyst.{InternalRow, IndexColumn, TableIdentifier}
-import org.apache.spark.sql.execution.{RowIterator, SparkPlan, RunnableCommand, UnaryNode}
-import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
+import org.apache.spark.sql.catalyst.{IndexColumn, TableIdentifier}
+import org.apache.spark.sql.execution.RunnableCommand
 
 /**
  * Creates an index for table on indexColumns
@@ -99,28 +95,4 @@ case class DropIndex(
  */
 case class IndexMarker() extends LeafNode {
   override val output: Seq[Attribute] = Seq.empty
-}
-
-private[spinach] trait IndexValueBucket {
-  def length: Int
-  def apply(idx: Int): Int
-}
-
-private[spinach] abstract class IndexGuideNode(length: Int) extends IndexNode {
-  override def keyAt(idx: Int): InternalRow
-  def childAt(idx: Int): IndexNode
-  override def isLeaf: Boolean = false
-}
-
-private[spinach] abstract class IndexLeafNode(length: Int) extends IndexNode {
-  override def keyAt(idx: Int): InternalRow
-  def valueAt(idx: Int): IndexValueBucket
-  def next: IndexLeafNode
-  override def isLeaf: Boolean = true
-}
-
-private[spinach] trait IndexNode {
-  def length: Int
-  def keyAt(idx: Int): InternalRow
-  def isLeaf: Boolean
 }

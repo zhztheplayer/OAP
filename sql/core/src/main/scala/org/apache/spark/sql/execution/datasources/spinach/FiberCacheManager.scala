@@ -202,48 +202,6 @@ private[spinach] case class DataFileScanner(
     fiberCacheData
   }
 
-  def getIndexData(groupId: Int, fiberId: Int): FiberCacheData = {
-    val is = FiberDataFileHandler(this).fin
-    val groupMeta = meta.rowGroupsMeta(groupId)
-    var i = 0
-    var fiberStart = groupMeta.start
-    while (i < fiberId) {
-      fiberStart += groupMeta.fiberLens(i)
-      i += 1
-    }
-    val len = groupMeta.fiberLens(fiberId)
-    val fiberCacheData = MemoryManager.allocate(len)
-
-    is.synchronized {
-      is.seek(fiberStart)
-      readFiberData(is, fiberCacheData)
-    }
-    fiberCacheData
-  }
-
-  def readIndexData(is: FSDataInputStream, fiberCacheData: FiberCacheData): Unit = {
-    // TODO: make it configurable
-    val buf = new Array[Byte](1024 * 32)
-    var offset: Long = 0L
-    val dataSize = fiberCacheData.fiberData.size()
-    while (offset < dataSize) {
-      var readLen: Int = if (dataSize - offset > buf.length) {
-        buf.length
-      } else {
-        (dataSize - offset).toInt
-      }
-      readLen = is.read(buf, 0, readLen)
-      if (readLen > 0) {
-        Platform.copyMemory(buf, Platform.BYTE_ARRAY_OFFSET, fiberCacheData.fiberData.getBaseObject,
-          fiberCacheData.fiberData.getBaseOffset + offset, readLen)
-        offset += readLen
-      } else {
-        throw new IOException(s"Failed to fully read fiber data! expected: $dataSize bytes" +
-          s", actual: $offset bytes")
-      }
-    }
-  }
-
   // full file scan
   def iterator(requiredIds: Array[Int]): Iterator[InternalRow] = {
     val row = new BatchColumn()
