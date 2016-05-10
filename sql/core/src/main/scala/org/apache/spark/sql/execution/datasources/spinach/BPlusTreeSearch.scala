@@ -145,10 +145,10 @@ private[spinach] trait RangeScanner extends Iterator[Int] {
   @transient protected var currentKey: CurrentKey = _
   protected var ordering: Ordering[Key] = _
   protected var schema: StructType = _
+  protected var path: String = _
 
   def meta: IndexMeta
   def start: Key // the start node
-  def path: String = ""
 
   def withOrdering(newOrdering: Ordering[Key]): RangeScanner = {
     this.ordering = newOrdering

@@ -82,9 +82,10 @@ private[spinach] class SpinachRelation(
   }
 
   // get the meta & data file path.
-  @transient private lazy val _metaPaths: Array[FileStatus] = cachedLeafStatuses().filter { status =>
-    status.getPath.getName.endsWith(SpinachFileFormat.SPINACH_META_FILE)
-  }.toArray
+  @transient private lazy val _metaPaths: Array[FileStatus] =
+    cachedLeafStatuses().filter { status =>
+      status.getPath.getName.endsWith(SpinachFileFormat.SPINACH_META_FILE)
+    }.toArray
 
   @transient private var meta: Option[DataSourceMeta] = {
     if (_metaPaths.isEmpty) {
