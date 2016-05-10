@@ -69,7 +69,8 @@ class DDLParser(parseQuery: String => LogicalPlan)
   protected val DESC = Keyword("DESC")
   protected val BTREE = Keyword("BTREE")
 
-  protected lazy val ddl: Parser[LogicalPlan] = createTable | describeTable | refreshTable
+  protected lazy val ddl: Parser[LogicalPlan] =
+    createTable | describeTable | refreshTable | createIndex | dropIndex
 
   protected def start: Parser[LogicalPlan] = ddl
 
@@ -81,7 +82,7 @@ class DDLParser(parseQuery: String => LogicalPlan)
     (CREATE ~ INDEX) ~> (IF ~> NOT <~ EXISTS).? ~ ident ~ (ON ~> tableIdentifier) ~
       indexCols ~ indexOpts.? ^^ {
       case allowExisting ~ indexIdent ~ tableIdent ~ indexColumns ~ maybeOpts =>
-        CreateIndex(indexIdent, tableIdent, indexColumns.toArray, allowExisting.isDefined)
+        CreateIndex(indexIdent, tableIdent, Array.empty, allowExisting.isDefined)
     }
   }
 
@@ -98,7 +99,8 @@ class DDLParser(parseQuery: String => LogicalPlan)
   protected lazy val indexCols: Parser[Seq[IndexColumn]] = "(" ~> repsep(indexCol, ",") <~ ")"
 
   protected lazy val indexCol: Parser[IndexColumn] = ident ~ (ASC | DESC).? ^^ {
-    case id ~ maybeOrder => IndexColumn.apply(id, maybeOrder.getOrElse("ASC"))
+    case id ~ Some(str) => IndexColumn.apply(id, str.toUpperCase)
+    case id ~ None => IndexColumn.apply(id, "ASC")
   }
 
   protected lazy val indexOpts: Parser[String] = USING ~> BTREE

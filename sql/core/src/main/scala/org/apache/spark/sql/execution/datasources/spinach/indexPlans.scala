@@ -50,11 +50,11 @@ case class CreateIndex(
         sys.error(msg)
       }
     } else {
-      // TODO See [[[IndexMarker]]]
-      catalog.registerTable(indexIdent, IndexMarker())
       catalog.lookupRelation(tableName) match {
         case Subquery(_, LogicalRelation(r: SpinachRelation, _)) =>
-          r.createIndex(indexIdent, indexColumns)
+          // TODO See [[[IndexMarker]]]
+          catalog.registerTable(indexIdent, IndexMarker(r))
+          r.createIndex(indexName, indexColumns)
         case _ => sys.error("Only support CreateIndex for SpinachRelation")
       }
     }
@@ -82,6 +82,11 @@ case class DropIndex(
         sys.error(s"$indexIdent not found")
       }
     } else {
+      catalog.lookupRelation(TableIdentifier(indexIdent)) match {
+        case Subquery(_, IndexMarker(r: SpinachRelation)) =>
+          r.dropIndex(indexIdent)
+        case _ => sys.error("Only support DropIndex for SpinachRelation")
+      }
       sqlContext.catalog.unregisterTable(TableIdentifier(indexIdent))
     }
     // TODO delete index file and delete index meta from spinach meta
@@ -93,6 +98,6 @@ case class DropIndex(
  * use as the marker to distinguish between table and index in catalog.
  * TODO should use a separate place and APIs
  */
-case class IndexMarker() extends LeafNode {
+case class IndexMarker(spinachRelation: SpinachRelation) extends LeafNode {
   override val output: Seq[Attribute] = Seq.empty
 }

@@ -86,8 +86,19 @@ private[spinach] class SpinachRelation(
     status.getPath.getName.endsWith(SpinachFileFormat.SPINACH_META_FILE)
   }.toArray
 
-  @transient private lazy val meta: Option[DataSourceMeta] = {
+  @transient private var meta: Option[DataSourceMeta] = {
     if (_metaPaths.isEmpty) {
+      None
+    } else {
+      // TODO verify all of the schema from the meta data
+      Some(DataSourceMeta.initialize(
+        _metaPaths(0).getPath,
+        sqlContext.sparkContext.hadoopConfiguration))
+    }
+  }
+
+  private def updateMeta(): Unit = {
+    meta = if (_metaPaths.isEmpty) {
       None
     } else {
       // TODO verify all of the schema from the meta data
@@ -168,9 +179,47 @@ private[spinach] class SpinachRelation(
   }
 
   def createIndex(
-      indexName: TableIdentifier, indexColumns: Array[IndexColumn]): RDD[InternalRow] = {
-    // TODO Also write into Spinach general meta
+      indexName: String, indexColumns: Array[IndexColumn]): Unit = {
+    logInfo(s"Creating index $indexName")
+    assert(meta.nonEmpty)
+    val oldMeta = meta.get
+    val metaBuilder = DataSourceMeta.newBuilder()
+    oldMeta.fileMetas.foreach(metaBuilder.addFileMeta)
+    oldMeta.indexMetas.foreach(metaBuilder.addIndexMeta)
+    val entries = indexColumns.map(c => {
+      val dir = if (c.isAscending) Ascending else Descending
+      BTreeIndexEntry(schema.map(_.name).toIndexedSeq.indexOf(c.columnName), dir)
+    })
+    metaBuilder.addIndexMeta(new IndexMeta(indexName, BTreeIndex(entries)))
+
+    DataSourceMeta.write(
+      _metaPaths(0).getPath,
+      sqlContext.sparkContext.hadoopConfiguration,
+      metaBuilder.withNewSchema(oldMeta.schema).build(),
+      deleteIfExits = true)
+    val newMeta = DataSourceMeta.initialize(
+      _metaPaths(0).getPath,
+      sqlContext.sparkContext.hadoopConfiguration)
     SpinachIndexBuild(sqlContext, indexName, indexColumns, schema, paths).execute()
+    updateMeta()
+  }
+
+  def dropIndex(indexName: String): Unit = {
+    logInfo(s"Dropping index $indexName")
+    assert(meta.nonEmpty)
+    val oldMeta = meta.get
+    val metaBuilder = DataSourceMeta.newBuilder()
+    oldMeta.fileMetas.foreach(metaBuilder.addFileMeta)
+    val existsIndexes = oldMeta.indexMetas
+    assert(existsIndexes.exists(_.name == indexName), "IndexMeta not found in SpinachMeta")
+    existsIndexes.filter(_.name != indexName).foreach(metaBuilder.addIndexMeta)
+
+    DataSourceMeta.write(
+      _metaPaths(0).getPath,
+      sqlContext.sparkContext.hadoopConfiguration,
+      metaBuilder.withNewSchema(oldMeta.schema).build(),
+      deleteIfExits = true)
+    updateMeta()
   }
 }
 
@@ -261,7 +310,7 @@ private[spinach] case class SpinachTableScan(
 
 private[spinach] case class SpinachIndexBuild(
     sqlContext: SQLContext,
-    indexName: TableIdentifier,
+    indexName: String,
     indexColumns: Array[IndexColumn],
     schema: StructType,
     paths: Array[String]) extends Logging {
@@ -279,7 +328,7 @@ private[spinach] case class SpinachIndexBuild(
         override def next(): Path = fileIter.next().getPath
       }.toSeq
       val data = dataPaths.map(_.toString).filter(_.endsWith(SpinachFileFormat.SPINACH_DATA_EXTENSION))
-      @transient val ids = indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
+      val ids = indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
       @transient val keySchema = StructType(ids.map(schema.toIndexedSeq(_)))
       assert(!ids.exists(id => id < 0), "Index column not exists in schema.")
       @transient lazy val ordering = buildOrdering(ids)
@@ -334,7 +383,7 @@ private[spinach] case class SpinachIndexBuild(
         val dataFilePathString = d.toString
         val pos = dataFilePathString.lastIndexOf(SpinachFileFormat.SPINACH_DATA_EXTENSION)
         val indexFile = new Path(dataFilePathString.substring(
-          0, pos) + "." + indexName.table + SpinachFileFormat.SPINACH_INDEX_EXTENSION)
+          0, pos) + "." + indexName + SpinachFileFormat.SPINACH_INDEX_EXTENSION)
         val fs = indexFile.getFileSystem(confBroadcast.value.value)
         val fileOut = fs.create(indexFile, false)
         var i = 0
