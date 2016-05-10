@@ -76,24 +76,12 @@ private[spinach] case class InMemoryIndexNode(
     if (isLeaf) values(idx) else sys.error("No value for index non-leaf!")
 }
 
+// TODO not finished
 private[spinach] abstract class UnsafeIndexNodeValue(buffer: ByteBuffer) extends IndexNodeValue {
 }
 
-private[spinach] class UnsafeMemoryIndexNode(
-                                          keys: Seq[InternalRow],
-                                          children: Seq[IndexNode],
-                                          values: Seq[IndexNodeValue],
-                                          nextNode: IndexNode,
-                                          isLeafNode: Boolean) extends IndexNode {
-  override def length: Int = keys.length
-  override def keyAt(idx: Int): Key = keys(idx)
-  override def childAt(idx: Int): IndexNode =
-    if (isLeafNode) sys.error("No child for index leaf!") else children(idx)
-  override def valueAt(idx: Int): IndexNodeValue =
-    if (isLeafNode) values(idx) else sys.error("No value for index non-leaf!")
-  override def next: IndexNode =
-    if (isLeafNode) nextNode else sys.error("Cannot call next on non-leaf node!")
-  override def isLeaf: Boolean = isLeafNode
+// TODO not finished
+private[spinach] abstract class UnsafeMemoryIndexNode(buffer: ByteBuffer) extends IndexNode {
 }
 
 private[spinach] class CurrentKey(node: IndexNode, keyIdx: Int, valueIdx: Int) {

@@ -271,19 +271,22 @@ private[spinach] case class SpinachIndexBuild(
     } else {
       // TODO use internal scan
       val path = paths(0)
-      val p = new Path(path)
-      val fs = p.getFileSystem(sqlContext.sparkContext.hadoopConfiguration)
-      val fileIter = fs.listFiles(p, true)
-      val dataPaths = new Iterator[Path] {
+      @transient val p = new Path(path)
+      @transient val fs = p.getFileSystem(sqlContext.sparkContext.hadoopConfiguration)
+      @transient val fileIter = fs.listFiles(p, true)
+      @transient val dataPaths = new Iterator[Path] {
         override def hasNext: Boolean = fileIter.hasNext
         override def next(): Path = fileIter.next().getPath
       }.toSeq
-      val data = dataPaths.filter(_.toString.endsWith(SpinachFileFormat.SPINACH_DATA_EXTENSION))
-      val ids = indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
-      val keySchema = StructType(ids.map(schema.toIndexedSeq(_)))
+      val data = dataPaths.map(_.toString).filter(_.endsWith(SpinachFileFormat.SPINACH_DATA_EXTENSION))
+      @transient val ids = indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
+      @transient val keySchema = StructType(ids.map(schema.toIndexedSeq(_)))
       assert(!ids.exists(id => id < 0), "Index column not exists in schema.")
       @transient lazy val ordering = buildOrdering(ids)
-      sqlContext.sparkContext.parallelize(data).map(d => {
+      // val confB = sqlContext.sparkContext.broadcast(sqlContext.sparkContext.hadoopConfiguration)
+      // sqlContext.sparkContext.parallelize(data).map(dataString => {
+      data.foreach(dataString => {
+        val d = new Path(dataString)
         // scan every data file
         val reader = new SpinachDataReader2(d, schema, None, ids)
         // TODO better initialize it elegantly
@@ -296,7 +299,7 @@ private[spinach] case class SpinachIndexBuild(
         val hashMap = new java.util.HashMap[InternalRow, java.util.ArrayList[Int]]()
         var cnt = 0
         while (reader.nextKeyValue()) {
-          val v = reader.getCurrentValue
+          val v = reader.getCurrentValue.copy()
           if (!hashMap.containsKey(v)) {
             val list = new java.util.ArrayList[Int]()
             list.add(cnt)
@@ -331,6 +334,7 @@ private[spinach] case class SpinachIndexBuild(
         val indexFile = new Path(dataFilePathString.substring(
           0, pos) + "." + indexName.table + SpinachFileFormat.SPINACH_INDEX_EXTENSION)
         val fs = indexFile.getFileSystem(sqlContext.sparkContext.hadoopConfiguration)
+        // val fs = indexFile.getFileSystem(confB.value)
         val fileOut = fs.create(indexFile, false)
         var i = 0
         var fileOffset = 0
@@ -338,12 +342,6 @@ private[spinach] case class SpinachIndexBuild(
         // write data segment.
         while (i < partitionUniqueSize) {
           offsetMap.put(uniqueKeys(i), fileOffset)
-          // TODO confirm if MASK. MASK means write key to data segment
-          // MASK val byteDataFromKey = internalRowToByte(uniqueKeys(i), keySchema)
-          // MASK fileOut.writeInt(byteDataFromKey.length)
-          // MASK fileOut.write(byteDataFromKey)
-          // key length and key
-          // MASK fileOffset = fileOffset + 4 + byteDataFromKey.length
           val rowIds = hashMap.get(uniqueKeys(i))
           // row count for same key
           fileOut.writeInt(rowIds.size())
@@ -363,11 +361,13 @@ private[spinach] case class SpinachIndexBuild(
         uniqueKeysList.addAll(JavaConversions.asJavaList(uniqueKeys))
         writeTreeToOut(treeShape, fileOut, offsetMap, fileOffset, uniqueKeysList, keySchema, 0)
         assert(uniqueKeysList.size == 1)
-        // write dataEnd and root node position to index file
+        // write dataEnd and root node position to index file, actually they are the same
+        assert(offsetMap.get(uniqueKeysList.getFirst) == dataEnd)
         fileOut.writeInt(dataEnd)
         fileOut.writeInt(offsetMap.get(uniqueKeysList.getFirst))
         fileOut.close()
-      })
+        indexFile.toString
+      }) // .collect()
     }
     sqlContext.sparkContext.emptyRDD[InternalRow]
   }
@@ -385,7 +385,7 @@ private[spinach] case class SpinachIndexBuild(
     val types = schema.map(_.dataType)
     val buffer = new Array[Byte](schema.defaultSize)
     while (idx < row.numFields) {
-      val byteData = types(idx) match {
+      types(idx) match {
         case IntegerType => Platform.putInt(buffer, offset, row.getInt(idx))
         // TODO more datatypes
         case _ => sys.error("Not implemented yet!")
