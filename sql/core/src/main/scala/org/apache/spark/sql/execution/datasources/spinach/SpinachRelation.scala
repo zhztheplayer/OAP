@@ -283,9 +283,11 @@ private[spinach] case class SpinachIndexBuild(
       @transient val keySchema = StructType(ids.map(schema.toIndexedSeq(_)))
       assert(!ids.exists(id => id < 0), "Index column not exists in schema.")
       @transient lazy val ordering = buildOrdering(ids)
-      // val confB = sqlContext.sparkContext.broadcast(sqlContext.sparkContext.hadoopConfiguration)
-      // sqlContext.sparkContext.parallelize(data).map(dataString => {
-      data.foreach(dataString => {
+      val serializableConfiguration =
+        new SerializableConfiguration(sqlContext.sparkContext.hadoopConfiguration)
+      val confBroadcast = sqlContext.sparkContext.broadcast(serializableConfiguration)
+      sqlContext.sparkContext.parallelize(data).map(dataString => {
+      // data.foreach(dataString => {
         val d = new Path(dataString)
         // scan every data file
         val reader = new SpinachDataReader2(d, schema, None, ids)
@@ -333,8 +335,7 @@ private[spinach] case class SpinachIndexBuild(
         val pos = dataFilePathString.lastIndexOf(SpinachFileFormat.SPINACH_DATA_EXTENSION)
         val indexFile = new Path(dataFilePathString.substring(
           0, pos) + "." + indexName.table + SpinachFileFormat.SPINACH_INDEX_EXTENSION)
-        val fs = indexFile.getFileSystem(sqlContext.sparkContext.hadoopConfiguration)
-        // val fs = indexFile.getFileSystem(confB.value)
+        val fs = indexFile.getFileSystem(confBroadcast.value.value)
         val fileOut = fs.create(indexFile, false)
         var i = 0
         var fileOffset = 0
@@ -367,7 +368,7 @@ private[spinach] case class SpinachIndexBuild(
         fileOut.writeInt(offsetMap.get(uniqueKeysList.getFirst))
         fileOut.close()
         indexFile.toString
-      }) // .collect()
+      }).collect()
     }
     sqlContext.sparkContext.emptyRDD[InternalRow]
   }
