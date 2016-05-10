@@ -20,6 +20,8 @@ package org.apache.spark.sql.execution.datasources.spinach
 import org.apache.hadoop.fs.{FSDataOutputStream, Path}
 import org.apache.hadoop.io.NullWritable
 import org.apache.hadoop.mapreduce.{InputSplit, RecordReader, RecordWriter, TaskAttemptContext}
+import org.apache.spark.SparkConf
+import org.apache.spark.io.SnappyCompressionCodec
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.types.StructType
 
@@ -37,6 +39,8 @@ private[spinach] class SpinachDataWriter2(
 
   private val fiberMeta = new DataFileMeta(
     rowCountInEachGroup = DEFAULT_ROW_GROUP_SIZE, fieldCount = schema.length)
+
+  private val compCodec = new SnappyCompressionCodec(new SparkConf())
 
   override def write(ignore: NullWritable, row: InternalRow) {
     var idx = 0
@@ -60,9 +64,14 @@ private[spinach] class SpinachDataWriter2(
     rowGroupMeta.withNewStart(out.getPos).withNewFiberLens(fiberLens)
     while (idx < rowGroup.length) {
       val fiberByteData = rowGroup(idx).build()
-      totalDataSize += fiberByteData.fiberData.length
-      fiberLens(idx) = fiberByteData.fiberData.length
-      out.write(fiberByteData.fiberData)
+      val newFiberData = if (true) {
+        compCodec.compressedOutputBuffer(fiberByteData.fiberData)
+      } else {
+        fiberByteData.fiberData
+      }
+      totalDataSize += newFiberData.length
+      fiberLens(idx) = newFiberData.length
+      out.write(newFiberData)
       rowGroup(idx).clear()
       idx += 1
     }
@@ -91,6 +100,7 @@ private[spinach] class SpinachDataWriter2(
 private[spinach] class SpinachDataReader2(
     path: Path,
     schema: StructType,
+    filterScanner: Option[RangeScanner],
     requiredIds: Array[Int]) extends RecordReader[NullWritable, InternalRow] {
 
   private var totalRowCount: Int = 0
@@ -101,11 +111,19 @@ private[spinach] class SpinachDataReader2(
 
   override def initialize(split: InputSplit, context: TaskAttemptContext): Unit = {
     // TODO how to save the additional FS operation to get the Split size
-    val scanner = DataFileScanner(path.toString, schema, context)
-    dataFileMeta = DataMetaCacheManager(scanner)
+    val fileScanner = DataFileScanner(path.toString, schema, context)
+    dataFileMeta = DataMetaCacheManager(fileScanner)
 
-    totalRowCount = dataFileMeta.totalRowCount()
-    currentRowIter = scanner.iterator(requiredIds)
+    filterScanner match {
+      case Some(fs) => fs.initialize(context)
+        // total Row count can be get from the filter scanner
+        val rowIDs = fs.toArray.sorted
+        totalRowCount = rowIDs.length
+        fileScanner.iterator(requiredIds, rowIDs)
+      case None =>
+        totalRowCount = dataFileMeta.totalRowCount()
+        currentRowIter = fileScanner.iterator(requiredIds)
+    }
   }
 
   override def getProgress: Float = if (totalRowCount > 0) {
