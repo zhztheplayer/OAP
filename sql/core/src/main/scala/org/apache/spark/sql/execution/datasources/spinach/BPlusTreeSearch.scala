@@ -61,6 +61,7 @@ private[spinach] trait IndexNode {
 private[spinach] case class InMemoryIndexNodeValue(values: Seq[Int]) extends IndexNodeValue {
   override def length: Int = values.length
   override def apply(idx: Int): Int = values(idx)
+  override def toString: String = "ValuesNode(" + values.mkString(",") + ")"
 }
 
 private[spinach] case class InMemoryIndexNode(
@@ -75,6 +76,12 @@ private[spinach] case class InMemoryIndexNode(
     if (isLeaf) sys.error("No child for index leaf!") else children(idx)
   override def valueAt(idx: Int): IndexNodeValue =
     if (isLeaf) values(idx) else sys.error("No value for index non-leaf!")
+  override def toString: String =
+    if (isLeaf) {
+      s"[Signs(${keys.map(_.getInt(0)).mkString(",")}) " + values.mkString(" ") + "]"
+    } else {
+      s"[Signs(${keys.map(_.getInt(0)).mkString(",")}) " + children.mkString(" ") + "]"
+    }
 }
 
 // TODO not finished
@@ -143,6 +150,8 @@ private[spinach] class CurrentKey(node: IndexNode, keyIdx: Int, valueIdx: Int) {
 // we scan the index from the smallest to the greatest, this is the root class
 // of scanner, which will scan the B+ Tree (index) leaf node.
 private[spinach] trait RangeScanner extends Iterator[Int] {
+  // TODO this is a temp work around
+  override def toString(): String = "RangeScanner"
   @transient protected var currentKey: CurrentKey = _
   @transient protected var ordering: Ordering[Key] = _
   protected var keySchema: StructType = _

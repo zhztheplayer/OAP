@@ -401,8 +401,6 @@ private[spinach] case class SpinachIndexBuild(
         uniqueKeysList.addAll(uniqueKeys.toSeq.asJava)
         writeTreeToOut(treeShape, fileOut, offsetMap, fileOffset, uniqueKeysList, keySchema, 0)
         assert(uniqueKeysList.size == 1)
-        // write dataEnd and root node position to index file, actually they are the same
-        assert(offsetMap.get(uniqueKeysList.getFirst) == dataEnd)
         fileOut.writeInt(dataEnd)
         fileOut.writeInt(offsetMap.get(uniqueKeysList.getFirst))
         fileOut.close()
@@ -444,9 +442,7 @@ private[spinach] case class SpinachIndexBuild(
       keysList: java.util.LinkedList[InternalRow],
       keySchema: StructType,
       listOffset: Int): Int = {
-    // write road sign count on every node first
-    out.writeInt(tree.root)
-    var subOffset = 4
+    var subOffset = 0
     if (tree.children.nonEmpty) {
       // this is a non-leaf node
       // Need to write down all subtrees
@@ -461,6 +457,10 @@ private[spinach] case class SpinachIndexBuild(
         iter = iter + 1
       }
     }
+    val newKeyOffset = subOffset
+    // write road sign count on every node first
+    out.writeInt(tree.root)
+    subOffset = subOffset + 4
     // For all IndexNode, write down all road sign, each pointing to specific data segment
     val keyVal = keysList.get(listOffset)
     subOffset = subOffset + writeKeyIntoIndexNode(keyVal, keySchema, out, map.get(keyVal))
@@ -471,7 +471,7 @@ private[spinach] case class SpinachIndexBuild(
       keysList.remove(listOffset + 1)
       rmCount = rmCount + 1
     }
-    map.put(keyVal, fileOffset)
+    map.put(keyVal, fileOffset + newKeyOffset)
     subOffset
   }
 
