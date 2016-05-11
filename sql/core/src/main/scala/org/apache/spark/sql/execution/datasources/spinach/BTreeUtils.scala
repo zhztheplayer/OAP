@@ -61,7 +61,9 @@ object BTreeUtils {
    * Estimates height of BTree. `public` for unit test
    */
   def height(size: Long): Int = {
-    if (size > 1) math.ceil(math.log(size) / math.log(BRANCHING)).toInt else 1
+    val est = if (size > 1) math.ceil(math.log(size) / math.log(BRANCHING)).toInt else 1
+    // here we check it reversely to avoid precision problem
+    if (math.pow(BRANCHING, est - 1) >= size) est - 1 else est
   }
 
   /**

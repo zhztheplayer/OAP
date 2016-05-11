@@ -196,9 +196,6 @@ private[spinach] class SpinachRelation(
       sqlContext.sparkContext.hadoopConfiguration,
       metaBuilder.withNewSchema(oldMeta.schema).build(),
       deleteIfExits = true)
-    val newMeta = DataSourceMeta.initialize(
-      _metaPaths(0).getPath,
-      sqlContext.sparkContext.hadoopConfiguration)
     SpinachIndexBuild(sqlContext, indexName, indexColumns, schema, paths).execute()
     updateMeta()
   }
