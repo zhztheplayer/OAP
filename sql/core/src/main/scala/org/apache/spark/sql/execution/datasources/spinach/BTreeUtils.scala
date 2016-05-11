@@ -21,7 +21,15 @@ package org.apache.spark.sql.execution.datasources.spinach
  * Util functions for building BTree from sorted iterator
  */
 object BTreeUtils {
-  private val BRANCHING: Int = 5
+  private def branch(n: Long): Unit = if (n > 1000000) {
+    // TODO better ways
+    sys.error("too big partition for spinach!")
+  } else if (n > 125) {
+    BRANCHING = math.ceil(math.pow(n, 1.0/3)).toInt
+  } else {
+    BRANCHING = 5
+  }
+  private var BRANCHING: Int = 5
 
   /**
    * Splits an array of n
@@ -61,6 +69,7 @@ object BTreeUtils {
    * Estimates height of BTree. `public` for unit test
    */
   def height(size: Long): Int = {
+    branch(size)
     val est = if (size > 1) math.ceil(math.log(size) / math.log(BRANCHING)).toInt else 1
     // here we check it reversely to avoid precision problem
     if (math.pow(BRANCHING, est - 1) >= size && est > 1) est - 1 else est
