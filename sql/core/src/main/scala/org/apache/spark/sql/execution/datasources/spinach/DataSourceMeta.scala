@@ -226,8 +226,8 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
   private def indexFileNameFromDataFileName(dataFile: String): String = {
     import SpinachFileFormat._
     assert(dataFile.endsWith(SPINACH_DATA_EXTENSION))
-    val prefix = dataFile.substring(0, dataFile.length - 1 - SPINACH_DATA_EXTENSION.length)
-    prefix + SPINACH_INDEX_EXTENSION
+    val prefix = dataFile.substring(0, dataFile.length - SPINACH_DATA_EXTENSION.length)
+    prefix + "." + name + SPINACH_INDEX_EXTENSION
   }
 
   def write(out: FSDataOutputStream): Unit = {

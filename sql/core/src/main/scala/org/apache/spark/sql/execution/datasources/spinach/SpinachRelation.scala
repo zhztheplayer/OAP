@@ -172,22 +172,22 @@ private[spinach] class SpinachRelation(
     logInfo(s"Creating index $indexName")
     meta match {
       case Some(oldMeta) =>
-        val metaBuilder = DataSourceMeta.newBuilder ()
-        oldMeta.fileMetas.foreach (metaBuilder.addFileMeta)
-        oldMeta.indexMetas.foreach (metaBuilder.addIndexMeta)
-        val entries = indexColumns.map (c => {
-        val dir = if (c.isAscending) Ascending else Descending
-        BTreeIndexEntry (schema.map (_.name).toIndexedSeq.indexOf (c.columnName), dir)
+        val metaBuilder = DataSourceMeta.newBuilder()
+        oldMeta.fileMetas.foreach(metaBuilder.addFileMeta)
+        oldMeta.indexMetas.foreach(metaBuilder.addIndexMeta)
+        val entries = indexColumns.map(c => {
+          val dir = if (c.isAscending) Ascending else Descending
+          BTreeIndexEntry(schema.map(_.name).toIndexedSeq.indexOf(c.columnName), dir)
         })
-        metaBuilder.addIndexMeta (new IndexMeta (indexName, BTreeIndex (entries) ) )
+        metaBuilder.addIndexMeta(new IndexMeta(indexName, BTreeIndex(entries)))
 
         // TODO _metaPaths can be empty while in an empty spinach data source folder
         DataSourceMeta.write (
-        _metaPaths (0).getPath,
+        _metaPaths(0).getPath,
         sqlContext.sparkContext.hadoopConfiguration,
-        metaBuilder.withNewSchema (oldMeta.schema).build (),
+        metaBuilder.withNewSchema(oldMeta.schema).build(),
         deleteIfExits = true)
-        SpinachIndexBuild (sqlContext, indexName, indexColumns, schema, paths).execute()
+        SpinachIndexBuild(sqlContext, indexName, indexColumns, schema, paths).execute()
       case None =>
         sys.error("meta cannot be empty during the index building")
     }

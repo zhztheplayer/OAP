@@ -559,9 +559,10 @@ private[spinach] class IndexContext(meta: DataSourceMeta) {
     var idx = 0
     while (idx < meta.indexMetas.length) {
       meta.indexMetas(idx).indexType match {
-        case BTreeIndex(BTreeIndexEntry(ord, dir) :: Nil) if ord == ordinal =>
-          assert(dir == Ascending, "we assume the data are sorted in ascending")
-          return Some(ScannerBuilder(meta.schema(ordinal), meta.indexMetas(idx), dir))
+        case BTreeIndex(entries) if (entries.length == 1 && entries(0).ordinal == ordinal) =>
+          // assert(dir == Ascending, "we assume the data are sorted in ascending")
+          // TODO currently we are only support the Ascending
+          return Some(ScannerBuilder(meta.schema(ordinal), meta.indexMetas(idx), Ascending))
         case BTreeIndex(entries) => entries.map { entry =>
           // TODO support multiple key in the index
         }
