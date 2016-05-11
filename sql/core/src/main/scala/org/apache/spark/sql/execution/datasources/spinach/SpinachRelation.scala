@@ -80,12 +80,12 @@ private[spinach] class SpinachRelation(
   }
 
   // get the meta & data file path.
-  @transient private lazy val _metaPaths: Array[FileStatus] =
+  private def _metaPaths: Array[FileStatus] =
     cachedLeafStatuses().filter { status =>
       status.getPath.getName.endsWith(SpinachFileFormat.SPINACH_META_FILE)
     }.toArray
 
-  @transient private var meta: Option[DataSourceMeta] = {
+  private def meta: Option[DataSourceMeta] = {
     if (_metaPaths.isEmpty) {
       None
     } else {
@@ -96,18 +96,7 @@ private[spinach] class SpinachRelation(
     }
   }
 
-  private def updateMeta(): Unit = {
-    meta = if (_metaPaths.isEmpty) {
-      None
-    } else {
-      // TODO verify all of the schema from the meta data
-      Some(DataSourceMeta.initialize(
-        _metaPaths(0).getPath,
-        sqlContext.sparkContext.hadoopConfiguration))
-    }
-  }
-
-  @transient private lazy val indexContext: IndexContext = {
+  private def createIndexContext: IndexContext = {
     meta.map(new IndexContext(_)).getOrElse(DummyIndexContext)
   }
 
@@ -147,7 +136,8 @@ private[spinach] class SpinachRelation(
 
     meta match {
       case Some(mt) =>
-        unhandledFilters(filters) // to get the scanner builder
+        val indexContext = createIndexContext
+        BPlusTreeSearch.build(filters, indexContext)
         SpinachTableScan(mt, this, indexContext.getScannerBuilder.map(_.build),
           requiredColumns, inputPaths, broadcastedConf).execute()
       case None =>
@@ -157,7 +147,7 @@ private[spinach] class SpinachRelation(
 
   // currently we don't support any filtering.
   override def unhandledFilters(filters: Array[Filter]): Array[Filter] = {
-    BPlusTreeSearch.build(filters, indexContext.clear())
+    BPlusTreeSearch.build(filters, createIndexContext)
   }
 
   override def prepareJobForWrite(job: Job): OutputWriterFactory = {
@@ -180,24 +170,27 @@ private[spinach] class SpinachRelation(
   def createIndex(
       indexName: String, indexColumns: Array[IndexColumn]): Unit = {
     logInfo(s"Creating index $indexName")
-    assert(meta.nonEmpty)
-    val oldMeta = meta.get
-    val metaBuilder = DataSourceMeta.newBuilder()
-    oldMeta.fileMetas.foreach(metaBuilder.addFileMeta)
-    oldMeta.indexMetas.foreach(metaBuilder.addIndexMeta)
-    val entries = indexColumns.map(c => {
-      val dir = if (c.isAscending) Ascending else Descending
-      BTreeIndexEntry(schema.map(_.name).toIndexedSeq.indexOf(c.columnName), dir)
-    })
-    metaBuilder.addIndexMeta(new IndexMeta(indexName, BTreeIndex(entries)))
+    meta match {
+      case Some(oldMeta) =>
+        val metaBuilder = DataSourceMeta.newBuilder ()
+        oldMeta.fileMetas.foreach (metaBuilder.addFileMeta)
+        oldMeta.indexMetas.foreach (metaBuilder.addIndexMeta)
+        val entries = indexColumns.map (c => {
+        val dir = if (c.isAscending) Ascending else Descending
+        BTreeIndexEntry (schema.map (_.name).toIndexedSeq.indexOf (c.columnName), dir)
+        })
+        metaBuilder.addIndexMeta (new IndexMeta (indexName, BTreeIndex (entries) ) )
 
-    DataSourceMeta.write(
-      _metaPaths(0).getPath,
-      sqlContext.sparkContext.hadoopConfiguration,
-      metaBuilder.withNewSchema(oldMeta.schema).build(),
-      deleteIfExits = true)
-    SpinachIndexBuild(sqlContext, indexName, indexColumns, schema, paths).execute()
-    updateMeta()
+        // TODO _metaPaths can be empty while in an empty spinach data source folder
+        DataSourceMeta.write (
+        _metaPaths (0).getPath,
+        sqlContext.sparkContext.hadoopConfiguration,
+        metaBuilder.withNewSchema (oldMeta.schema).build (),
+        deleteIfExits = true)
+        SpinachIndexBuild (sqlContext, indexName, indexColumns, schema, paths).execute()
+      case None =>
+        sys.error("meta cannot be empty during the index building")
+    }
   }
 
   def dropIndex(indexName: String): Unit = {
@@ -215,7 +208,6 @@ private[spinach] class SpinachRelation(
       sqlContext.sparkContext.hadoopConfiguration,
       metaBuilder.withNewSchema(oldMeta.schema).build(),
       deleteIfExits = true)
-    updateMeta()
   }
 }
 
