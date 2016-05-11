@@ -118,8 +118,8 @@ private[spinach] object FileMeta {
 private[spinach] class IndexMeta(var name: String = null, var indexType: IndexType = null)
     extends Serializable {
   import IndexMeta._
-  def open(path: String, schema: StructType, context: TaskAttemptContext): IndexNode = {
-    val file = new Path(path)
+  def open(dataPath: String, schema: StructType, context: TaskAttemptContext): IndexNode = {
+    val file = new Path(indexFileNameFromDataFileName(dataPath))
     val fs = file.getFileSystem(SparkHadoopUtil.get.getConfigurationFromJobContext(context))
     val fin = fs.open(file)
     // wind to end of file to get tree root
@@ -221,6 +221,13 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     for (i <- 0 until remaining) {
       out.writeByte(0)
     }
+  }
+
+  private def indexFileNameFromDataFileName(dataFile: String): String = {
+    import SpinachFileFormat._
+    assert(dataFile.endsWith(SPINACH_DATA_EXTENSION))
+    val prefix = dataFile.substring(0, dataFile.length - 1 - SPINACH_DATA_EXTENSION.length)
+    prefix + SPINACH_INDEX_EXTENSION
   }
 
   def write(out: FSDataOutputStream): Unit = {

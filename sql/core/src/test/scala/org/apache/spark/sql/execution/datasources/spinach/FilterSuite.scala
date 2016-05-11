@@ -61,4 +61,17 @@ class FilterSuite extends QueryTest with SharedSQLContext with BeforeAndAfterEac
     sql("insert overwrite table spinach_test_date as select * from d")
     checkAnswer(sql("SELECT * FROM spinach_test_date"), data.map {row => Row(row._1, row._2)})
   }
+
+  test("filtering") {
+    val data: Seq[(Int, String)] = (1 to 3000).map { i => (i, s"this is test $i") }
+    data.toDF("key", "value").registerTempTable("t")
+    sql("insert overwrite table spinach_test as select * from t")
+    sql("create index index1 on spinach_test (a) using btree")
+
+    checkAnswer(sql("SELECT * FROM spinach_test WHERE a = 1"),
+      Row(1, "this is test 1") :: Nil)
+
+    checkAnswer(sql("SELECT * FROM spinach_test WHERE a > 1 AND a <= 3"),
+      Row(2, "this is test 2") :: Row(3, "this is test 3") :: Nil)
+  }
 }
