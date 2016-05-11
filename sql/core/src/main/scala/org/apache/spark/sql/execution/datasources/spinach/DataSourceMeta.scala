@@ -131,8 +131,19 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
 
   private def constructBTreeFromFile(
       fin: FSDataInputStream, schema: StructType, rootOffset: Int, dataEnd: Int): IndexNode = {
+    constructBTreeFromFileWithFirstLeaf(fin, schema, rootOffset, dataEnd, null)._1
+  }
+
+  private def constructBTreeFromFileWithFirstLeaf(
+      fin: FSDataInputStream,
+      schema: StructType,
+      rootOffset: Int,
+      dataEnd: Int,
+      next: IndexNode): (IndexNode, IndexNode) = {
     fin.seek(rootOffset)
     val nodeLen = fin.readInt()
+    if (nodeLen == 0) return (null, null)
+    assert(nodeLen > 0)
     var iter = 0
     val types = schema.map(_.dataType)
     val rows = new Array[InternalRow](nodeLen)
@@ -149,11 +160,25 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     }
     assert(childOffsets.forall(_ < dataEnd) || childOffsets.forall(_ >= dataEnd))
     if (childOffsets.forall(_ < dataEnd)) {
+      // Leaf node, next for outer is same as root
       val values = childOffsets.map(constructIndexNodeValue(fin, _)).toSeq
-      InMemoryIndexNode(rows.toSeq, null, values, null, isLeaf = true)
+      val leaf = InMemoryIndexNode(rows.toSeq, null, values, next, isLeaf = true)
+      (leaf, leaf)
     } else {
-      val children = childOffsets.map(co => constructBTreeFromFile(fin, schema, co, dataEnd)).toSeq
-      InMemoryIndexNode(rows.toSeq, children, null, null, isLeaf = false)
+      iter = nodeLen - 1
+      val result =
+        constructBTreeFromFileWithFirstLeaf(fin, schema, childOffsets(iter), dataEnd, next)
+      var first = result._2
+      val childrenCollector = ArrayBuffer.newBuilder[IndexNode]
+      while (iter > 0) {
+        iter = iter - 1
+        val iterResult =
+          constructBTreeFromFileWithFirstLeaf(fin, schema, childOffsets(iter), dataEnd, first)
+        first = iterResult._2
+        childrenCollector += iterResult._1
+      }
+      val children = childrenCollector.result().toSeq
+      (InMemoryIndexNode(rows.toSeq, children, null, null, isLeaf = false), first)
     }
   }
 
