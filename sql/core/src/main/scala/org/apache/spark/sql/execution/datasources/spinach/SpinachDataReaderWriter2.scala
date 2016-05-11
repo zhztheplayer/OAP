@@ -120,7 +120,7 @@ private[spinach] class SpinachDataReader2(
         // total Row count can be get from the filter scanner
         val rowIDs = fs.toArray.sorted
         totalRowCount = rowIDs.length
-        fileScanner.iterator(requiredIds, rowIDs)
+        currentRowIter = fileScanner.iterator(requiredIds, rowIDs)
       case None =>
         totalRowCount = dataFileMeta.totalRowCount()
         currentRowIter = fileScanner.iterator(requiredIds)
