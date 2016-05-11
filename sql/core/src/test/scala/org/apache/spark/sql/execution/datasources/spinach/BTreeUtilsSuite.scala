@@ -15,23 +15,26 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.catalyst
+package org.apache.spark.sql.execution.datasources.spinach
 
-/**
- * Identify a column for index definition, including column name and order
- */
-private[sql] case class IndexColumn(columnName: String, isAscending: Boolean) {
-  override def toString: String = quotedString
+import org.apache.spark.{Logging, SparkFunSuite}
 
-  def quotedString: String = s"`$columnName` ${if (isAscending) "ASC" else "DESC"}"
+class BTreeUtilsSuite extends SparkFunSuite with Logging {
+  test("height") {
+    assert(BTreeUtils.height(25) == 2)
+    assert(BTreeUtils.height(26) == 3)
+    assert(BTreeUtils.height(125) == 3)
+    assert(BTreeUtils.height(126) == 4)
+  }
 
-  def unquotedString: String = s"$columnName ${if (isAscending) "ASC" else "DESC"}"
-}
+  test("total number") {
+    assert(BTreeUtils.generate(126).sum == 126)
+    assert(BTreeUtils.generate(10000000).sum == 10000000)
+  }
 
-// TODO move this file to spinach package
-private[sql] object IndexColumn {
-  def apply(columnName: String, order: String): IndexColumn = order match {
-    case "ASC" => new IndexColumn(columnName, true)
-    case "DESC" => new IndexColumn(columnName, false)
+  test("generate b tree") {
+    assert(BTreeUtils.generate2(6).toString == "[2 3 3]")
+    assert(BTreeUtils.generate2(11).toString == "[3 4 4 3]")
+    assert(BTreeUtils.generate2(26).toString == "[2 [3 5 4 4] [3 5 4 4]]")
   }
 }

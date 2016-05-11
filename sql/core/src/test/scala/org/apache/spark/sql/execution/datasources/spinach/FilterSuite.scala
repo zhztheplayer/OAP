@@ -50,6 +50,7 @@ class FilterSuite extends QueryTest with SharedSQLContext with BeforeAndAfterEac
   test("insert into table") {
     val data: Seq[(Int, String)] = (1 to 3000).map { i => (i, s"this is test $i") }
     data.toDF("key", "value").registerTempTable("t")
+    checkAnswer(sql("SELECT * FROM spinach_test"), Seq.empty[Row])
     sql("insert overwrite table spinach_test as select * from t")
     checkAnswer(sql("SELECT * FROM spinach_test"), data.map { row => Row(row._1, row._2) })
   }
