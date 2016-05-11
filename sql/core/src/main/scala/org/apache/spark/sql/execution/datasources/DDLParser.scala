@@ -82,7 +82,7 @@ class DDLParser(parseQuery: String => LogicalPlan)
     (CREATE ~ INDEX) ~> (IF ~> NOT <~ EXISTS).? ~ ident ~ (ON ~> tableIdentifier) ~
       indexCols ~ indexOpts.? ^^ {
       case allowExisting ~ indexIdent ~ tableIdent ~ indexColumns ~ maybeOpts =>
-        CreateIndex(indexIdent, tableIdent, Array.empty, allowExisting.isDefined)
+        CreateIndex(indexIdent, tableIdent, indexColumns.toArray, allowExisting.isDefined)
     }
   }
 

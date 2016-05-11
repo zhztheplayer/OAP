@@ -224,10 +224,10 @@ private[spinach] class BPlusTreeSearchSuite
     ic.getScannerBuilder match {
       case Some(builder) =>
         val scanner = builder.build
-        assert(scanner.initialize(attemptContext).toSet === expectedIds, "")
+        assert(scanner.initialize(null, attemptContext).toSet === expectedIds, "")
         SpinachFileFormat.serializeFilterScanner(conf, scanner)
         val deserialized = SpinachFileFormat.deserialzeFilterScanner(conf).get
-        assert(deserialized.initialize(attemptContext).toSet === expectedIds, "")
+        assert(deserialized.initialize(null, attemptContext).toSet === expectedIds, "")
       case None => throw new Exception(s"expect scanner, but got None")
     }
   }

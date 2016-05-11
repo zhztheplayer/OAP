@@ -118,15 +118,16 @@ private[spinach] object FileMeta {
 private[spinach] class IndexMeta(var name: String = null, var indexType: IndexType = null)
     extends Serializable {
   import IndexMeta._
-  def open(path: String, schema: StructType, context: TaskAttemptContext): IndexNode = {
-    val file = new Path(path)
+  def open(dataPath: String, schema: StructType, context: TaskAttemptContext): IndexNode = {
+    val file = new Path(indexFileNameFromDataFileName(dataPath))
     val fs = file.getFileSystem(SparkHadoopUtil.get.getConfigurationFromJobContext(context))
     val fin = fs.open(file)
     // wind to end of file to get tree root
     // TODO check if enough to fit in Int
     fin.seek(fs.getContentSummary(file).getLength - 8)
     val dataEnd = fin.readInt()
-    constructBTreeFromFile(fin, schema, dataEnd, dataEnd)
+    val rootOffset = fin.readInt()
+    constructBTreeFromFile(fin, schema, rootOffset, dataEnd)
   }
 
   private def constructBTreeFromFile(
@@ -166,10 +167,11 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
       (leaf, leaf)
     } else {
       iter = nodeLen - 1
+      val childrenCollector = ArrayBuffer.newBuilder[IndexNode]
       val result =
         constructBTreeFromFileWithFirstLeaf(fin, schema, childOffsets(iter), dataEnd, next)
       var first = result._2
-      val childrenCollector = ArrayBuffer.newBuilder[IndexNode]
+      childrenCollector += result._1
       while (iter > 0) {
         iter = iter - 1
         val iterResult =
@@ -177,7 +179,7 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
         first = iterResult._2
         childrenCollector += iterResult._1
       }
-      val children = childrenCollector.result().toSeq
+      val children = childrenCollector.result().toSeq.reverse
       (InMemoryIndexNode(rows.toSeq, children, null, null, isLeaf = false), first)
     }
   }
@@ -221,6 +223,13 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     for (i <- 0 until remaining) {
       out.writeByte(0)
     }
+  }
+
+  private def indexFileNameFromDataFileName(dataFile: String): String = {
+    import SpinachFileFormat._
+    assert(dataFile.endsWith(SPINACH_DATA_EXTENSION))
+    val prefix = dataFile.substring(0, dataFile.length - SPINACH_DATA_EXTENSION.length)
+    prefix + "." + name + SPINACH_INDEX_EXTENSION
   }
 
   def write(out: FSDataOutputStream): Unit = {
