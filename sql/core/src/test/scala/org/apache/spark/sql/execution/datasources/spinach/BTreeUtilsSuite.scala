@@ -24,17 +24,23 @@ class BTreeUtilsSuite extends SparkFunSuite with Logging {
     assert(BTreeUtils.height(25) == 2)
     assert(BTreeUtils.height(26) == 3)
     assert(BTreeUtils.height(125) == 3)
-    assert(BTreeUtils.height(126) == 4)
+    assert(BTreeUtils.height(126) == 3)
+    assert(BTreeUtils.height(1000000) == 3)
   }
 
   test("total number") {
     assert(BTreeUtils.generate(126).sum == 126)
-    assert(BTreeUtils.generate(10000000).sum == 10000000)
+    assert(BTreeUtils.generate(1000000).sum == 1000000)
   }
 
   test("generate b tree") {
     assert(BTreeUtils.generate2(6).toString == "[2 3 3]")
     assert(BTreeUtils.generate2(11).toString == "[3 4 4 3]")
     assert(BTreeUtils.generate2(26).toString == "[2 [3 5 4 4] [3 5 4 4]]")
+    assert(BTreeUtils.generate2(1000).toString == "[10 [10 10 10 10 10 10 10 10 10 10 10]" +
+      " [10 10 10 10 10 10 10 10 10 10 10] [10 10 10 10 10 10 10 10 10 10 10] [10 10 10 10" +
+      " 10 10 10 10 10 10 10] [10 10 10 10 10 10 10 10 10 10 10] [10 10 10 10 10 10 10 10 " +
+      "10 10 10] [10 10 10 10 10 10 10 10 10 10 10] [10 10 10 10 10 10 10 10 10 10 10] [10" +
+      " 10 10 10 10 10 10 10 10 10 10] [10 10 10 10 10 10 10 10 10 10 10]]")
   }
 }
