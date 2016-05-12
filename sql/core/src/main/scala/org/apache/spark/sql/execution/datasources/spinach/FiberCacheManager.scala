@@ -17,7 +17,6 @@
 
 package org.apache.spark.sql.execution.datasources.spinach
 
-import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 import scala.collection.JavaConverters._
@@ -106,8 +105,9 @@ object FiberCacheManager extends AbstractFiberCacheManger {
 private[spinach] case class InputDataFileDescriptor(fin: FSDataInputStream, len: Long)
 
 private[spinach] object DataMetaCacheManager extends Logging {
-  // TODO: make it configurable
-  val spinachDataMetaCacheSize = 1024
+  // Using java options to config.
+  val spinachDataMetaCacheSize = System.getProperty("spinach.datametacache.size",
+    "262144").toLong  // default size is 256k
 
   @transient private val cache =
     CacheBuilder
@@ -183,7 +183,7 @@ private[spinach] case class DataFileScanner(
 
     is.synchronized {
       is.seek(fiberStart)
-      is.read(bytes)
+      is.readFully(bytes)
       putToFiberCache(bytes)
     }
 
@@ -191,7 +191,8 @@ private[spinach] case class DataFileScanner(
 
   def putToFiberCache(buf: Array[Byte]): FiberCacheData = {
     // TODO: make it configurable
-    val newBuf = if (true) {
+    // TODO: disable compress first since there's some issue to solve with conpression
+    val newBuf = if (false) {
       compCodec.compressedInputBuffer(buf)
     } else {
       buf

@@ -42,6 +42,7 @@ class FiberSuite extends SparkFunSuite with Logging with BeforeAndAfterAll {
   val ctx: Configuration = SparkHadoopUtil.get.getConfigurationFromJobContext(attemptContext)
 
   override def beforeAll(): Unit = {
+    System.setProperty("spinach.rowgroup.size", "1024")
     file = Utils.createTempDir()
     file.delete()
   }
@@ -111,6 +112,31 @@ class FiberSuite extends SparkFunSuite with Logging with BeforeAndAfterAll {
       assert(meta.rowCountInLastGroup === rowCountInLastGroups(i))
       assert(meta.rowGroupsMeta.length === rowGroupCounts(i))
     }
+  }
+
+  test("test spinach row group configuration") {
+    val defaultRowGroupSize = System.getProperty("spinach.rowgroup.size")
+    assert(defaultRowGroupSize != null)
+    // change default row group size
+    System.setProperty("spinach.rowgroup.size", "12345")
+    val schema = new StructType()
+      .add("a", IntegerType)
+      .add("b", StringType)
+      .add("c", IntegerType)
+
+    val path = new Path(file.getAbsolutePath, 10.toString)
+    writeData(ctx, path, schema, 10, attemptContext)
+    val reader = new SpinachDataReader2(path, schema, None, Array(0, 1))
+    val split = new FileSplit(
+      path, 0, FileSystem.get(ctx).getFileStatus(path).getLen(), Array.empty[String])
+    reader.initialize(split, attemptContext)
+    val meta = reader.dataFileMeta
+    assert(meta.totalRowCount() === 10)
+    assert(meta.rowCountInEachGroup === 12345)
+    assert(meta.rowCountInLastGroup === 10)
+    assert(meta.rowGroupsMeta.length === 1)
+    // set back to default value
+    System.setProperty("spinach.rowgroup.size", defaultRowGroupSize)
   }
 
   // a simple algorithm to check if it's should be null
