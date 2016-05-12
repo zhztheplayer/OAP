@@ -125,6 +125,32 @@ private[spinach] object DataMetaCacheManager extends Logging {
   }
 }
 
+private[spinach] object BTreeIndexCacheManager extends Logging {
+  private var cmContext: TaskAttemptContext = _
+  private var cmSchema: StructType = _
+  private var cmMeta: IndexMeta = _
+  @transient private val cache =
+    CacheBuilder
+      .newBuilder()
+      .maximumSize(DataMetaCacheManager.spinachDataMetaCacheSize)
+      .build(new CacheLoader[String, IndexNode] {
+        override def load(key: String): IndexNode = {
+          cmMeta.open(key, cmSchema, cmContext)
+        }
+      })
+
+  def apply(
+             path: String,
+             context: TaskAttemptContext,
+             schema: StructType,
+             meta: IndexMeta): IndexNode = {
+    cmContext = context
+    cmSchema = schema
+    cmMeta = meta
+    cache.get(path)
+  }
+}
+
 private[spinach] object FiberDataFileHandler extends Logging {
   @transient private val cache =
     CacheBuilder

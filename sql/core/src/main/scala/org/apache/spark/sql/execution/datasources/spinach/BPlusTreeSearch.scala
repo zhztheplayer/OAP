@@ -162,7 +162,8 @@ private[spinach] trait RangeScanner extends Iterator[Int] {
   def initialize(dataPath: String, context: TaskAttemptContext): RangeScanner = {
     assert(keySchema ne null)
     this.ordering = GenerateOrdering.create(keySchema)
-    val root = meta.open(dataPath, keySchema, context)
+    val root = BTreeIndexCacheManager(dataPath, context, keySchema, meta)
+    // val root = meta.open(dataPath, keySchema, context)
 
     if (start eq RangeScanner.DUMMY_KEY_START) {
       // find the first key in the left-most leaf node
