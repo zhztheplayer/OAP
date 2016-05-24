@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.catalyst
+package org.apache.spark.sql.execution.datasources.spinach
 
 /**
  * Identify a column for index definition, including column name and order
@@ -28,7 +28,6 @@ private[sql] case class IndexColumn(columnName: String, isAscending: Boolean) {
   def unquotedString: String = s"$columnName ${if (isAscending) "ASC" else "DESC"}"
 }
 
-// TODO move this file to spinach package
 private[sql] object IndexColumn {
   def apply(columnName: String, order: String): IndexColumn = order match {
     case "ASC" => new IndexColumn(columnName, true)

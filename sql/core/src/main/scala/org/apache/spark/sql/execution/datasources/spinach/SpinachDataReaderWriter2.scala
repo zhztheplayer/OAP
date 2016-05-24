@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution.datasources.spinach
 import org.apache.hadoop.fs.{FSDataOutputStream, Path}
 import org.apache.hadoop.io.NullWritable
 import org.apache.hadoop.mapreduce.{InputSplit, RecordReader, RecordWriter, TaskAttemptContext}
+
 import org.apache.spark.{Logging, SparkConf}
 import org.apache.spark.io.SnappyCompressionCodec
 import org.apache.spark.sql.catalyst.InternalRow

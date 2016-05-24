@@ -31,14 +31,13 @@ import org.apache.spark.Logging
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.catalyst.expressions.{BoundReference, Descending, Ascending, SortOrder}
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
-import org.apache.spark.sql.catalyst.{IndexColumn, InternalRow, TableIdentifier}
 import org.apache.spark.sql.execution.datasources.{BaseWriterContainer, PartitionSpec}
-import org.apache.spark.sql.sources.{DataSourceRegister, Filter, HadoopFsRelation, HadoopFsRelationProvider, OutputWriter, OutputWriterFactory}
+import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{DataFrame, Row, SQLContext}
-import org.apache.spark.unsafe.Platform
 import org.apache.spark.util.SerializableConfiguration
 
 class DefaultSource extends HadoopFsRelationProvider with DataSourceRegister {
@@ -182,11 +181,11 @@ private[spinach] class SpinachRelation(
         metaBuilder.addIndexMeta(new IndexMeta(indexName, BTreeIndex(entries)))
 
         // TODO _metaPaths can be empty while in an empty spinach data source folder
-        DataSourceMeta.write (
-        _metaPaths(0).getPath,
-        sqlContext.sparkContext.hadoopConfiguration,
-        metaBuilder.withNewSchema(oldMeta.schema).build(),
-        deleteIfExits = true)
+        DataSourceMeta.write(
+          _metaPaths(0).getPath,
+          sqlContext.sparkContext.hadoopConfiguration,
+          metaBuilder.withNewSchema(oldMeta.schema).build(),
+          deleteIfExits = true)
         SpinachIndexBuild(sqlContext, indexName, indexColumns, schema, paths).execute()
       case None =>
         sys.error("meta cannot be empty during the index building")
@@ -320,7 +319,7 @@ private[spinach] case class SpinachIndexBuild(
       val ids = indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
       @transient val keySchema = StructType(ids.map(schema.toIndexedSeq(_)))
       assert(!ids.exists(id => id < 0), "Index column not exists in schema.")
-      @transient lazy val ordering = buildOrdering(ids)
+      @transient lazy val ordering = buildOrdering(ids, keySchema)
       val serializableConfiguration =
         new SerializableConfiguration(sqlContext.sparkContext.hadoopConfiguration)
       val confBroadcast = sqlContext.sparkContext.broadcast(serializableConfiguration)
@@ -329,10 +328,10 @@ private[spinach] case class SpinachIndexBuild(
         val d = new Path(dataString)
         // scan every data file
         val reader = new SpinachDataReader2(d, schema, None, ids)
+        val hadoopConf = confBroadcast.value.value
         // TODO better initialize it elegantly
         val attemptContext: TaskAttemptContext = new TaskAttemptContextImpl(
-          new Configuration(),
-          new TaskAttemptID(new TaskID(new JobID(), true, 0), 0))
+          hadoopConf, new TaskAttemptID(new TaskID(new JobID(), true, 0), 0))
         reader.initialize(null, attemptContext)
         // TODO maybe use Long as RowId?
         // TODO use KeyGenerator like HashSemiJoin
@@ -373,7 +372,7 @@ private[spinach] case class SpinachIndexBuild(
         val pos = dataFilePathString.lastIndexOf(SpinachFileFormat.SPINACH_DATA_EXTENSION)
         val indexFile = new Path(dataFilePathString.substring(
           0, pos) + "." + indexName + SpinachFileFormat.SPINACH_INDEX_EXTENSION)
-        val fs = indexFile.getFileSystem(confBroadcast.value.value)
+        val fs = indexFile.getFileSystem(hadoopConf)
         val fileOut = fs.create(indexFile, false)
         var i = 0
         var fileOffset = 0
@@ -410,28 +409,12 @@ private[spinach] case class SpinachIndexBuild(
     sqlContext.sparkContext.emptyRDD[InternalRow]
   }
 
-  private def buildOrdering(requiredIds: Array[Int]): Ordering[InternalRow] = {
+  private def buildOrdering(
+      requiredIds: Array[Int], keySchema: StructType): Ordering[InternalRow] = {
     val order = requiredIds.toSeq.map(id => SortOrder(
-      BoundReference(id, schema(id).dataType, nullable = true),
+      BoundReference(id, keySchema(id).dataType, nullable = true),
       if (indexColumns(requiredIds.indexOf(id)).isAscending) Ascending else Descending))
-    GenerateOrdering.generate(order, schema.toAttributes)
-  }
-
-  private def internalRowToByte(row: InternalRow, schema: StructType): Array[Byte] = {
-    var idx = 0
-    var offset = Platform.BYTE_ARRAY_OFFSET
-    val types = schema.map(_.dataType)
-    val buffer = new Array[Byte](schema.defaultSize)
-    while (idx < row.numFields) {
-      types(idx) match {
-        case IntegerType => Platform.putInt(buffer, offset, row.getInt(idx))
-        // TODO more datatypes
-        case _ => sys.error("Not implemented yet!")
-      }
-      offset = offset + types(idx).defaultSize
-      idx = idx + 1
-    }
-    buffer
+    GenerateOrdering.generate(order, keySchema.toAttributes)
   }
 
   private def writeTreeToOut(
@@ -477,11 +460,11 @@ private[spinach] case class SpinachIndexBuild(
 
   private def writeKeyIntoIndexNode(
       row: InternalRow, schema: StructType, fout: FSDataOutputStream, pointer: Int): Int = {
-    val byteDataFromRow = internalRowToByte(row, schema)
-    // contains length(distance to sibling), key, pointer
-    val nextOffset = byteDataFromRow.length + 4 + 4
+    val converter = UnsafeProjection.create(schema)
+    val unsafeRow = converter.apply(row)
+    val nextOffset = unsafeRow.getSizeInBytes + 4 + 4
     fout.writeInt(nextOffset)
-    fout.write(byteDataFromRow)
+    unsafeRow.writeToStream(fout, null)
     fout.writeInt(pointer)
     nextOffset
   }

@@ -19,10 +19,9 @@ package org.apache.spark.sql.execution.datasources.spinach
 
 import java.io.{DataInputStream, DataOutputStream}
 
-import com.sun.org.apache.xalan.internal.xsltc.compiler.util.IntType
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.MutableRow
-import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
+import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 
 private[spinach] abstract class DataReaderWriter(val cardinal: Int) {

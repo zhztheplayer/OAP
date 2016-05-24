@@ -21,8 +21,7 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.mapreduce.{JobID, TaskAttemptContext, TaskAttemptID, TaskID}
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.Ascending
-import org.apache.spark.sql.sources.{And, EqualTo, Filter, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual}
+import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructType}
 import org.apache.spark.{Logging, SparkFunSuite}
 import org.scalatest.BeforeAndAfterAll

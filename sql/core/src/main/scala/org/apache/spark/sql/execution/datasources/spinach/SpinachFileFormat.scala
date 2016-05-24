@@ -17,10 +17,9 @@
 
 package org.apache.spark.sql.execution.datasources.spinach
 
-import java.io.IOException
-
 import org.apache.hadoop.conf.Configuration
 import org.apache.parquet.hadoop.util.SerializationUtil
+
 import org.apache.spark.sql.types.StructType
 
 private[spinach] object SpinachFileFormat {

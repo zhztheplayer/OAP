@@ -23,14 +23,13 @@ import scala.collection.JavaConverters._
 
 import com.google.common.base.Stopwatch
 import org.apache.commons.logging.{Log, LogFactory}
-import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs._
 import org.apache.hadoop.io.NullWritable
 import org.apache.hadoop.mapreduce.{InputSplit, JobContext, RecordReader, TaskAttemptContext}
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
+
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.GenericMutableRow
 import org.apache.spark.sql.types.StructType
 
 class SpinachFileInputFormat extends FileInputFormat[NullWritable, InternalRow] {

@@ -19,8 +19,7 @@ package org.apache.spark.sql.execution.datasources.spinach
 
 import java.io.File
 
-import org.apache.spark.sql.catalyst.{IndexColumn, TableIdentifier}
-import org.apache.spark.sql.execution.datasources.DDLParser
+import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.types.{IntegerType, StringType, StructType}
 import org.apache.spark.sql._
 import org.apache.spark.sql.test.SharedSQLContext

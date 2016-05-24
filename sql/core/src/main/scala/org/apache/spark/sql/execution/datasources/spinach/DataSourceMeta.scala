@@ -28,9 +28,8 @@ import org.apache.hadoop.mapreduce.TaskAttemptContext
 
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Ascending, Descending, SortDirection}
+import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.types._
-import org.apache.spark.unsafe.Platform
 
 /**
  * The Spinach meta file is organized in the following format.
@@ -155,7 +154,7 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
       signLengths(iter) = signOffset - 8
       val buffer = new Array[Byte](signOffset - 8)
       fin.read(buffer)
-      rows(iter) = readInternalRowFromFileWithSchema(buffer, types)
+      rows(iter) = readInternalRowFromFileWithSchema2(buffer, types)
       childOffsets(iter) = fin.readInt()
       iter = iter + 1
     }
@@ -196,21 +195,11 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     InMemoryIndexNodeValue(data.toSeq)
   }
 
-  private def readInternalRowFromFileWithSchema(
+  private def readInternalRowFromFileWithSchema2(
       bytes: Array[Byte], types: Seq[DataType]): InternalRow = {
-    var offset = Platform.BYTE_ARRAY_OFFSET
-    var i = 0
-    val arr = new Array[Any](types.length)
-    while (i < types.length) {
-      arr(i) = types(i) match {
-        case IntegerType => Platform.getInt(bytes, offset)
-        // TODO more types
-        case _ => sys.error("not implemented types")
-      }
-      offset = offset + types(i).defaultSize
-      i = i + 1
-    }
-    InternalRow.fromSeq(arr.toSeq)
+    val unsafeRow = UnsafeRow.createFromByteArray(bytes.length, types.length)
+    unsafeRow.pointTo(bytes, types.length, bytes.length)
+    unsafeRow
   }
 
   private def writeBitSet(value: BitSet, totalSizeToWrite: Int, out: FSDataOutputStream): Unit = {
