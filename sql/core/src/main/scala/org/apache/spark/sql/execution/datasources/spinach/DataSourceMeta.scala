@@ -31,6 +31,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.execution.datasources.spinach.utils.IndexUtils
 import org.apache.spark.sql.types._
+import org.apache.spark.unsafe.Platform
 
 /**
  * The Spinach meta file is organized in the following format.
@@ -129,7 +130,7 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     fin.read(bytes, 0, fileLength.toInt)
     val dataEnd = IndexUtils.readIntFromByteArray(bytes, fileLength.toInt - 8)
     val rootOffset = IndexUtils.readIntFromByteArray(bytes, fileLength.toInt - 4)
-    constructBTreeFromFile2(bytes, schema, rootOffset, dataEnd)
+    constructBTreeFromFile3(bytes, schema, rootOffset, dataEnd)
   }
 
   private def constructBTreeFromFile2(
@@ -139,6 +140,7 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
 
   private def constructBTreeFromFile3(
       bytes: Array[Byte], schema: StructType, rootOffset: Int, dataEnd: Int): IndexNode = {
+    // TODO maybe write more info to index file to speed up random access in IndexNode keyAt.
     UnsafeIndexNode(bytes, rootOffset, dataEnd, schema)
   }
 
@@ -151,6 +153,7 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     var readOffset = rootOffset
     val nodeLen = IndexUtils.readIntFromByteArray(bytes, readOffset)
     readOffset += 4
+    // this field is only useful when constructing unsafe tree
     val nextOffset = IndexUtils.readIntFromByteArray(bytes, readOffset)
     readOffset += 4
     if (nodeLen == 0) return (null, null)
@@ -164,10 +167,11 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
       val signOffset = IndexUtils.readIntFromByteArray(bytes, readOffset)
       readOffset += 4
       signLengths(iter) = signOffset - 8
-      val buffer = new Array[Byte](signLengths(iter))
-      Array.copy(bytes, readOffset, buffer, 0, signLengths(iter))
+      val unsafeRow = new UnsafeRow
+      unsafeRow.pointTo(
+        bytes, Platform.BYTE_ARRAY_OFFSET + readOffset, types.length, signLengths(iter))
       readOffset += signLengths(iter)
-      rows(iter) = readInternalRowFromFileWithSchema2(buffer, types)
+      rows(iter) = unsafeRow
       childOffsets(iter) = IndexUtils.readIntFromByteArray(bytes, readOffset)
       readOffset += 4
       iter = iter + 1
@@ -209,13 +213,6 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
       iter = iter + 1
     }
     InMemoryIndexNodeValue(data.toSeq)
-  }
-
-  private def readInternalRowFromFileWithSchema2(
-      bytes: Array[Byte], types: Seq[DataType]): InternalRow = {
-    val unsafeRow = new UnsafeRow
-    unsafeRow.pointTo(bytes, types.length, bytes.length)
-    unsafeRow
   }
 
   private def writeBitSet(value: BitSet, totalSizeToWrite: Int, out: FSDataOutputStream): Unit = {

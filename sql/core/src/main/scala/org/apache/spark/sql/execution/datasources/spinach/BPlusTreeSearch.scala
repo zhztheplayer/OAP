@@ -25,6 +25,7 @@ import org.apache.spark.sql.catalyst.expressions.{UnsafeRow, Ascending, SortDire
 import org.apache.spark.sql.execution.datasources.spinach.utils.IndexUtils
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types.{StructField, StructType}
+import org.apache.spark.unsafe.Platform
 
 import scala.collection.mutable
 
@@ -87,7 +88,6 @@ trait UnsafeIndexTree {
   def buffer: Array[Byte]
   def offset: Int
   def length: Int = IndexUtils.readIntFromByteArray(buffer, offset)
-  def next: UnsafeIndexTree
 }
 
 private[spinach] case class UnsafeIndexNodeValue(
@@ -95,15 +95,12 @@ private[spinach] case class UnsafeIndexNodeValue(
     offset: Int,
     dataEnd: Int) extends IndexNodeValue with UnsafeIndexTree {
   override def apply(idx: Int): Int = IndexUtils.readIntFromByteArray(buffer, offset + 4 + idx * 4)
-  override def next: UnsafeIndexNodeValue =
-    UnsafeIndexNodeValue(buffer, offset + 4 + length * 4, dataEnd)
 
   // for debug
   private def values: Seq[Int] = (0 until length).map(apply)
   override def toString: String = "ValuesNode(" + values.mkString(",") + ")"
 }
 
-// TODO not finished
 private[spinach] case class UnsafeIndexNode(
     buffer: Array[Byte],
     offset: Int,
@@ -112,18 +109,18 @@ private[spinach] case class UnsafeIndexNode(
   override def keyAt(idx: Int): Key = {
     var signOffset = offset + 8
     (0 until idx).foreach { _ =>
-      signOffset = IndexUtils.readIntFromByteArray(buffer, signOffset)
+      signOffset += IndexUtils.readIntFromByteArray(buffer, signOffset)
     }
     val len = IndexUtils.readIntFromByteArray(buffer, signOffset) - 8
     val row = new UnsafeRow
-    row.pointTo(buffer, signOffset + 4, schema.length, len)
+    row.pointTo(buffer, Platform.BYTE_ARRAY_OFFSET + signOffset + 4, schema.length, len)
     row
   }
 
   private def treeChildAt(idx: Int): UnsafeIndexTree = {
     var signOffset = offset + 8
     (0 to idx).foreach { _ =>
-      signOffset = IndexUtils.readIntFromByteArray(buffer, signOffset)
+      signOffset += IndexUtils.readIntFromByteArray(buffer, signOffset)
     }
     val childOffset = IndexUtils.readIntFromByteArray(buffer, signOffset - 4)
     if (isLeaf) {
@@ -137,10 +134,14 @@ private[spinach] case class UnsafeIndexNode(
   override def valueAt(idx: Int): UnsafeIndexNodeValue =
     treeChildAt(idx).asInstanceOf[UnsafeIndexNodeValue]
   override lazy val isLeaf: Boolean = IndexUtils.readIntFromByteArray(
-    buffer, IndexUtils.readIntFromByteArray(buffer, offset + 8) - 4) < dataEnd
+    buffer, offset + 4 + IndexUtils.readIntFromByteArray(buffer, offset + 8)) < dataEnd
   override def next: UnsafeIndexNode = {
     val nextOffset = IndexUtils.readIntFromByteArray(buffer, offset + 4)
-    UnsafeIndexNode(buffer, nextOffset, dataEnd, schema)
+    if (nextOffset == -1) {
+      null
+    } else {
+      UnsafeIndexNode(buffer, nextOffset, dataEnd, schema)
+    }
   }
 
   // for debug

@@ -426,7 +426,7 @@ private[spinach] case class SpinachIndexBuild(
       keysList: java.util.LinkedList[InternalRow],
       keySchema: StructType,
       listOffsetFromEnd: Int,
-      nextOffset: Int): Int = {
+      nextOffset: Int): (Int, Int) = {
     var subOffset = 0
     if (tree.children.nonEmpty) {
       // this is a non-leaf node
@@ -435,20 +435,23 @@ private[spinach] case class SpinachIndexBuild(
       assert(childrenCount == tree.root)
       var iter = childrenCount
       // write down all subtrees reversely
+      var lastStart = nextOffset
       while (iter > 0) {
         iter -= 1
         val subTree = tree.children(iter)
         val subListOffsetFromEnd = listOffsetFromEnd + childrenCount - 1 - iter
-        subOffset += writeTreeToOut(
-          subTree, out, map, fileOffset + subOffset, keysList, keySchema, subListOffsetFromEnd, -1)
+        val (writeOffset, oneLevelStart) = writeTreeToOut(
+          subTree, out, map, fileOffset + subOffset,
+          keysList, keySchema, subListOffsetFromEnd, lastStart)
+        lastStart = oneLevelStart
+        subOffset += writeOffset
       }
     }
     val newKeyOffset = subOffset
     // write road sign count on every node first
     out.writeInt(tree.root)
     subOffset = subOffset + 4
-    // TODO this is bug
-    out.writeInt(-1)
+    out.writeInt(nextOffset)
     subOffset = subOffset + 4
     // For all IndexNode, write down all road sign, each pointing to specific data segment
     var rmCount = tree.root
@@ -461,7 +464,7 @@ private[spinach] case class SpinachIndexBuild(
       keysList.remove(keysList.size - listOffsetFromEnd - rmCount)
     }
     map.put(keyVal, fileOffset + newKeyOffset)
-    subOffset
+    (subOffset, newKeyOffset)
   }
 
   @transient private lazy val converter = UnsafeProjection.create(keySchema)
