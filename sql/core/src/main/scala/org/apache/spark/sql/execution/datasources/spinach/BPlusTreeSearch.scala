@@ -110,7 +110,7 @@ private[spinach] case class UnsafeIndexNode(
     dataEnd: Int,
     schema: StructType) extends IndexNode with UnsafeIndexTree {
   override def keyAt(idx: Int): Key = {
-    var signOffset = offset + 4
+    var signOffset = offset + 8
     (0 until idx).foreach { _ =>
       signOffset = IndexUtils.readIntFromByteArray(buffer, signOffset)
     }
@@ -121,7 +121,7 @@ private[spinach] case class UnsafeIndexNode(
   }
 
   private def treeChildAt(idx: Int): UnsafeIndexTree = {
-    var signOffset = offset + 4
+    var signOffset = offset + 8
     (0 to idx).foreach { _ =>
       signOffset = IndexUtils.readIntFromByteArray(buffer, signOffset)
     }
@@ -137,9 +137,11 @@ private[spinach] case class UnsafeIndexNode(
   override def valueAt(idx: Int): UnsafeIndexNodeValue =
     treeChildAt(idx).asInstanceOf[UnsafeIndexNodeValue]
   override lazy val isLeaf: Boolean = IndexUtils.readIntFromByteArray(
-    buffer, IndexUtils.readIntFromByteArray(buffer, offset + 4) - 4) < dataEnd
-  // TODO bug
-  override def next: UnsafeIndexNode = null
+    buffer, IndexUtils.readIntFromByteArray(buffer, offset + 8) - 4) < dataEnd
+  override def next: UnsafeIndexNode = {
+    val nextOffset = IndexUtils.readIntFromByteArray(buffer, offset + 4)
+    UnsafeIndexNode(buffer, nextOffset, dataEnd, schema)
+  }
 
   // for debug
   private def children: Seq[UnsafeIndexTree] = (0 until length).map(treeChildAt)

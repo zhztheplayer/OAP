@@ -399,7 +399,7 @@ private[spinach] case class SpinachIndexBuild(
         val uniqueKeysList = new java.util.LinkedList[InternalRow]()
         import scala.collection.JavaConverters._
         uniqueKeysList.addAll(uniqueKeys.toSeq.asJava)
-        writeTreeToOut(treeShape, fileOut, offsetMap, fileOffset, uniqueKeysList, keySchema, 0)
+        writeTreeToOut(treeShape, fileOut, offsetMap, fileOffset, uniqueKeysList, keySchema, 0, -1)
         assert(uniqueKeysList.size == 1)
         fileOut.writeInt(dataEnd)
         fileOut.writeInt(offsetMap.get(uniqueKeysList.getFirst))
@@ -425,35 +425,40 @@ private[spinach] case class SpinachIndexBuild(
       fileOffset: Int,
       keysList: java.util.LinkedList[InternalRow],
       keySchema: StructType,
-      listOffset: Int): Int = {
+      listOffsetFromEnd: Int,
+      nextOffset: Int): Int = {
     var subOffset = 0
     if (tree.children.nonEmpty) {
       // this is a non-leaf node
       // Need to write down all subtrees
       val childrenCount = tree.children.size
       assert(childrenCount == tree.root)
-      var iter = 0
-      // write down all subtrees
-      while (iter < childrenCount) {
+      var iter = childrenCount
+      // write down all subtrees reversely
+      while (iter > 0) {
+        iter -= 1
         val subTree = tree.children(iter)
+        val subListOffsetFromEnd = listOffsetFromEnd + childrenCount - 1 - iter
         subOffset += writeTreeToOut(
-          subTree, out, map, fileOffset + subOffset, keysList, keySchema, listOffset + iter)
-        iter = iter + 1
+          subTree, out, map, fileOffset + subOffset, keysList, keySchema, subListOffsetFromEnd, -1)
       }
     }
     val newKeyOffset = subOffset
     // write road sign count on every node first
     out.writeInt(tree.root)
     subOffset = subOffset + 4
+    // TODO this is bug
+    out.writeInt(-1)
+    subOffset = subOffset + 4
     // For all IndexNode, write down all road sign, each pointing to specific data segment
-    val keyVal = keysList.get(listOffset)
+    var rmCount = tree.root
+    val keyVal = keysList.get(keysList.size - listOffsetFromEnd - rmCount)
     subOffset += writeKeyIntoIndexNode(keyVal, out, map.get(keyVal))
-    var rmCount = 1
-    while (rmCount < tree.root) {
-      val writeKey = keysList.get(listOffset + 1)
+    while (rmCount > 1) {
+      rmCount -= 1
+      val writeKey = keysList.get(keysList.size - listOffsetFromEnd - rmCount)
       subOffset += writeKeyIntoIndexNode(writeKey, out, map.get(writeKey))
-      keysList.remove(listOffset + 1)
-      rmCount = rmCount + 1
+      keysList.remove(keysList.size - listOffsetFromEnd - rmCount)
     }
     map.put(keyVal, fileOffset + newKeyOffset)
     subOffset

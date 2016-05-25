@@ -151,6 +151,8 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     var readOffset = rootOffset
     val nodeLen = IndexUtils.readIntFromByteArray(bytes, readOffset)
     readOffset += 4
+    val nextOffset = IndexUtils.readIntFromByteArray(bytes, readOffset)
+    readOffset += 4
     if (nodeLen == 0) return (null, null)
     assert(nodeLen > 0)
     var iter = 0
