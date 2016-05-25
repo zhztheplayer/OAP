@@ -301,6 +301,9 @@ private[spinach] case class SpinachIndexBuild(
     indexColumns: Array[IndexColumn],
     schema: StructType,
     paths: Array[String]) extends Logging {
+  @transient private lazy val ids =
+    indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
+  @transient private lazy val keySchema = StructType(ids.map(schema.toIndexedSeq(_)))
   def execute(): RDD[InternalRow] = {
     if (paths.isEmpty) {
       // the input path probably be pruned, do nothing
@@ -316,8 +319,6 @@ private[spinach] case class SpinachIndexBuild(
       }.toSeq
       val data = dataPaths.map(_.toString).filter(
         _.endsWith(SpinachFileFormat.SPINACH_DATA_EXTENSION))
-      val ids = indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
-      @transient val keySchema = StructType(ids.map(schema.toIndexedSeq(_)))
       assert(!ids.exists(id => id < 0), "Index column not exists in schema.")
       @transient lazy val ordering = buildOrdering(ids, keySchema)
       val serializableConfiguration =
@@ -435,7 +436,7 @@ private[spinach] case class SpinachIndexBuild(
       // write down all subtrees
       while (iter < childrenCount) {
         val subTree = tree.children(iter)
-        subOffset = subOffset + writeTreeToOut(
+        subOffset += writeTreeToOut(
           subTree, out, map, fileOffset + subOffset, keysList, keySchema, listOffset + iter)
         iter = iter + 1
       }
@@ -446,11 +447,11 @@ private[spinach] case class SpinachIndexBuild(
     subOffset = subOffset + 4
     // For all IndexNode, write down all road sign, each pointing to specific data segment
     val keyVal = keysList.get(listOffset)
-    subOffset = subOffset + writeKeyIntoIndexNode(keyVal, keySchema, out, map.get(keyVal))
+    subOffset += writeKeyIntoIndexNode(keyVal, out, map.get(keyVal))
     var rmCount = 1
     while (rmCount < tree.root) {
       val writeKey = keysList.get(listOffset + 1)
-      subOffset = subOffset + writeKeyIntoIndexNode(writeKey, keySchema, out, map.get(writeKey))
+      subOffset += writeKeyIntoIndexNode(writeKey, out, map.get(writeKey))
       keysList.remove(listOffset + 1)
       rmCount = rmCount + 1
     }
@@ -458,9 +459,9 @@ private[spinach] case class SpinachIndexBuild(
     subOffset
   }
 
+  @transient private lazy val converter = UnsafeProjection.create(keySchema)
   private def writeKeyIntoIndexNode(
-      row: InternalRow, schema: StructType, fout: FSDataOutputStream, pointer: Int): Int = {
-    val converter = UnsafeProjection.create(schema)
+      row: InternalRow, fout: FSDataOutputStream, pointer: Int): Int = {
     val unsafeRow = converter.apply(row)
     val nextOffset = unsafeRow.getSizeInBytes + 4 + 4
     fout.writeInt(nextOffset)

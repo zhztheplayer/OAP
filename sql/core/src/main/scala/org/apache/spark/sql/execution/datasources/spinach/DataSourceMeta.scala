@@ -18,10 +18,7 @@
 package org.apache.spark.sql.execution.datasources.spinach
 
 import java.io.IOException
-import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
-
-import org.apache.spark.util.ByteBufferInputStream
 
 import scala.collection.mutable.{ArrayBuffer, BitSet}
 
@@ -32,6 +29,7 @@ import org.apache.hadoop.mapreduce.TaskAttemptContext
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.execution.datasources.spinach.utils.IndexUtils
 import org.apache.spark.sql.types._
 
 /**
@@ -129,19 +127,19 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     val fileLength = fs.getContentSummary(file).getLength
     val bytes = new Array[Byte](fileLength.toInt)
     fin.read(bytes, 0, fileLength.toInt)
-    val dataEnd = readIntFromByteArray(bytes, fileLength.toInt - 8)
-    val rootOffset = readIntFromByteArray(bytes, fileLength.toInt - 4)
+    val dataEnd = IndexUtils.readIntFromByteArray(bytes, fileLength.toInt - 8)
+    val rootOffset = IndexUtils.readIntFromByteArray(bytes, fileLength.toInt - 4)
     constructBTreeFromFile2(bytes, schema, rootOffset, dataEnd)
-  }
-
-  private def readIntFromByteArray(bytes: Array[Byte], offset: Int): Int = {
-    bytes(3 + offset) & 0xFF | (bytes(2 + offset) & 0xFF) << 8 |
-      (bytes(1 + offset) & 0xFF) << 16 | (bytes(offset) & 0xFF) << 24
   }
 
   private def constructBTreeFromFile2(
       bytes: Array[Byte], schema: StructType, rootOffset: Int, dataEnd: Int): IndexNode = {
     constructBTreeFromFileWithFirstLeaf2(bytes, schema, rootOffset, dataEnd, null)._1
+  }
+
+  private def constructBTreeFromFile3(
+      bytes: Array[Byte], schema: StructType, rootOffset: Int, dataEnd: Int): IndexNode = {
+    UnsafeIndexNode(bytes, rootOffset, dataEnd, schema)
   }
 
   private def constructBTreeFromFileWithFirstLeaf2(
@@ -151,7 +149,7 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
       dataEnd: Int,
       next: IndexNode): (IndexNode, IndexNode) = {
     var readOffset = rootOffset
-    val nodeLen = readIntFromByteArray(bytes, readOffset)
+    val nodeLen = IndexUtils.readIntFromByteArray(bytes, readOffset)
     readOffset += 4
     if (nodeLen == 0) return (null, null)
     assert(nodeLen > 0)
@@ -161,14 +159,14 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     val childOffsets = new Array[Int](nodeLen)
     val signLengths = new Array[Int](nodeLen)
     while (iter < nodeLen) {
-      val signOffset = readIntFromByteArray(bytes, readOffset)
+      val signOffset = IndexUtils.readIntFromByteArray(bytes, readOffset)
       readOffset += 4
       signLengths(iter) = signOffset - 8
       val buffer = new Array[Byte](signLengths(iter))
       Array.copy(bytes, readOffset, buffer, 0, signLengths(iter))
       readOffset += signLengths(iter)
       rows(iter) = readInternalRowFromFileWithSchema2(buffer, types)
-      childOffsets(iter) = readIntFromByteArray(bytes, readOffset)
+      childOffsets(iter) = IndexUtils.readIntFromByteArray(bytes, readOffset)
       readOffset += 4
       iter = iter + 1
     }
@@ -199,12 +197,12 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
 
   private def constructIndexNodeValue2(bytes: Array[Byte], offset: Int): IndexNodeValue = {
     var readOffset = offset
-    val length = readIntFromByteArray(bytes, readOffset)
+    val length = IndexUtils.readIntFromByteArray(bytes, readOffset)
     readOffset += 4
     var iter = 0
     val data = new Array[Int](length)
     while (iter < length) {
-      data(iter) = readIntFromByteArray(bytes, readOffset)
+      data(iter) = IndexUtils.readIntFromByteArray(bytes, readOffset)
       readOffset += 4
       iter = iter + 1
     }

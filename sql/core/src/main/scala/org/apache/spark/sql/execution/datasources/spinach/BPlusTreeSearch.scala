@@ -17,13 +17,12 @@
 
 package org.apache.spark.sql.execution.datasources.spinach
 
-import java.nio.ByteBuffer
-
 import org.apache.hadoop.mapreduce.TaskAttemptContext
 import org.apache.spark.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
-import org.apache.spark.sql.catalyst.expressions.{Ascending, InterpretedOrdering, SortDirection}
+import org.apache.spark.sql.catalyst.expressions.{UnsafeRow, Ascending, SortDirection}
+import org.apache.spark.sql.execution.datasources.spinach.utils.IndexUtils
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types.{StructField, StructType}
 
@@ -84,32 +83,69 @@ private[spinach] case class InMemoryIndexNode(
     }
 }
 
-// TODO not finished
-private[spinach] case class UnsafeIndexNodeValue(values: Seq[Int]) extends IndexNodeValue {
-  override def length: Int = values.length
-  override def apply(idx: Int): Int = values(idx)
+trait UnsafeIndexTree {
+  def buffer: Array[Byte]
+  def offset: Int
+  def length: Int = IndexUtils.readIntFromByteArray(buffer, offset)
+  def next: UnsafeIndexTree
+}
+
+private[spinach] case class UnsafeIndexNodeValue(
+    buffer: Array[Byte],
+    offset: Int,
+    dataEnd: Int) extends IndexNodeValue with UnsafeIndexTree {
+  override def apply(idx: Int): Int = IndexUtils.readIntFromByteArray(buffer, offset + 4 + idx * 4)
+  override def next: UnsafeIndexNodeValue =
+    UnsafeIndexNodeValue(buffer, offset + 4 + length * 4, dataEnd)
+
+  // for debug
+  private def values: Seq[Int] = (0 until length).map(apply)
   override def toString: String = "ValuesNode(" + values.mkString(",") + ")"
 }
 
 // TODO not finished
 private[spinach] case class UnsafeIndexNode(
-    keys: Seq[InternalRow],
-    children: Seq[IndexNode],
-    values: Seq[IndexNodeValue],
-    next: IndexNode,
-    isLeaf: Boolean) extends IndexNode {
-  override def length: Int = keys.length
-  override def keyAt(idx: Int): Key = keys(idx)
-  override def childAt(idx: Int): IndexNode =
-    if (isLeaf) sys.error("No child for index leaf!") else children(idx)
-  override def valueAt(idx: Int): IndexNodeValue =
-    if (isLeaf) values(idx) else sys.error("No value for index non-leaf!")
-  override def toString: String =
-    if (isLeaf) {
-      s"[Signs(${keys.map(_.getInt(0)).mkString(",")}) " + values.mkString(" ") + "]"
-    } else {
-      s"[Signs(${keys.map(_.getInt(0)).mkString(",")}) " + children.mkString(" ") + "]"
+    buffer: Array[Byte],
+    offset: Int,
+    dataEnd: Int,
+    schema: StructType) extends IndexNode with UnsafeIndexTree {
+  override def keyAt(idx: Int): Key = {
+    var signOffset = offset + 4
+    (0 until idx).foreach { _ =>
+      signOffset = IndexUtils.readIntFromByteArray(buffer, signOffset)
     }
+    val len = IndexUtils.readIntFromByteArray(buffer, signOffset) - 8
+    val row = new UnsafeRow
+    row.pointTo(buffer, signOffset + 4, schema.length, len)
+    row
+  }
+
+  private def treeChildAt(idx: Int): UnsafeIndexTree = {
+    var signOffset = offset + 4
+    (0 to idx).foreach { _ =>
+      signOffset = IndexUtils.readIntFromByteArray(buffer, signOffset)
+    }
+    val childOffset = IndexUtils.readIntFromByteArray(buffer, signOffset - 4)
+    if (isLeaf) {
+      UnsafeIndexNodeValue(buffer, childOffset, dataEnd)
+    } else {
+      UnsafeIndexNode(buffer, childOffset, dataEnd, schema)
+    }
+  }
+
+  override def childAt(idx: Int): UnsafeIndexNode = treeChildAt(idx).asInstanceOf[UnsafeIndexNode]
+  override def valueAt(idx: Int): UnsafeIndexNodeValue =
+    treeChildAt(idx).asInstanceOf[UnsafeIndexNodeValue]
+  override lazy val isLeaf: Boolean = IndexUtils.readIntFromByteArray(
+    buffer, IndexUtils.readIntFromByteArray(buffer, offset + 4) - 4) < dataEnd
+  // TODO bug
+  override def next: UnsafeIndexNode = null
+
+  // for debug
+  private def children: Seq[UnsafeIndexTree] = (0 until length).map(treeChildAt)
+  private def keys: Seq[Key] = (0 until length).map(keyAt)
+  override def toString: String =
+    s"[Signs(${keys.map(_.getInt(0)).mkString(",")}) " + children.mkString(" ") + "]"
 }
 
 private[spinach] class CurrentKey(node: IndexNode, keyIdx: Int, valueIdx: Int) {
