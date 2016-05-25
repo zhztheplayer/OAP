@@ -85,11 +85,31 @@ private[spinach] case class InMemoryIndexNode(
 }
 
 // TODO not finished
-private[spinach] abstract class UnsafeIndexNodeValue(buffer: ByteBuffer) extends IndexNodeValue {
+private[spinach] case class UnsafeIndexNodeValue(values: Seq[Int]) extends IndexNodeValue {
+  override def length: Int = values.length
+  override def apply(idx: Int): Int = values(idx)
+  override def toString: String = "ValuesNode(" + values.mkString(",") + ")"
 }
 
 // TODO not finished
-private[spinach] abstract class UnsafeMemoryIndexNode(buffer: ByteBuffer) extends IndexNode {
+private[spinach] case class UnsafeIndexNode(
+    keys: Seq[InternalRow],
+    children: Seq[IndexNode],
+    values: Seq[IndexNodeValue],
+    next: IndexNode,
+    isLeaf: Boolean) extends IndexNode {
+  override def length: Int = keys.length
+  override def keyAt(idx: Int): Key = keys(idx)
+  override def childAt(idx: Int): IndexNode =
+    if (isLeaf) sys.error("No child for index leaf!") else children(idx)
+  override def valueAt(idx: Int): IndexNodeValue =
+    if (isLeaf) values(idx) else sys.error("No value for index non-leaf!")
+  override def toString: String =
+    if (isLeaf) {
+      s"[Signs(${keys.map(_.getInt(0)).mkString(",")}) " + values.mkString(" ") + "]"
+    } else {
+      s"[Signs(${keys.map(_.getInt(0)).mkString(",")}) " + children.mkString(" ") + "]"
+    }
 }
 
 private[spinach] class CurrentKey(node: IndexNode, keyIdx: Int, valueIdx: Int) {

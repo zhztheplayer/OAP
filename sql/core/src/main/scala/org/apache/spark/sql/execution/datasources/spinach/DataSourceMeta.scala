@@ -18,7 +18,10 @@
 package org.apache.spark.sql.execution.datasources.spinach
 
 import java.io.IOException
+import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
+
+import org.apache.spark.util.ByteBufferInputStream
 
 import scala.collection.mutable.{ArrayBuffer, BitSet}
 
@@ -123,25 +126,33 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     val fin = fs.open(file)
     // wind to end of file to get tree root
     // TODO check if enough to fit in Int
-    fin.seek(fs.getContentSummary(file).getLength - 8)
-    val dataEnd = fin.readInt()
-    val rootOffset = fin.readInt()
-    constructBTreeFromFile(fin, schema, rootOffset, dataEnd)
+    val fileLength = fs.getContentSummary(file).getLength
+    val bytes = new Array[Byte](fileLength.toInt)
+    fin.read(bytes, 0, fileLength.toInt)
+    val dataEnd = readIntFromByteArray(bytes, fileLength.toInt - 8)
+    val rootOffset = readIntFromByteArray(bytes, fileLength.toInt - 4)
+    constructBTreeFromFile2(bytes, schema, rootOffset, dataEnd)
   }
 
-  private def constructBTreeFromFile(
-      fin: FSDataInputStream, schema: StructType, rootOffset: Int, dataEnd: Int): IndexNode = {
-    constructBTreeFromFileWithFirstLeaf(fin, schema, rootOffset, dataEnd, null)._1
+  private def readIntFromByteArray(bytes: Array[Byte], offset: Int): Int = {
+    bytes(3 + offset) & 0xFF | (bytes(2 + offset) & 0xFF) << 8 |
+      (bytes(1 + offset) & 0xFF) << 16 | (bytes(offset) & 0xFF) << 24
   }
 
-  private def constructBTreeFromFileWithFirstLeaf(
-      fin: FSDataInputStream,
+  private def constructBTreeFromFile2(
+      bytes: Array[Byte], schema: StructType, rootOffset: Int, dataEnd: Int): IndexNode = {
+    constructBTreeFromFileWithFirstLeaf2(bytes, schema, rootOffset, dataEnd, null)._1
+  }
+
+  private def constructBTreeFromFileWithFirstLeaf2(
+      bytes: Array[Byte],
       schema: StructType,
       rootOffset: Int,
       dataEnd: Int,
       next: IndexNode): (IndexNode, IndexNode) = {
-    fin.seek(rootOffset)
-    val nodeLen = fin.readInt()
+    var readOffset = rootOffset
+    val nodeLen = readIntFromByteArray(bytes, readOffset)
+    readOffset += 4
     if (nodeLen == 0) return (null, null)
     assert(nodeLen > 0)
     var iter = 0
@@ -150,31 +161,34 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     val childOffsets = new Array[Int](nodeLen)
     val signLengths = new Array[Int](nodeLen)
     while (iter < nodeLen) {
-      val signOffset = fin.readInt()
+      val signOffset = readIntFromByteArray(bytes, readOffset)
+      readOffset += 4
       signLengths(iter) = signOffset - 8
-      val buffer = new Array[Byte](signOffset - 8)
-      fin.read(buffer)
+      val buffer = new Array[Byte](signLengths(iter))
+      Array.copy(bytes, readOffset, buffer, 0, signLengths(iter))
+      readOffset += signLengths(iter)
       rows(iter) = readInternalRowFromFileWithSchema2(buffer, types)
-      childOffsets(iter) = fin.readInt()
+      childOffsets(iter) = readIntFromByteArray(bytes, readOffset)
+      readOffset += 4
       iter = iter + 1
     }
     assert(childOffsets.forall(_ < dataEnd) || childOffsets.forall(_ >= dataEnd))
     if (childOffsets.forall(_ < dataEnd)) {
       // Leaf node, next for outer is same as root
-      val values = childOffsets.map(constructIndexNodeValue(fin, _)).toSeq
+      val values = childOffsets.map(constructIndexNodeValue2(bytes, _)).toSeq
       val leaf = InMemoryIndexNode(rows.toSeq, null, values, next, isLeaf = true)
       (leaf, leaf)
     } else {
       iter = nodeLen - 1
       val childrenCollector = ArrayBuffer.newBuilder[IndexNode]
       val result =
-        constructBTreeFromFileWithFirstLeaf(fin, schema, childOffsets(iter), dataEnd, next)
+        constructBTreeFromFileWithFirstLeaf2(bytes, schema, childOffsets(iter), dataEnd, next)
       var first = result._2
       childrenCollector += result._1
       while (iter > 0) {
         iter = iter - 1
         val iterResult =
-          constructBTreeFromFileWithFirstLeaf(fin, schema, childOffsets(iter), dataEnd, first)
+          constructBTreeFromFileWithFirstLeaf2(bytes, schema, childOffsets(iter), dataEnd, first)
         first = iterResult._2
         childrenCollector += iterResult._1
       }
@@ -183,13 +197,15 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     }
   }
 
-  private def constructIndexNodeValue(fin: FSDataInputStream, offset: Int): IndexNodeValue = {
-    fin.seek(offset)
-    val length = fin.readInt()
+  private def constructIndexNodeValue2(bytes: Array[Byte], offset: Int): IndexNodeValue = {
+    var readOffset = offset
+    val length = readIntFromByteArray(bytes, readOffset)
+    readOffset += 4
     var iter = 0
     val data = new Array[Int](length)
     while (iter < length) {
-      data(iter) = fin.readInt()
+      data(iter) = readIntFromByteArray(bytes, readOffset)
+      readOffset += 4
       iter = iter + 1
     }
     InMemoryIndexNodeValue(data.toSeq)
@@ -197,7 +213,7 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
 
   private def readInternalRowFromFileWithSchema2(
       bytes: Array[Byte], types: Seq[DataType]): InternalRow = {
-    val unsafeRow = UnsafeRow.createFromByteArray(bytes.length, types.length)
+    val unsafeRow = new UnsafeRow
     unsafeRow.pointTo(bytes, types.length, bytes.length)
     unsafeRow
   }
