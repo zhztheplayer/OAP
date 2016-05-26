@@ -37,7 +37,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
 import org.apache.spark.sql.execution.datasources.{BaseWriterContainer, PartitionSpec}
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{DataFrame, Row, SQLContext}
+import org.apache.spark.sql.{Column, DataFrame, Row, SQLContext}
 import org.apache.spark.util.SerializableConfiguration
 
 class DefaultSource extends HadoopFsRelationProvider with DataSourceRegister {
@@ -335,7 +335,6 @@ private[spinach] case class SpinachIndexBuild(
           hadoopConf, new TaskAttemptID(new TaskID(new JobID(), true, 0), 0))
         reader.initialize(null, attemptContext)
         // TODO maybe use Long as RowId?
-        // TODO use KeyGenerator like HashSemiJoin
         val hashMap = new java.util.HashMap[InternalRow, java.util.ArrayList[Int]]()
         var cnt = 0
         while (reader.nextKeyValue()) {
@@ -394,7 +393,7 @@ private[spinach] case class SpinachIndexBuild(
           i = i + 1
         }
         val dataEnd = fileOffset
-        // write index segement.
+        // write index segment.
         val treeShape = BTreeUtils.generate2(partitionUniqueSize)
         val uniqueKeysList = new java.util.LinkedList[InternalRow]()
         import scala.collection.JavaConverters._
