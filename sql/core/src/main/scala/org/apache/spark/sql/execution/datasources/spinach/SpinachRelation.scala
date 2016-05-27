@@ -34,6 +34,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
+import org.apache.spark.sql.execution.datasources.spinach.utils.IndexUtils
 import org.apache.spark.sql.execution.datasources.{BaseWriterContainer, PartitionSpec}
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
@@ -324,7 +325,8 @@ private[spinach] case class SpinachIndexBuild(
       val serializableConfiguration =
         new SerializableConfiguration(sqlContext.sparkContext.hadoopConfiguration)
       val confBroadcast = sqlContext.sparkContext.broadcast(serializableConfiguration)
-      sqlContext.sparkContext.parallelize(data).map(dataString => {
+      val num = dataPaths.length
+      sqlContext.sparkContext.parallelize(data, num).map(dataString => {
       // data.foreach(dataString => {
         val d = new Path(dataString)
         // scan every data file
@@ -382,11 +384,13 @@ private[spinach] case class SpinachIndexBuild(
           offsetMap.put(uniqueKeys(i), fileOffset)
           val rowIds = hashMap.get(uniqueKeys(i))
           // row count for same key
-          fileOut.writeInt(rowIds.size())
+          IndexUtils.writeInt(fileOut, rowIds.size())
+          // fileOut.writeInt(rowIds.size())
           fileOffset = fileOffset + 4
           var idIter = 0
           while (idIter < rowIds.size()) {
-            fileOut.writeInt(rowIds.get(idIter))
+            IndexUtils.writeInt(fileOut, rowIds.get(idIter))
+            // fileOut.writeInt(rowIds.get(idIter))
             fileOffset = fileOffset + 4
             idIter = idIter + 1
           }
@@ -400,8 +404,10 @@ private[spinach] case class SpinachIndexBuild(
         uniqueKeysList.addAll(uniqueKeys.toSeq.asJava)
         writeTreeToOut(treeShape, fileOut, offsetMap, fileOffset, uniqueKeysList, keySchema, 0, -1)
         assert(uniqueKeysList.size == 1)
-        fileOut.writeInt(dataEnd)
-        fileOut.writeInt(offsetMap.get(uniqueKeysList.getFirst))
+        IndexUtils.writeInt(fileOut, dataEnd)
+        // fileOut.writeInt(dataEnd)
+        IndexUtils.writeInt(fileOut, offsetMap.get(uniqueKeysList.getFirst))
+        // fileOut.writeInt(offsetMap.get(uniqueKeysList.getFirst))
         fileOut.close()
         indexFile.toString
       }).collect()
@@ -448,9 +454,11 @@ private[spinach] case class SpinachIndexBuild(
     }
     val newKeyOffset = subOffset
     // write road sign count on every node first
-    out.writeInt(tree.root)
+    IndexUtils.writeInt(out, tree.root)
+    // out.writeInt(tree.root)
     subOffset = subOffset + 4
-    out.writeInt(nextOffset)
+    IndexUtils.writeInt(out, nextOffset)
+    // out.writeInt(nextOffset)
     subOffset = subOffset + 4
     // For all IndexNode, write down all road sign, each pointing to specific data segment
     var rmCount = tree.root
@@ -469,11 +477,14 @@ private[spinach] case class SpinachIndexBuild(
   @transient private lazy val converter = UnsafeProjection.create(keySchema)
   private def writeKeyIntoIndexNode(
       row: InternalRow, fout: FSDataOutputStream, pointer: Int): Int = {
+    // TODO maybe write more info to index file to speed up random access in IndexNode keyAt.
     val unsafeRow = converter.apply(row)
     val nextOffset = unsafeRow.getSizeInBytes + 4 + 4
-    fout.writeInt(nextOffset)
+    IndexUtils.writeInt(fout, nextOffset)
+    // fout.writeInt(nextOffset)
     unsafeRow.writeToStream(fout, null)
-    fout.writeInt(pointer)
+    IndexUtils.writeInt(fout, pointer)
+    // fout.writeInt(pointer)
     nextOffset
   }
 }

@@ -120,17 +120,7 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     extends Serializable {
   import IndexMeta._
   def open(dataPath: String, schema: StructType, context: TaskAttemptContext): IndexNode = {
-    val file = new Path(indexFileNameFromDataFileName(dataPath))
-    val fs = file.getFileSystem(SparkHadoopUtil.get.getConfigurationFromJobContext(context))
-    val fin = fs.open(file)
-    // wind to end of file to get tree root
-    // TODO check if enough to fit in Int
-    val fileLength = fs.getContentSummary(file).getLength
-    val bytes = new Array[Byte](fileLength.toInt)
-    fin.read(bytes, 0, fileLength.toInt)
-    val dataEnd = IndexUtils.readIntFromByteArray(bytes, fileLength.toInt - 8)
-    val rootOffset = IndexUtils.readIntFromByteArray(bytes, fileLength.toInt - 4)
-    constructBTreeFromFile3(bytes, schema, rootOffset, dataEnd)
+    IndexFileScanner(indexFileNameFromDataFileName(dataPath), schema, context).tree()
   }
 
   private def constructBTreeFromFile2(
@@ -140,7 +130,6 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
 
   private def constructBTreeFromFile3(
       bytes: Array[Byte], schema: StructType, rootOffset: Int, dataEnd: Int): IndexNode = {
-    // TODO maybe write more info to index file to speed up random access in IndexNode keyAt.
     UnsafeIndexNode(bytes, rootOffset, dataEnd, schema)
   }
 

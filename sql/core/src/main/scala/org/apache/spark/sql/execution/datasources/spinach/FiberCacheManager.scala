@@ -30,7 +30,7 @@ import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.executor.CustomManager
 import org.apache.spark.io.SnappyCompressionCodec
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.execution.datasources.spinach.utils.CacheStatusSerDe
+import org.apache.spark.sql.execution.datasources.spinach.utils.{IndexUtils, CacheStatusSerDe}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.collection.BitSet
 import org.apache.spark.unsafe.Platform
@@ -282,5 +282,57 @@ private[spinach] case class DataFileScanner(
 
       row.moveToRow(rowIdxInGroup)
     }
+  }
+}
+
+// TODO create abstract class for this and [[[DataFileScannar]]]
+private[spinach] case class IndexFileScanner(
+    path: String, schema: StructType, context: TaskAttemptContext) {
+  // TODO: add SparkConf
+  val compCodec = new SnappyCompressionCodec(new SparkConf())
+
+  override def hashCode(): Int = path.hashCode
+  override def equals(that: Any): Boolean = that match {
+    case DataFileScanner(thatPath, _, _) => path == thatPath
+    case _ => false
+  }
+
+  def putToFiberCache(buf: Array[Byte]): FiberCacheData = {
+    // TODO: make it configurable
+    // TODO: disable compress first since there's some issue to solve with conpression
+    val newBuf = if (false) {
+      compCodec.compressedInputBuffer(buf)
+    } else {
+      buf
+    }
+    val fiberCacheData = MemoryManager.allocate(newBuf.length)
+    Platform.copyMemory(newBuf, Platform.BYTE_ARRAY_OFFSET, fiberCacheData.fiberData.getBaseObject,
+      fiberCacheData.fiberData.getBaseOffset, newBuf.length)
+    fiberCacheData
+  }
+
+  // full file scan
+  def tree(): IndexNode = {
+    val file = new Path(path)
+    val fs = file.getFileSystem(SparkHadoopUtil.get.getConfigurationFromJobContext(context))
+    val fin = fs.open(file)
+    // wind to end of file to get tree root
+    // TODO check if enough to fit in Int
+    val fileLength = fs.getContentSummary(file).getLength
+    val bytes = new Array[Byte](fileLength.toInt)
+    fin.read(bytes, 0, fileLength.toInt)
+    val offHeapMem = putToFiberCache(bytes)
+    val dataEnd = IndexUtils.readIntFromByteArray(bytes, fileLength.toInt - 8)
+    val rootOffset = IndexUtils.readIntFromByteArray(bytes, fileLength.toInt - 4)
+    val baseObj = offHeapMem.fiberData.getBaseObject
+    val baseOff = offHeapMem.fiberData.getBaseOffset
+    val dataEnd2 = Platform.getInt(baseObj, baseOff + fileLength - 8)
+    val rootOffset2 = Platform.getInt(baseObj, baseOff + fileLength - 4)
+    val dataEnd3 = IndexUtils.readIntFromUnsafe(offHeapMem, fileLength.toInt - 8)
+    val rootOffset3 = IndexUtils.readIntFromUnsafe(offHeapMem, fileLength.toInt - 4)
+    // println("end:", dataEnd, dataEnd2, dataEnd3)
+    // println("root:", rootOffset, rootOffset2, rootOffset3)
+    // UnsafeIndexNode(bytes, rootOffset, dataEnd, schema)
+    UnsafeIndexNode2(offHeapMem, rootOffset2, dataEnd2, schema)
   }
 }
