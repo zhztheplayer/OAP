@@ -30,7 +30,7 @@ import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.executor.CustomManager
 import org.apache.spark.io.SnappyCompressionCodec
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.execution.datasources.spinach.utils.{IndexUtils, CacheStatusSerDe}
+import org.apache.spark.sql.execution.datasources.spinach.utils.CacheStatusSerDe
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.collection.BitSet
 import org.apache.spark.unsafe.Platform

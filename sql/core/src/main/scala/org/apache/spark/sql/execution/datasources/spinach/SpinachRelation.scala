@@ -448,7 +448,21 @@ private[spinach] case class SpinachIndexBuild(
         subOffset += writeOffset
       }
     }
-    val newKeyOffset = subOffset
+    (subOffset + writeIndexNode(
+      tree, out, map, keysList, listOffsetFromEnd, nextOffset, subOffset + fileOffset), subOffset)
+  }
+
+  @transient private lazy val converter = UnsafeProjection.create(keySchema)
+
+  private def writeIndexNode(
+      tree: BTreeNode,
+      out: FSDataOutputStream,
+      map: java.util.HashMap[InternalRow, Int],
+      keysList: java.util.LinkedList[InternalRow],
+      listOffsetFromEnd: Int,
+      nextOffset: Int,
+      updateOffset: Int): Int = {
+    var subOffset = 0
     // write road sign count on every node first
     IndexUtils.writeInt(out, tree.root)
     subOffset = subOffset + 4
@@ -464,11 +478,10 @@ private[spinach] case class SpinachIndexBuild(
       subOffset += writeKeyIntoIndexNode(writeKey, out, map.get(writeKey))
       keysList.remove(keysList.size - listOffsetFromEnd - rmCount)
     }
-    map.put(keyVal, fileOffset + newKeyOffset)
-    (subOffset, newKeyOffset)
+    map.put(keyVal, updateOffset)
+    subOffset
   }
 
-  @transient private lazy val converter = UnsafeProjection.create(keySchema)
   private def writeKeyIntoIndexNode(
       row: InternalRow, fout: FSDataOutputStream, pointer: Int): Int = {
     // TODO maybe write more info to index file to speed up random access in IndexNode keyAt.
