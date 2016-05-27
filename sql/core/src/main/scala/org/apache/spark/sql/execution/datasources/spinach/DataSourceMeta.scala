@@ -119,8 +119,8 @@ private[spinach] object FileMeta {
 private[spinach] class IndexMeta(var name: String = null, var indexType: IndexType = null)
     extends Serializable {
   import IndexMeta._
-  def open(dataPath: String, schema: StructType, context: TaskAttemptContext): IndexNode = {
-    IndexFileScanner(indexFileNameFromDataFileName(dataPath), schema, context).tree()
+  def open(data: IndexFiberCacheData, keySchema: StructType): IndexNode = {
+    UnsafeIndexNode2(FiberCacheData(data.fiberData), data.rootOffset, data.dataEnd, keySchema)
   }
 
   private def constructBTreeFromFile2(
@@ -214,13 +214,6 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     for (i <- 0 until remaining) {
       out.writeByte(0)
     }
-  }
-
-  private def indexFileNameFromDataFileName(dataFile: String): String = {
-    import SpinachFileFormat._
-    assert(dataFile.endsWith(SPINACH_DATA_EXTENSION))
-    val prefix = dataFile.substring(0, dataFile.length - SPINACH_DATA_EXTENSION.length)
-    prefix + "." + name + SPINACH_INDEX_EXTENSION
   }
 
   def write(out: FSDataOutputStream): Unit = {

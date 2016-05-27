@@ -25,6 +25,12 @@ import org.apache.spark.unsafe.memory.{MemoryAllocator, MemoryBlock}
 // TODO: make it an alias of MemoryBlock
 case class FiberCacheData(fiberData: MemoryBlock)
 
+/**
+ * Used to cache data in MemoryBlock (on-heap or off-heap)
+ */
+private[spinach] case class IndexFiberCacheData(
+    fiberData: MemoryBlock, dataEnd: Int, rootOffset: Int)
+
 private[spinach] trait MemoryMode
 private[spinach] case object OffHeap extends MemoryMode
 private[spinach] case object OnHeap extends MemoryMode

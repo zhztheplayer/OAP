@@ -38,7 +38,7 @@ import org.apache.spark.sql.execution.datasources.spinach.utils.IndexUtils
 import org.apache.spark.sql.execution.datasources.{BaseWriterContainer, PartitionSpec}
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, DataFrame, Row, SQLContext}
+import org.apache.spark.sql.{DataFrame, Row, SQLContext}
 import org.apache.spark.util.SerializableConfiguration
 
 class DefaultSource extends HadoopFsRelationProvider with DataSourceRegister {
@@ -385,12 +385,10 @@ private[spinach] case class SpinachIndexBuild(
           val rowIds = hashMap.get(uniqueKeys(i))
           // row count for same key
           IndexUtils.writeInt(fileOut, rowIds.size())
-          // fileOut.writeInt(rowIds.size())
           fileOffset = fileOffset + 4
           var idIter = 0
           while (idIter < rowIds.size()) {
             IndexUtils.writeInt(fileOut, rowIds.get(idIter))
-            // fileOut.writeInt(rowIds.get(idIter))
             fileOffset = fileOffset + 4
             idIter = idIter + 1
           }
@@ -405,9 +403,7 @@ private[spinach] case class SpinachIndexBuild(
         writeTreeToOut(treeShape, fileOut, offsetMap, fileOffset, uniqueKeysList, keySchema, 0, -1)
         assert(uniqueKeysList.size == 1)
         IndexUtils.writeInt(fileOut, dataEnd)
-        // fileOut.writeInt(dataEnd)
         IndexUtils.writeInt(fileOut, offsetMap.get(uniqueKeysList.getFirst))
-        // fileOut.writeInt(offsetMap.get(uniqueKeysList.getFirst))
         fileOut.close()
         indexFile.toString
       }).collect()
@@ -455,10 +451,8 @@ private[spinach] case class SpinachIndexBuild(
     val newKeyOffset = subOffset
     // write road sign count on every node first
     IndexUtils.writeInt(out, tree.root)
-    // out.writeInt(tree.root)
     subOffset = subOffset + 4
     IndexUtils.writeInt(out, nextOffset)
-    // out.writeInt(nextOffset)
     subOffset = subOffset + 4
     // For all IndexNode, write down all road sign, each pointing to specific data segment
     var rmCount = tree.root
@@ -481,10 +475,8 @@ private[spinach] case class SpinachIndexBuild(
     val unsafeRow = converter.apply(row)
     val nextOffset = unsafeRow.getSizeInBytes + 4 + 4
     IndexUtils.writeInt(fout, nextOffset)
-    // fout.writeInt(nextOffset)
     unsafeRow.writeToStream(fout, null)
     IndexUtils.writeInt(fout, pointer)
-    // fout.writeInt(pointer)
     nextOffset
   }
 }

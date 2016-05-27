@@ -42,6 +42,13 @@ class SpinachHeartBeatMessager extends CustomManager with Logging {
   }
 }
 
+// TODO need to register within the SparkContext
+class SpinachIndexHeartBeatMessager extends CustomManager with Logging {
+  override def status(conf: SparkConf): String = {
+    IndexCacheManager.status
+  }
+}
+
 private[spinach] trait AbstractFiberCacheManger extends Logging {
   protected def fiber2Data(key: Fiber): FiberCacheData
 
@@ -102,6 +109,37 @@ object FiberCacheManager extends AbstractFiberCacheManger {
   }
 }
 
+/**
+ * Index Cache Manager TODO: merge this with AbstractFiberCacheManager
+ */
+private[spinach] object IndexCacheManager extends Logging {
+  @transient protected val cache =
+    CacheBuilder
+      .newBuilder()
+      .concurrencyLevel(4) // DEFAULT_CONCURRENCY_LEVEL TODO verify that if it works
+      .weigher(new Weigher[IndexFiber, IndexFiberCacheData] {
+        override def weigh(key: IndexFiber, value: IndexFiberCacheData): Int =
+         value.fiberData.size().toInt
+      })
+      .maximumWeight(MemoryManager.getCapacity())
+      .removalListener(new RemovalListener[IndexFiber, IndexFiberCacheData] {
+        override def onRemoval(n: RemovalNotification[IndexFiber, IndexFiberCacheData]): Unit = {
+          MemoryManager.free(FiberCacheData(n.getValue.fiberData))
+        }
+      })
+      .build(new CacheLoader[IndexFiber, IndexFiberCacheData] {
+        override def load(key: IndexFiber): IndexFiberCacheData = {
+          key.file.getIndexFiberData()
+        }
+      })
+
+  def apply(fiberCache: IndexFiber): IndexFiberCacheData = {
+    cache.get(fiberCache)
+  }
+
+  def status: String = sys.error("not implemented Index fiber status")
+}
+
 private[spinach] case class InputDataFileDescriptor(fin: FSDataInputStream, len: Long)
 
 private[spinach] object DataMetaCacheManager extends Logging {
@@ -122,32 +160,6 @@ private[spinach] object DataMetaCacheManager extends Logging {
 
   def apply(fiberCache: DataFileScanner): DataFileMeta = {
     cache.get(fiberCache)
-  }
-}
-
-private[spinach] object BTreeIndexCacheManager extends Logging {
-  private var cmContext: TaskAttemptContext = _
-  private var cmSchema: StructType = _
-  private var cmMeta: IndexMeta = _
-  @transient private val cache =
-    CacheBuilder
-      .newBuilder()
-      .maximumSize(DataMetaCacheManager.spinachDataMetaCacheSize)
-      .build(new CacheLoader[String, IndexNode] {
-        override def load(key: String): IndexNode = {
-          cmMeta.open(key, cmSchema, cmContext)
-        }
-      })
-
-  def apply(
-             path: String,
-             context: TaskAttemptContext,
-             schema: StructType,
-             meta: IndexMeta): IndexNode = {
-    cmContext = context
-    cmSchema = schema
-    cmMeta = meta
-    cache.get(path)
   }
 }
 
@@ -285,6 +297,8 @@ private[spinach] case class DataFileScanner(
   }
 }
 
+private[spinach] case class IndexFiber(file: IndexFileScanner)
+
 // TODO create abstract class for this and [[[DataFileScannar]]]
 private[spinach] case class IndexFileScanner(
     path: String, schema: StructType, context: TaskAttemptContext) {
@@ -311,8 +325,7 @@ private[spinach] case class IndexFileScanner(
     fiberCacheData
   }
 
-  // full file scan
-  def tree(): IndexNode = {
+  def getIndexFiberData(): IndexFiberCacheData = {
     val file = new Path(path)
     val fs = file.getFileSystem(SparkHadoopUtil.get.getConfigurationFromJobContext(context))
     val fin = fs.open(file)
@@ -322,17 +335,10 @@ private[spinach] case class IndexFileScanner(
     val bytes = new Array[Byte](fileLength.toInt)
     fin.read(bytes, 0, fileLength.toInt)
     val offHeapMem = putToFiberCache(bytes)
-    val dataEnd = IndexUtils.readIntFromByteArray(bytes, fileLength.toInt - 8)
-    val rootOffset = IndexUtils.readIntFromByteArray(bytes, fileLength.toInt - 4)
     val baseObj = offHeapMem.fiberData.getBaseObject
     val baseOff = offHeapMem.fiberData.getBaseOffset
-    val dataEnd2 = Platform.getInt(baseObj, baseOff + fileLength - 8)
-    val rootOffset2 = Platform.getInt(baseObj, baseOff + fileLength - 4)
-    val dataEnd3 = IndexUtils.readIntFromUnsafe(offHeapMem, fileLength.toInt - 8)
-    val rootOffset3 = IndexUtils.readIntFromUnsafe(offHeapMem, fileLength.toInt - 4)
-    // println("end:", dataEnd, dataEnd2, dataEnd3)
-    // println("root:", rootOffset, rootOffset2, rootOffset3)
-    // UnsafeIndexNode(bytes, rootOffset, dataEnd, schema)
-    UnsafeIndexNode2(offHeapMem, rootOffset2, dataEnd2, schema)
+    val dataEnd = Platform.getInt(baseObj, baseOff + fileLength - 8)
+    val rootOffset = Platform.getInt(baseObj, baseOff + fileLength - 4)
+    IndexFiberCacheData(offHeapMem.fiberData, dataEnd, rootOffset)
   }
 }

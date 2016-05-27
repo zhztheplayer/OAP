@@ -133,7 +133,7 @@ private[spinach] case class UnsafeIndexNode(
   override def childAt(idx: Int): UnsafeIndexNode = treeChildAt(idx).asInstanceOf[UnsafeIndexNode]
   override def valueAt(idx: Int): UnsafeIndexNodeValue =
     treeChildAt(idx).asInstanceOf[UnsafeIndexNodeValue]
-  override lazy val isLeaf: Boolean = IndexUtils.readIntFromByteArray(
+  override def isLeaf: Boolean = IndexUtils.readIntFromByteArray(
     buffer, offset + 4 + IndexUtils.readIntFromByteArray(buffer, offset + 8)) < dataEnd
   override def next: UnsafeIndexNode = {
     val nextOffset = IndexUtils.readIntFromByteArray(buffer, offset + 4)
@@ -203,7 +203,7 @@ private[spinach] case class UnsafeIndexNode2(
     treeChildAt(idx).asInstanceOf[UnsafeIndexNode2]
   override def valueAt(idx: Int): UnsafeIndexNodeValue2 =
     treeChildAt(idx).asInstanceOf[UnsafeIndexNodeValue2]
-  override lazy val isLeaf: Boolean = Platform.getInt(
+  override def isLeaf: Boolean = Platform.getInt(
     baseObj, baseOffset + offset + 4 + Platform.getInt(baseObj, baseOffset + offset + 8)) < dataEnd
   override def next: UnsafeIndexNode2 = {
     val nextOffset = Platform.getInt(baseObj, baseOffset + offset + 4)
@@ -291,8 +291,11 @@ private[spinach] trait RangeScanner extends Iterator[Int] {
   def initialize(dataPath: String, context: TaskAttemptContext): RangeScanner = {
     assert(keySchema ne null)
     this.ordering = GenerateOrdering.create(keySchema)
-    val root = BTreeIndexCacheManager(dataPath, context, keySchema, meta)
-    // val root = meta.open(dataPath, keySchema, context)
+    // val root = BTreeIndexCacheManager(dataPath, context, keySchema, meta)
+    val path = IndexUtils.indexFileNameFromDataFileName(dataPath, meta.name)
+    val indexFiber = IndexFiber(IndexFileScanner(path, keySchema, context))
+    val indexData = IndexCacheManager(indexFiber)
+    val root = meta.open(indexData, keySchema)
 
     if (start eq RangeScanner.DUMMY_KEY_START) {
       // find the first key in the left-most leaf node

@@ -95,7 +95,7 @@ private[spinach] object BPlusTreeSearchSuite extends Serializable {
       i12)
 
     def root = new NonLeafNode(Array(3, 8, 13, 16), Array(i11, i12, i13, i14))
-    override def open(path: String, schema: StructType, context: TaskAttemptContext): IndexNode =
+    override def open(data: IndexFiberCacheData, schema: StructType): IndexNode =
       root
   }
 }

@@ -19,8 +19,7 @@ package org.apache.spark.sql.execution.datasources.spinach.utils
 
 import java.io.DataOutputStream
 
-import org.apache.spark.sql.execution.datasources.spinach.FiberCacheData
-import org.apache.spark.unsafe.Platform
+import org.apache.spark.sql.execution.datasources.spinach.SpinachFileFormat
 
 object IndexUtils {
   def readIntFromByteArray(bytes: Array[Byte], offset: Int): Int = {
@@ -29,19 +28,16 @@ object IndexUtils {
   }
 
   def writeInt(out: DataOutputStream, v: Int): Unit = {
-    out.write((v >>>  0) & 0xFF)
-    out.write((v >>>  8) & 0xFF)
-    out.write((v >>> 16) & 0xFF)
-    out.write((v >>> 24) & 0xFF)
+    out.writeByte((v >>>  0) & 0xFF)
+    out.writeByte((v >>>  8) & 0xFF)
+    out.writeByte((v >>> 16) & 0xFF)
+    out.writeByte((v >>> 24) & 0xFF)
   }
 
-  def readIntFromUnsafe(bytes: FiberCacheData, offset: Int): Int = {
-    val baseObj = bytes.fiberData.getBaseObject
-    val baseOff = bytes.fiberData.getBaseOffset
-    val byte3 = Platform.getByte(baseObj, baseOff + offset + 3)
-    val byte2 = Platform.getByte(baseObj, baseOff + offset + 2)
-    val byte1 = Platform.getByte(baseObj, baseOff + offset + 1)
-    val byte0 = Platform.getByte(baseObj, baseOff + offset + 0)
-    byte3 & 0xFF | (byte2 & 0xFF) << 8 | (byte1 & 0xFF) << 16 | (byte0 & 0xFF) << 24
+  def indexFileNameFromDataFileName(dataFile: String, name: String): String = {
+    import SpinachFileFormat._
+    assert(dataFile.endsWith(SPINACH_DATA_EXTENSION))
+    val prefix = dataFile.substring(0, dataFile.length - SPINACH_DATA_EXTENSION.length)
+    prefix + "." + name + SPINACH_INDEX_EXTENSION
   }
 }
