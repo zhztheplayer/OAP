@@ -84,73 +84,6 @@ private[spinach] case class InMemoryIndexNode(
     }
 }
 
-trait UnsafeIndexTree {
-  def buffer: Array[Byte]
-  def offset: Int
-  def length: Int = IndexUtils.readIntFromByteArray(buffer, offset)
-}
-
-private[spinach] case class UnsafeIndexNodeValue(
-    buffer: Array[Byte],
-    offset: Int,
-    dataEnd: Int) extends IndexNodeValue with UnsafeIndexTree {
-  override def apply(idx: Int): Int = IndexUtils.readIntFromByteArray(buffer, offset + 4 + idx * 4)
-
-  // for debug
-  private def values: Seq[Int] = (0 until length).map(apply)
-  override def toString: String = "ValuesNode(" + values.mkString(",") + ")"
-}
-
-private[spinach] case class UnsafeIndexNode(
-    buffer: Array[Byte],
-    offset: Int,
-    dataEnd: Int,
-    schema: StructType) extends IndexNode with UnsafeIndexTree {
-  override def keyAt(idx: Int): Key = {
-    var signOffset = offset + 8
-    (0 until idx).foreach { _ =>
-      signOffset += IndexUtils.readIntFromByteArray(buffer, signOffset)
-    }
-    val len = IndexUtils.readIntFromByteArray(buffer, signOffset) - 8
-    val row = new UnsafeRow
-    row.pointTo(buffer, Platform.BYTE_ARRAY_OFFSET + signOffset + 4, schema.length, len)
-    row
-  }
-
-  private def treeChildAt(idx: Int): UnsafeIndexTree = {
-    var signOffset = offset + 8
-    (0 to idx).foreach { _ =>
-      signOffset += IndexUtils.readIntFromByteArray(buffer, signOffset)
-    }
-    val childOffset = IndexUtils.readIntFromByteArray(buffer, signOffset - 4)
-    if (isLeaf) {
-      UnsafeIndexNodeValue(buffer, childOffset, dataEnd)
-    } else {
-      UnsafeIndexNode(buffer, childOffset, dataEnd, schema)
-    }
-  }
-
-  override def childAt(idx: Int): UnsafeIndexNode = treeChildAt(idx).asInstanceOf[UnsafeIndexNode]
-  override def valueAt(idx: Int): UnsafeIndexNodeValue =
-    treeChildAt(idx).asInstanceOf[UnsafeIndexNodeValue]
-  override def isLeaf: Boolean = IndexUtils.readIntFromByteArray(
-    buffer, offset + 4 + IndexUtils.readIntFromByteArray(buffer, offset + 8)) < dataEnd
-  override def next: UnsafeIndexNode = {
-    val nextOffset = IndexUtils.readIntFromByteArray(buffer, offset + 4)
-    if (nextOffset == -1) {
-      null
-    } else {
-      UnsafeIndexNode(buffer, nextOffset, dataEnd, schema)
-    }
-  }
-
-  // for debug
-  private def children: Seq[UnsafeIndexTree] = (0 until length).map(treeChildAt)
-  private def keys: Seq[Key] = (0 until length).map(keyAt)
-  override def toString: String =
-    s"[Signs(${keys.map(_.getInt(0)).mkString(",")}) " + children.mkString(" ") + "]"
-}
-
 trait UnsafeIndexTree2 {
   def buffer: FiberCacheData
   def offset: Int
@@ -170,47 +103,39 @@ private[spinach] case class UnsafeIndexNodeValue2(
   override def toString: String = "ValuesNode(" + values.mkString(",") + ")"
 }
 
-private[spinach] case class UnsafeIndexNode2(
+private[spinach] case class UnsafeIndexNode22(
     buffer: FiberCacheData,
     offset: Int,
     dataEnd: Int,
     schema: StructType) extends IndexNode with UnsafeIndexTree2 {
   override def keyAt(idx: Int): Key = {
-    var signOffset = offset + 8
-    (0 until idx).foreach { _ =>
-      signOffset += Platform.getInt(baseObj, baseOffset + signOffset)
-    }
-    val len = Platform.getInt(baseObj, baseOffset + signOffset) - 8
+    val keyOffset = Platform.getInt(baseObj, baseOffset + offset + 8 + idx * 8)
+    val len = Platform.getInt(baseObj, baseOffset + keyOffset)
     val row = new UnsafeRow
-    row.pointTo(baseObj, baseOffset + signOffset + 4, schema.length, len)
+    row.pointTo(baseObj, baseOffset + keyOffset + 4, schema.length, len)
     row
   }
 
   private def treeChildAt(idx: Int): UnsafeIndexTree2 = {
-    var signOffset = offset + 8
-    (0 to idx).foreach { _ =>
-      signOffset += Platform.getInt(baseObj, baseOffset + signOffset)
-    }
-    val childOffset = Platform.getInt(baseObj, baseOffset + signOffset - 4)
+    val childOffset = Platform.getInt(baseObj, baseOffset + offset + 8 * idx + 12)
     if (isLeaf) {
       UnsafeIndexNodeValue2(buffer, childOffset, dataEnd)
     } else {
-      UnsafeIndexNode2(buffer, childOffset, dataEnd, schema)
+      UnsafeIndexNode22(buffer, childOffset, dataEnd, schema)
     }
   }
 
-  override def childAt(idx: Int): UnsafeIndexNode2 =
-    treeChildAt(idx).asInstanceOf[UnsafeIndexNode2]
+  override def childAt(idx: Int): UnsafeIndexNode22 =
+    treeChildAt(idx).asInstanceOf[UnsafeIndexNode22]
   override def valueAt(idx: Int): UnsafeIndexNodeValue2 =
     treeChildAt(idx).asInstanceOf[UnsafeIndexNodeValue2]
-  override def isLeaf: Boolean = Platform.getInt(
-    baseObj, baseOffset + offset + 4 + Platform.getInt(baseObj, baseOffset + offset + 8)) < dataEnd
-  override def next: UnsafeIndexNode2 = {
+  override def isLeaf: Boolean = Platform.getInt(baseObj, baseOffset + offset + 12) < dataEnd
+  override def next: UnsafeIndexNode22 = {
     val nextOffset = Platform.getInt(baseObj, baseOffset + offset + 4)
     if (nextOffset == -1) {
       null
     } else {
-      UnsafeIndexNode2(buffer, nextOffset, dataEnd, schema)
+      UnsafeIndexNode22(buffer, nextOffset, dataEnd, schema)
     }
   }
 

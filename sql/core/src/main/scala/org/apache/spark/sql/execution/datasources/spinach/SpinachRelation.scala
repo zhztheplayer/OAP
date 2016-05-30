@@ -17,7 +17,10 @@
 
 package org.apache.spark.sql.execution.datasources.spinach
 
+import java.io.ByteArrayOutputStream
 import java.util.Comparator
+
+import scala.collection.JavaConverters._
 
 import com.google.common.base.Objects
 import org.apache.hadoop.conf.Configuration
@@ -27,6 +30,7 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
 import org.apache.hadoop.mapreduce._
+
 import org.apache.spark.Logging
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.deploy.SparkHadoopUtil
@@ -448,13 +452,16 @@ private[spinach] case class SpinachIndexBuild(
         subOffset += writeOffset
       }
     }
-    (subOffset + writeIndexNode(
+    (subOffset + writeIndexNode2(
       tree, out, map, keysList, listOffsetFromEnd, nextOffset, subOffset + fileOffset), subOffset)
   }
 
   @transient private lazy val converter = UnsafeProjection.create(keySchema)
 
-  private def writeIndexNode(
+  /**
+   * write file correspond to UnsafeIndexNode22
+   */
+  private def writeIndexNode2(
       tree: BTreeNode,
       out: FSDataOutputStream,
       map: java.util.HashMap[InternalRow, Int],
@@ -469,27 +476,33 @@ private[spinach] case class SpinachIndexBuild(
     IndexUtils.writeInt(out, nextOffset)
     subOffset = subOffset + 4
     // For all IndexNode, write down all road sign, each pointing to specific data segment
+    val start = keysList.size - listOffsetFromEnd - tree.root
+    val end = keysList.size - listOffsetFromEnd
+    val writeList = keysList.subList(start, end).asScala
+    val keyBuf = new ByteArrayOutputStream()
+    // offset0 pointer0, offset1 pointer1, ..., offset(n-1) pointer(n-1),
+    // len0 key0, len1 key1, ..., len(n-1) key(n-1)
+    val baseOffset = updateOffset + subOffset + tree.root * 8
+    var i = 0
+    while (i < tree.root) {
+      val writeKey = writeList(i)
+      IndexUtils.writeInt(out, baseOffset + keyBuf.size)
+      // assert(map.containsKey(writeList(i)))
+      IndexUtils.writeInt(out, map.get(writeKey))
+      subOffset += 8
+      val writeRow = converter.apply(writeKey)
+      IndexUtils.writeInt(keyBuf, writeRow.getSizeInBytes)
+      writeRow.writeToStream(keyBuf, null)
+      i += 1
+    }
+    keyBuf.writeTo(out)
+    subOffset += keyBuf.size
+    map.put(writeList.head, updateOffset)
     var rmCount = tree.root
-    val keyVal = keysList.get(keysList.size - listOffsetFromEnd - rmCount)
-    subOffset += writeKeyIntoIndexNode(keyVal, out, map.get(keyVal))
     while (rmCount > 1) {
       rmCount -= 1
-      val writeKey = keysList.get(keysList.size - listOffsetFromEnd - rmCount)
-      subOffset += writeKeyIntoIndexNode(writeKey, out, map.get(writeKey))
       keysList.remove(keysList.size - listOffsetFromEnd - rmCount)
     }
-    map.put(keyVal, updateOffset)
     subOffset
-  }
-
-  private def writeKeyIntoIndexNode(
-      row: InternalRow, fout: FSDataOutputStream, pointer: Int): Int = {
-    // TODO maybe write more info to index file to speed up random access in IndexNode keyAt.
-    val unsafeRow = converter.apply(row)
-    val nextOffset = unsafeRow.getSizeInBytes + 4 + 4
-    IndexUtils.writeInt(fout, nextOffset)
-    unsafeRow.writeToStream(fout, null)
-    IndexUtils.writeInt(fout, pointer)
-    nextOffset
   }
 }

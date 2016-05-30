@@ -26,12 +26,8 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs._
 import org.apache.hadoop.mapreduce.TaskAttemptContext
 
-import org.apache.spark.deploy.SparkHadoopUtil
-import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.execution.datasources.spinach.utils.IndexUtils
 import org.apache.spark.sql.types._
-import org.apache.spark.unsafe.Platform
 
 /**
  * The Spinach meta file is organized in the following format.
@@ -120,88 +116,7 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     extends Serializable {
   import IndexMeta._
   def open(data: IndexFiberCacheData, keySchema: StructType): IndexNode = {
-    UnsafeIndexNode2(FiberCacheData(data.fiberData), data.rootOffset, data.dataEnd, keySchema)
-  }
-
-  private def constructBTreeFromFile2(
-      bytes: Array[Byte], schema: StructType, rootOffset: Int, dataEnd: Int): IndexNode = {
-    constructBTreeFromFileWithFirstLeaf2(bytes, schema, rootOffset, dataEnd, null)._1
-  }
-
-  private def constructBTreeFromFile3(
-      bytes: Array[Byte], schema: StructType, rootOffset: Int, dataEnd: Int): IndexNode = {
-    UnsafeIndexNode(bytes, rootOffset, dataEnd, schema)
-  }
-
-  private def constructBTreeFromFileWithFirstLeaf2(
-      bytes: Array[Byte],
-      schema: StructType,
-      rootOffset: Int,
-      dataEnd: Int,
-      next: IndexNode): (IndexNode, IndexNode) = {
-    var readOffset = rootOffset
-    val nodeLen = IndexUtils.readIntFromByteArray(bytes, readOffset)
-    readOffset += 4
-    // this field is only useful when constructing unsafe tree
-    val nextOffset = IndexUtils.readIntFromByteArray(bytes, readOffset)
-    readOffset += 4
-    if (nodeLen == 0) return (null, null)
-    assert(nodeLen > 0)
-    var iter = 0
-    val types = schema.map(_.dataType)
-    val rows = new Array[InternalRow](nodeLen)
-    val childOffsets = new Array[Int](nodeLen)
-    val signLengths = new Array[Int](nodeLen)
-    while (iter < nodeLen) {
-      val signOffset = IndexUtils.readIntFromByteArray(bytes, readOffset)
-      readOffset += 4
-      signLengths(iter) = signOffset - 8
-      val unsafeRow = new UnsafeRow
-      unsafeRow.pointTo(
-        bytes, Platform.BYTE_ARRAY_OFFSET + readOffset, types.length, signLengths(iter))
-      readOffset += signLengths(iter)
-      rows(iter) = unsafeRow
-      childOffsets(iter) = IndexUtils.readIntFromByteArray(bytes, readOffset)
-      readOffset += 4
-      iter = iter + 1
-    }
-    assert(childOffsets.forall(_ < dataEnd) || childOffsets.forall(_ >= dataEnd))
-    if (childOffsets.forall(_ < dataEnd)) {
-      // Leaf node, next for outer is same as root
-      val values = childOffsets.map(constructIndexNodeValue2(bytes, _)).toSeq
-      val leaf = InMemoryIndexNode(rows.toSeq, null, values, next, isLeaf = true)
-      (leaf, leaf)
-    } else {
-      iter = nodeLen - 1
-      val childrenCollector = ArrayBuffer.newBuilder[IndexNode]
-      val result =
-        constructBTreeFromFileWithFirstLeaf2(bytes, schema, childOffsets(iter), dataEnd, next)
-      var first = result._2
-      childrenCollector += result._1
-      while (iter > 0) {
-        iter = iter - 1
-        val iterResult =
-          constructBTreeFromFileWithFirstLeaf2(bytes, schema, childOffsets(iter), dataEnd, first)
-        first = iterResult._2
-        childrenCollector += iterResult._1
-      }
-      val children = childrenCollector.result().toSeq.reverse
-      (InMemoryIndexNode(rows.toSeq, children, null, null, isLeaf = false), first)
-    }
-  }
-
-  private def constructIndexNodeValue2(bytes: Array[Byte], offset: Int): IndexNodeValue = {
-    var readOffset = offset
-    val length = IndexUtils.readIntFromByteArray(bytes, readOffset)
-    readOffset += 4
-    var iter = 0
-    val data = new Array[Int](length)
-    while (iter < length) {
-      data(iter) = IndexUtils.readIntFromByteArray(bytes, readOffset)
-      readOffset += 4
-      iter = iter + 1
-    }
-    InMemoryIndexNodeValue(data.toSeq)
+    UnsafeIndexNode22(FiberCacheData(data.fiberData), data.rootOffset, data.dataEnd, keySchema)
   }
 
   private def writeBitSet(value: BitSet, totalSizeToWrite: Int, out: FSDataOutputStream): Unit = {

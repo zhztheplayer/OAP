@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.execution.datasources.spinach.utils
 
-import java.io.DataOutputStream
+import java.io.OutputStream
 
 import org.apache.spark.sql.execution.datasources.spinach.SpinachFileFormat
 
@@ -30,11 +30,11 @@ object IndexUtils {
       (bytes(1 + offset) & 0xFF) << 16 | (bytes(offset) & 0xFF) << 24
   }
 
-  def writeInt(out: DataOutputStream, v: Int): Unit = {
-    out.writeByte((v >>>  0) & 0xFF)
-    out.writeByte((v >>>  8) & 0xFF)
-    out.writeByte((v >>> 16) & 0xFF)
-    out.writeByte((v >>> 24) & 0xFF)
+  def writeInt(out: OutputStream, v: Int): Unit = {
+    out.write((v >>>  0) & 0xFF)
+    out.write((v >>>  8) & 0xFF)
+    out.write((v >>> 16) & 0xFF)
+    out.write((v >>> 24) & 0xFF)
   }
 
   def indexFileNameFromDataFileName(dataFile: String, name: String): String = {
