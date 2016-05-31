@@ -116,7 +116,7 @@ private[spinach] class IndexMeta(var name: String = null, var indexType: IndexTy
     extends Serializable {
   import IndexMeta._
   def open(data: IndexFiberCacheData, keySchema: StructType): IndexNode = {
-    UnsafeIndexNode22(FiberCacheData(data.fiberData), data.rootOffset, data.dataEnd, keySchema)
+    UnsafeIndexNode(FiberCacheData(data.fiberData), data.rootOffset, data.dataEnd, keySchema)
   }
 
   private def writeBitSet(value: BitSet, totalSizeToWrite: Int, out: FSDataOutputStream): Unit = {
