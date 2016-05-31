@@ -22,11 +22,11 @@ import scala.util.matching.Regex
 
 import org.apache.spark.Logging
 import org.apache.spark.sql.SaveMode
-import org.apache.spark.sql.catalyst.{IndexColumn, TableIdentifier, AbstractSparkSQLParser}
+import org.apache.spark.sql.catalyst.{TableIdentifier, AbstractSparkSQLParser}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.util.DataTypeParser
-import org.apache.spark.sql.execution.datasources.spinach.{CreateIndex, DropIndex}
+import org.apache.spark.sql.execution.datasources.spinach.{CreateIndex, DropIndex, IndexColumn}
 import org.apache.spark.sql.types._
 
 

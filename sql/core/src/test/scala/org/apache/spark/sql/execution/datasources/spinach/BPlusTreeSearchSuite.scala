@@ -21,8 +21,7 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.mapreduce.{JobID, TaskAttemptContext, TaskAttemptID, TaskID}
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.Ascending
-import org.apache.spark.sql.sources.{And, EqualTo, Filter, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual}
+import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructType}
 import org.apache.spark.{Logging, SparkFunSuite}
 import org.scalatest.BeforeAndAfterAll
@@ -96,7 +95,7 @@ private[spinach] object BPlusTreeSearchSuite extends Serializable {
       i12)
 
     def root = new NonLeafNode(Array(3, 8, 13, 16), Array(i11, i12, i13, i14))
-    override def open(path: String, schema: StructType, context: TaskAttemptContext): IndexNode =
+    override def open(data: IndexFiberCacheData, schema: StructType): IndexNode =
       root
   }
 }

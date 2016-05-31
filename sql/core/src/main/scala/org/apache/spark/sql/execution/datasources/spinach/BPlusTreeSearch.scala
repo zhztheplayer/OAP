@@ -17,15 +17,15 @@
 
 package org.apache.spark.sql.execution.datasources.spinach
 
-import java.nio.ByteBuffer
-
 import org.apache.hadoop.mapreduce.TaskAttemptContext
 import org.apache.spark.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
-import org.apache.spark.sql.catalyst.expressions.{Ascending, InterpretedOrdering, SortDirection}
+import org.apache.spark.sql.catalyst.expressions.{UnsafeRow, Ascending, SortDirection}
+import org.apache.spark.sql.execution.datasources.spinach.utils.IndexUtils
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types.{StructField, StructType}
+import org.apache.spark.unsafe.Platform
 
 import scala.collection.mutable
 
@@ -84,12 +84,71 @@ private[spinach] case class InMemoryIndexNode(
     }
 }
 
-// TODO not finished
-private[spinach] abstract class UnsafeIndexNodeValue(buffer: ByteBuffer) extends IndexNodeValue {
+trait UnsafeIndexTree {
+  def buffer: FiberCacheData
+  def offset: Int
+  def baseObj: Object = buffer.fiberData.getBaseObject
+  def baseOffset: Long = buffer.fiberData.getBaseOffset
+  def length: Int = Platform.getInt(baseObj, baseOffset + offset)
 }
 
-// TODO not finished
-private[spinach] abstract class UnsafeMemoryIndexNode(buffer: ByteBuffer) extends IndexNode {
+private[spinach] case class UnsafeIndexNodeValue(
+    buffer: FiberCacheData,
+    offset: Int,
+    dataEnd: Int) extends IndexNodeValue with UnsafeIndexTree {
+  override def apply(idx: Int): Int = Platform.getInt(baseObj, baseOffset + offset + 4 + idx * 4)
+
+  // for debug
+  private def values: Seq[Int] = (0 until length).map(apply)
+  override def toString: String = "ValuesNode(" + values.mkString(",") + ")"
+}
+
+private[spinach] case class UnsafeIndexNode(
+    buffer: FiberCacheData,
+    offset: Int,
+    dataEnd: Int,
+    schema: StructType) extends IndexNode with UnsafeIndexTree {
+  override def keyAt(idx: Int): Key = {
+    val keyOffset = Platform.getInt(baseObj, baseOffset + offset + 8 + idx * 8)
+    val len = Platform.getInt(baseObj, baseOffset + keyOffset)
+    val row = new UnsafeRow
+    row.pointTo(baseObj, baseOffset + keyOffset + 4, schema.length, len)
+    row
+  }
+
+  private def treeChildAt(idx: Int): UnsafeIndexTree = {
+    val childOffset = Platform.getInt(baseObj, baseOffset + offset + 8 * idx + 12)
+    if (isLeaf) {
+      UnsafeIndexNodeValue(buffer, childOffset, dataEnd)
+    } else {
+      UnsafeIndexNode(buffer, childOffset, dataEnd, schema)
+    }
+  }
+
+  override def childAt(idx: Int): UnsafeIndexNode =
+    treeChildAt(idx).asInstanceOf[UnsafeIndexNode]
+  override def valueAt(idx: Int): UnsafeIndexNodeValue =
+    treeChildAt(idx).asInstanceOf[UnsafeIndexNodeValue]
+  override def isLeaf: Boolean = Platform.getInt(baseObj, baseOffset + offset + 12) < dataEnd
+  override def next: UnsafeIndexNode = {
+    val nextOffset = Platform.getInt(baseObj, baseOffset + offset + 4)
+    if (nextOffset == -1) {
+      null
+    } else {
+      UnsafeIndexNode(buffer, nextOffset, dataEnd, schema)
+    }
+  }
+
+  // for debug
+  private def children: Seq[UnsafeIndexTree] = (0 until length).map(treeChildAt)
+  private def keys: Seq[Key] = (0 until length).map(keyAt)
+  override def toString: String =
+    s"[Signs(${keys.map(_.getInt(0)).mkString(",")}) " + children.mkString(" ") + "]"
+}
+
+private[spinach] object UnsafeIndexNode {
+  // TODO use this to replace UnsafeIndexNode's UnsafeRow creation
+  val row = new UnsafeRow
 }
 
 private[spinach] class CurrentKey(node: IndexNode, keyIdx: Int, valueIdx: Int) {
@@ -162,8 +221,11 @@ private[spinach] trait RangeScanner extends Iterator[Int] {
   def initialize(dataPath: String, context: TaskAttemptContext): RangeScanner = {
     assert(keySchema ne null)
     this.ordering = GenerateOrdering.create(keySchema)
-    val root = BTreeIndexCacheManager(dataPath, context, keySchema, meta)
-    // val root = meta.open(dataPath, keySchema, context)
+    // val root = BTreeIndexCacheManager(dataPath, context, keySchema, meta)
+    val path = IndexUtils.indexFileNameFromDataFileName(dataPath, meta.name)
+    val indexFiber = IndexFiber(IndexFileScanner(path, keySchema, context))
+    val indexData = IndexCacheManager(indexFiber)
+    val root = meta.open(indexData, keySchema)
 
     if (start eq RangeScanner.DUMMY_KEY_START) {
       // find the first key in the left-most leaf node

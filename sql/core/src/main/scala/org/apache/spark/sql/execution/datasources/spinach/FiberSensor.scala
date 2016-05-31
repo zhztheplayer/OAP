@@ -81,3 +81,5 @@ private[spinach] case class FiberCacheStatus(file: String, bitmask: BitSet, meta
     }
   }
 }
+
+private[spinach] case class IndexFiberCacheStatus(file: String, meta: IndexMeta)

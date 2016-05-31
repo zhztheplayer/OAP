@@ -20,9 +20,9 @@ package org.apache.spark.sql.execution.datasources.spinach
 import org.apache.spark.Logging
 import org.apache.spark.sql.execution.datasources.LogicalRelation
 import org.apache.spark.sql.{Row, SQLContext}
+import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.plans.logical.{LeafNode, LogicalPlan, Subquery}
-import org.apache.spark.sql.catalyst.{IndexColumn, TableIdentifier}
 import org.apache.spark.sql.execution.RunnableCommand
 
 /**

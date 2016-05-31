@@ -17,13 +17,16 @@
 
 package org.apache.spark.sql.execution.datasources.spinach
 
+import org.apache.spark.Logging
+
 /**
  * Util functions for building BTree from sorted iterator
  */
-object BTreeUtils {
+object BTreeUtils extends Logging {
   private def branch(n: Long): Unit = if (n > 1000000) {
     // TODO better ways
-    sys.error("too big partition for spinach!")
+    logWarning("too big partition for spinach!")
+    BRANCHING = math.ceil(math.pow(n, 1.0/3)).toInt
   } else if (n > 125) {
     BRANCHING = math.ceil(math.pow(n, 1.0/3)).toInt
   } else {

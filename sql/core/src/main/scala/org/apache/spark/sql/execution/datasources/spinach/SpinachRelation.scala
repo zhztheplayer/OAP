@@ -17,7 +17,10 @@
 
 package org.apache.spark.sql.execution.datasources.spinach
 
+import java.io.ByteArrayOutputStream
 import java.util.Comparator
+
+import scala.collection.JavaConverters._
 
 import com.google.common.base.Objects
 import org.apache.hadoop.conf.Configuration
@@ -27,18 +30,19 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
 import org.apache.hadoop.mapreduce._
+
 import org.apache.spark.Logging
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.catalyst.expressions.{BoundReference, Descending, Ascending, SortOrder}
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
-import org.apache.spark.sql.catalyst.{IndexColumn, InternalRow}
-import org.apache.spark.sql.execution.datasources.{BaseWriterContainer, PartitionSpec, PartitioningUtils}
-import org.apache.spark.sql.sources.{DataSourceRegister, Filter, HadoopFsRelation, HadoopFsRelationProvider, OutputWriter, OutputWriterFactory}
+import org.apache.spark.sql.execution.datasources._
+import org.apache.spark.sql.execution.datasources.spinach.utils.IndexUtils
+import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{DataFrame, Row, SQLConf, SQLContext}
-import org.apache.spark.unsafe.Platform
 import org.apache.spark.util.SerializableConfiguration
 
 class DefaultSource extends HadoopFsRelationProvider with DataSourceRegister {
@@ -195,11 +199,11 @@ private[spinach] class SpinachRelation(
         metaBuilder.addIndexMeta(new IndexMeta(indexName, BTreeIndex(entries)))
 
         // TODO _metaPaths can be empty while in an empty spinach data source folder
-        DataSourceMeta.write (
-        _metaPaths(0).getPath,
-        sqlContext.sparkContext.hadoopConfiguration,
-        metaBuilder.withNewSchema(oldMeta.schema).build(),
-        deleteIfExits = true)
+        DataSourceMeta.write(
+          _metaPaths(0).getPath,
+          sqlContext.sparkContext.hadoopConfiguration,
+          metaBuilder.withNewSchema(oldMeta.schema).build(),
+          deleteIfExits = true)
         SpinachIndexBuild(sqlContext, indexName, indexColumns, schema, paths).execute()
       case None =>
         sys.error("meta cannot be empty during the index building")
@@ -315,6 +319,9 @@ private[spinach] case class SpinachIndexBuild(
     indexColumns: Array[IndexColumn],
     schema: StructType,
     paths: Array[String]) extends Logging {
+  @transient private lazy val ids =
+    indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
+  @transient private lazy val keySchema = StructType(ids.map(schema.toIndexedSeq(_)))
   def execute(): RDD[InternalRow] = {
     if (paths.isEmpty) {
       // the input path probably be pruned, do nothing
@@ -330,25 +337,23 @@ private[spinach] case class SpinachIndexBuild(
       }.toSeq
       val data = dataPaths.map(_.toString).filter(
         _.endsWith(SpinachFileFormat.SPINACH_DATA_EXTENSION))
-      val ids = indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
-      @transient val keySchema = StructType(ids.map(schema.toIndexedSeq(_)))
       assert(!ids.exists(id => id < 0), "Index column not exists in schema.")
-      @transient lazy val ordering = buildOrdering(ids)
+      @transient lazy val ordering = buildOrdering(ids, keySchema)
       val serializableConfiguration =
         new SerializableConfiguration(sqlContext.sparkContext.hadoopConfiguration)
       val confBroadcast = sqlContext.sparkContext.broadcast(serializableConfiguration)
-      sqlContext.sparkContext.parallelize(data).map(dataString => {
+      val num = dataPaths.length
+      sqlContext.sparkContext.parallelize(data, num).map(dataString => {
       // data.foreach(dataString => {
         val d = new Path(dataString)
         // scan every data file
         val reader = new SpinachDataReader2(d, schema, None, ids)
+        val hadoopConf = confBroadcast.value.value
         // TODO better initialize it elegantly
         val attemptContext: TaskAttemptContext = new TaskAttemptContextImpl(
-          new Configuration(),
-          new TaskAttemptID(new TaskID(new JobID(), true, 0), 0))
+          hadoopConf, new TaskAttemptID(new TaskID(new JobID(), true, 0), 0))
         reader.initialize(null, attemptContext)
         // TODO maybe use Long as RowId?
-        // TODO use KeyGenerator like HashSemiJoin
         val hashMap = new java.util.HashMap[InternalRow, java.util.ArrayList[Int]]()
         var cnt = 0
         while (reader.nextKeyValue()) {
@@ -386,7 +391,7 @@ private[spinach] case class SpinachIndexBuild(
         val pos = dataFilePathString.lastIndexOf(SpinachFileFormat.SPINACH_DATA_EXTENSION)
         val indexFile = new Path(dataFilePathString.substring(
           0, pos) + "." + indexName + SpinachFileFormat.SPINACH_INDEX_EXTENSION)
-        val fs = indexFile.getFileSystem(confBroadcast.value.value)
+        val fs = indexFile.getFileSystem(hadoopConf)
         val fileOut = fs.create(indexFile, false)
         var i = 0
         var fileOffset = 0
@@ -396,26 +401,26 @@ private[spinach] case class SpinachIndexBuild(
           offsetMap.put(uniqueKeys(i), fileOffset)
           val rowIds = hashMap.get(uniqueKeys(i))
           // row count for same key
-          fileOut.writeInt(rowIds.size())
+          IndexUtils.writeInt(fileOut, rowIds.size())
           fileOffset = fileOffset + 4
           var idIter = 0
           while (idIter < rowIds.size()) {
-            fileOut.writeInt(rowIds.get(idIter))
+            IndexUtils.writeInt(fileOut, rowIds.get(idIter))
             fileOffset = fileOffset + 4
             idIter = idIter + 1
           }
           i = i + 1
         }
         val dataEnd = fileOffset
-        // write index segement.
+        // write index segment.
         val treeShape = BTreeUtils.generate2(partitionUniqueSize)
         val uniqueKeysList = new java.util.LinkedList[InternalRow]()
         import scala.collection.JavaConverters._
         uniqueKeysList.addAll(uniqueKeys.toSeq.asJava)
-        writeTreeToOut(treeShape, fileOut, offsetMap, fileOffset, uniqueKeysList, keySchema, 0)
+        writeTreeToOut(treeShape, fileOut, offsetMap, fileOffset, uniqueKeysList, keySchema, 0, -1)
         assert(uniqueKeysList.size == 1)
-        fileOut.writeInt(dataEnd)
-        fileOut.writeInt(offsetMap.get(uniqueKeysList.getFirst))
+        IndexUtils.writeInt(fileOut, dataEnd)
+        IndexUtils.writeInt(fileOut, offsetMap.get(uniqueKeysList.getFirst))
         fileOut.close()
         indexFile.toString
       }).collect()
@@ -423,28 +428,12 @@ private[spinach] case class SpinachIndexBuild(
     sqlContext.sparkContext.emptyRDD[InternalRow]
   }
 
-  private def buildOrdering(requiredIds: Array[Int]): Ordering[InternalRow] = {
+  private def buildOrdering(
+      requiredIds: Array[Int], keySchema: StructType): Ordering[InternalRow] = {
     val order = requiredIds.toSeq.map(id => SortOrder(
-      BoundReference(id, schema(id).dataType, nullable = true),
+      BoundReference(id, keySchema(id).dataType, nullable = true),
       if (indexColumns(requiredIds.indexOf(id)).isAscending) Ascending else Descending))
-    GenerateOrdering.generate(order, schema.toAttributes)
-  }
-
-  private def internalRowToByte(row: InternalRow, schema: StructType): Array[Byte] = {
-    var idx = 0
-    var offset = Platform.BYTE_ARRAY_OFFSET
-    val types = schema.map(_.dataType)
-    val buffer = new Array[Byte](schema.defaultSize)
-    while (idx < row.numFields) {
-      types(idx) match {
-        case IntegerType => Platform.putInt(buffer, offset, row.getInt(idx))
-        // TODO more datatypes
-        case _ => sys.error("Not implemented yet!")
-      }
-      offset = offset + types(idx).defaultSize
-      idx = idx + 1
-    }
-    buffer
+    GenerateOrdering.generate(order, keySchema.toAttributes)
   }
 
   private def writeTreeToOut(
@@ -454,48 +443,79 @@ private[spinach] case class SpinachIndexBuild(
       fileOffset: Int,
       keysList: java.util.LinkedList[InternalRow],
       keySchema: StructType,
-      listOffset: Int): Int = {
+      listOffsetFromEnd: Int,
+      nextOffset: Int): (Int, Int) = {
     var subOffset = 0
     if (tree.children.nonEmpty) {
       // this is a non-leaf node
       // Need to write down all subtrees
       val childrenCount = tree.children.size
       assert(childrenCount == tree.root)
-      var iter = 0
-      // write down all subtrees
-      while (iter < childrenCount) {
+      var iter = childrenCount
+      // write down all subtrees reversely
+      var lastStart = nextOffset
+      while (iter > 0) {
+        iter -= 1
         val subTree = tree.children(iter)
-        subOffset = subOffset + writeTreeToOut(
-          subTree, out, map, fileOffset + subOffset, keysList, keySchema, listOffset + iter)
-        iter = iter + 1
+        val subListOffsetFromEnd = listOffsetFromEnd + childrenCount - 1 - iter
+        val (writeOffset, oneLevelStart) = writeTreeToOut(
+          subTree, out, map, fileOffset + subOffset,
+          keysList, keySchema, subListOffsetFromEnd, lastStart)
+        lastStart = oneLevelStart
+        subOffset += writeOffset
       }
     }
-    val newKeyOffset = subOffset
-    // write road sign count on every node first
-    out.writeInt(tree.root)
-    subOffset = subOffset + 4
-    // For all IndexNode, write down all road sign, each pointing to specific data segment
-    val keyVal = keysList.get(listOffset)
-    subOffset = subOffset + writeKeyIntoIndexNode(keyVal, keySchema, out, map.get(keyVal))
-    var rmCount = 1
-    while (rmCount < tree.root) {
-      val writeKey = keysList.get(listOffset + 1)
-      subOffset = subOffset + writeKeyIntoIndexNode(writeKey, keySchema, out, map.get(writeKey))
-      keysList.remove(listOffset + 1)
-      rmCount = rmCount + 1
-    }
-    map.put(keyVal, fileOffset + newKeyOffset)
-    subOffset
+    (subOffset + writeIndexNode2(
+      tree, out, map, keysList, listOffsetFromEnd, nextOffset, subOffset + fileOffset), subOffset)
   }
 
-  private def writeKeyIntoIndexNode(
-      row: InternalRow, schema: StructType, fout: FSDataOutputStream, pointer: Int): Int = {
-    val byteDataFromRow = internalRowToByte(row, schema)
-    // contains length(distance to sibling), key, pointer
-    val nextOffset = byteDataFromRow.length + 4 + 4
-    fout.writeInt(nextOffset)
-    fout.write(byteDataFromRow)
-    fout.writeInt(pointer)
-    nextOffset
+  @transient private lazy val converter = UnsafeProjection.create(keySchema)
+
+  /**
+   * write file correspond to UnsafeIndexNode22
+   */
+  private def writeIndexNode2(
+      tree: BTreeNode,
+      out: FSDataOutputStream,
+      map: java.util.HashMap[InternalRow, Int],
+      keysList: java.util.LinkedList[InternalRow],
+      listOffsetFromEnd: Int,
+      nextOffset: Int,
+      updateOffset: Int): Int = {
+    var subOffset = 0
+    // write road sign count on every node first
+    IndexUtils.writeInt(out, tree.root)
+    subOffset = subOffset + 4
+    IndexUtils.writeInt(out, nextOffset)
+    subOffset = subOffset + 4
+    // For all IndexNode, write down all road sign, each pointing to specific data segment
+    val start = keysList.size - listOffsetFromEnd - tree.root
+    val end = keysList.size - listOffsetFromEnd
+    val writeList = keysList.subList(start, end).asScala
+    val keyBuf = new ByteArrayOutputStream()
+    // offset0 pointer0, offset1 pointer1, ..., offset(n-1) pointer(n-1),
+    // len0 key0, len1 key1, ..., len(n-1) key(n-1)
+    val baseOffset = updateOffset + subOffset + tree.root * 8
+    var i = 0
+    while (i < tree.root) {
+      val writeKey = writeList(i)
+      IndexUtils.writeInt(out, baseOffset + keyBuf.size)
+      // assert(map.containsKey(writeList(i)))
+      IndexUtils.writeInt(out, map.get(writeKey))
+      subOffset += 8
+      val writeRow = converter.apply(writeKey)
+      IndexUtils.writeInt(keyBuf, writeRow.getSizeInBytes)
+      writeRow.writeToStream(keyBuf, null)
+      i += 1
+    }
+    keyBuf.writeTo(out)
+    subOffset += keyBuf.size
+    map.put(writeList.head, updateOffset)
+    var rmCount = tree.root
+    while (rmCount > 1) {
+      rmCount -= 1
+      keysList.remove(keysList.size - listOffsetFromEnd - rmCount)
+    }
+    subOffset
   }
 }
