@@ -23,16 +23,6 @@ import org.apache.spark.{Logging, SparkFunSuite}
 import org.apache.spark.unsafe.Platform
 
 class IndexUtilsSuite extends SparkFunSuite with Logging {
-  test("read from byte array") {
-    val buf = new ByteArrayOutputStream(8)
-    val out = new DataOutputStream(buf)
-    out.writeInt(-15)
-    out.writeInt(1234)
-    val bytes = buf.toByteArray
-    assert(IndexUtils.readIntFromByteArray(bytes, 0) == -15)
-    assert(IndexUtils.readIntFromByteArray(bytes, 4) == 1234)
-  }
-
   test("write int to unsafe") {
     val buf = new ByteArrayOutputStream(8)
     val out = new DataOutputStream(buf)

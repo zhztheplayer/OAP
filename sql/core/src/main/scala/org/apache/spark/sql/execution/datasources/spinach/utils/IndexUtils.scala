@@ -25,11 +25,6 @@ import org.apache.spark.sql.execution.datasources.spinach.SpinachFileFormat
  * Utils for Index read/write
  */
 object IndexUtils {
-  def readIntFromByteArray(bytes: Array[Byte], offset: Int): Int = {
-    bytes(3 + offset) & 0xFF | (bytes(2 + offset) & 0xFF) << 8 |
-      (bytes(1 + offset) & 0xFF) << 16 | (bytes(offset) & 0xFF) << 24
-  }
-
   def writeInt(out: OutputStream, v: Int): Unit = {
     out.write((v >>>  0) & 0xFF)
     out.write((v >>>  8) & 0xFF)
