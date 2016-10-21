@@ -87,7 +87,7 @@ private[sql] class SpinachFileFormat extends FileFormat
       options)
   }
 
-  override def shortName(): String = "spn"
+  override def shortName(): String = SpinachFileFormat.defaultName
 
   override def supportBatch(sparkSession: SparkSession, schema: StructType): Boolean = {
     // TODO we should naturelly support batch
@@ -248,6 +248,7 @@ private[sql] object SpinachFileFormat {
   val SPINACH_META_FILE = ".spinach.meta"
   val SPINACH_META_SCHEMA = "spinach.schema"
   val SPINACH_DATA_SOURCE_META = "spinach.meta.datasource"
+  val defaultName = "spn"
 
   def serializeDataSourceMeta(conf: Configuration, meta: Option[DataSourceMeta]): Unit = {
     SerializationUtil.writeObjectToConfAsBase64(SPINACH_DATA_SOURCE_META, meta, conf)
