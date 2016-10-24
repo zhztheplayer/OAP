@@ -1400,7 +1400,8 @@ class SparkSqlAstBuilder(conf: SQLConf) extends AstBuilder {
   }
 
   override def visitIndexCols(ctx: IndexColsContext): Array[IndexColumn] = withOrigin(ctx) {
-    ctx.indexCol.toArray(new Array[IndexColContext](ctx.indexCol.size)).map(visitIndexCol)
+    // ctx.indexCol.toArray(new Array[IndexColContext](ctx.indexCol.size)).map(visitIndexCol)
+    Array(visitIndexCol(ctx.indexCol))
   }
 
   override def visitIndexCol(ctx: IndexColContext): IndexColumn = withOrigin(ctx) {

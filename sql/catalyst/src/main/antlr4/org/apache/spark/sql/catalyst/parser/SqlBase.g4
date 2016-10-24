@@ -126,21 +126,17 @@ statement
     | SET .*?                                                          #setConfiguration
     | RESET                                                            #resetConfiguration
     | CREATE SPINACH INDEX (IF NOT EXISTS)? IDENTIFIER ON
-        tableIdentifier indexCols indexOps?                            #spinachCreateIndex
+        tableIdentifier indexCols                             #spinachCreateIndex
     | DROP SPINACH INDEX (IF EXISTS)? IDENTIFIER ON tableIdentifier    #spinachDropIndex
     | unsupportedHiveNativeCommands .*?                                #failNativeCommand
     ;
 
 indexCols
-    : '(' indexCol (',' indexCol)* ')'
+    : '(' indexCol ')'
     ;
 
 indexCol
     : identifier (ASC | DESC)?
-    ;
-
-indexOps
-    : USING BTREE
     ;
 
 unsupportedHiveNativeCommands
@@ -889,7 +885,6 @@ ANTI: 'ANTI';
 LOCAL: 'LOCAL';
 INPATH: 'INPATH';
 
-BTREE: 'BTREE';
 SPINACH: 'SPINACH';
 
 STRING
