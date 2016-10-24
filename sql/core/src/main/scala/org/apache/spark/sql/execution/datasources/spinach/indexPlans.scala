@@ -22,11 +22,11 @@ import org.apache.hadoop.fs.Path
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.catalyst.TableIdentifier
-import org.apache.spark.sql.catalyst.catalog.SimpleCatalogRelation
 import org.apache.spark.sql.catalyst.expressions.{Ascending, Attribute, Descending}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, SubqueryAlias}
-import org.apache.spark.sql.execution.command.CreateDataSourceTableUtils.DATASOURCE_PROVIDER
-import org.apache.spark.sql.execution.command.{DDLUtils, RunnableCommand}
+import org.apache.spark.sql.execution.command.RunnableCommand
+import org.apache.spark.sql.execution.datasources.{LogicalRelation, HadoopFsRelation}
+import org.apache.spark.sql.execution.datasources.spinach.utils.SpinachUtils
 
 /**
  * Creates an index for table on indexColumns
@@ -44,34 +44,32 @@ case class CreateIndex(
     val catalog = sparkSession.sessionState.catalog
     assert(catalog.tableExists(tableName), s"$tableName not exists")
     catalog.lookupRelation(tableName) match {
-      case SubqueryAlias(_, r: SimpleCatalogRelation)
-        if DDLUtils.isDatasourceTable(r.metadata) &&
-          r.metadata.properties(DATASOURCE_PROVIDER) == SpinachFileFormat.defaultName =>
+      case SubqueryAlias(_, LogicalRelation(
+          HadoopFsRelation(_, fileCatalog, _, s, _, _: SpinachFileFormat, _), _, _)) =>
         logInfo(s"Creating index $indexName")
-        val meta = SpinachFileFormat.deserializeDataSourceMeta(
-          sparkSession.sparkContext.hadoopConfiguration)
-        val path = r.metadata.properties("path")
+        val meta = SpinachUtils.getMeta(sparkSession.sparkContext.hadoopConfiguration, fileCatalog)
+        // TODO `path` can be None while in an empty spinach data source folder
+        val path = SpinachUtils.getPath(fileCatalog).get
         meta match {
           case Some(oldMeta) =>
             val existsIndexes = oldMeta.indexMetas
-            val exist = existsIndexes.exists(_.name == indexName)
+            val existsData = oldMeta.fileMetas
+            val exist = existsIndexes != null && existsIndexes.exists(_.name == indexName)
             if (!allowExists) assert(!exist)
             if (exist) {
               log.warn(s"dup index name $indexName")
             }
             val metaBuilder = DataSourceMeta.newBuilder()
-            oldMeta.fileMetas.foreach(metaBuilder.addFileMeta)
-            existsIndexes.foreach(metaBuilder.addIndexMeta)
+            if (existsData != null) existsData.foreach(metaBuilder.addFileMeta)
+            if (existsIndexes != null) existsIndexes.foreach(metaBuilder.addIndexMeta)
             val entries = indexColumns.map(c => {
               val dir = if (c.isAscending) Ascending else Descending
-              BTreeIndexEntry(schema.map(_.name).toIndexedSeq.indexOf(c.columnName), dir)
+              BTreeIndexEntry(s.map(_.name).toIndexedSeq.indexOf(c.columnName), dir)
             })
             metaBuilder.addIndexMeta(new IndexMeta(indexName, BTreeIndex(entries)))
 
-            // TODO _metaPaths can be empty while in an empty spinach data source folder
             DataSourceMeta.write(
-              new Path(path),
-              sparkSession.sparkContext.hadoopConfiguration,
+              path, sparkSession.sparkContext.hadoopConfiguration,
               metaBuilder.withNewSchema(oldMeta.schema).build(),
               deleteIfExits = true)
             SpinachIndexBuild(sparkSession, indexName, indexColumns, schema, Array(path)).execute()
@@ -99,26 +97,27 @@ case class DropIndex(
   override def run(sparkSession: SparkSession): Seq[Row] = {
     val catalog = sparkSession.sessionState.catalog
     catalog.lookupRelation(tableIdentifier) match {
-      case SubqueryAlias(_, r: SimpleCatalogRelation)
-        if DDLUtils.isDatasourceTable(r.metadata) &&
-          r.metadata.properties(DATASOURCE_PROVIDER) == SpinachFileFormat.defaultName =>
+      case SubqueryAlias(_, LogicalRelation(
+          HadoopFsRelation(_, fileCatalog, _, _, _, _: SpinachFileFormat, _), _, _)) =>
         logInfo(s"Dropping index $indexName")
-        val meta = SpinachFileFormat.deserializeDataSourceMeta(
-          sparkSession.sparkContext.hadoopConfiguration)
-        val p = r.metadata.properties("path")
+        val meta = SpinachUtils.getMeta(sparkSession.sparkContext.hadoopConfiguration, fileCatalog)
+        // TODO `path` can be None while in an empty spinach data source folder
+        val path = SpinachUtils.getPath(fileCatalog).get
         assert(meta.nonEmpty)
         val oldMeta = meta.get
         val existsIndexes = oldMeta.indexMetas
-        val exist = existsIndexes.exists(_.name == indexName)
+        val existsData = oldMeta.fileMetas
+        val exist = existsIndexes != null && existsIndexes.exists(_.name == indexName)
         if (!allowNotExists) assert(exist, "IndexMeta not found in SpinachMeta")
         if (!exist) {
           logWarning(s"drop non-exists index $indexName")
         }
         val metaBuilder = DataSourceMeta.newBuilder()
-        oldMeta.fileMetas.foreach(metaBuilder.addFileMeta)
-        existsIndexes.filter(_.name != indexName).foreach(metaBuilder.addIndexMeta)
+        if (existsData != null) existsData.foreach(metaBuilder.addFileMeta)
+        if (existsIndexes != null) {
+          existsIndexes.filter(_.name != indexName).foreach(metaBuilder.addIndexMeta)
+        }
 
-        val path = new Path(p)
         val fs = path.getFileSystem(sparkSession.sparkContext.hadoopConfiguration)
         val allFile = fs.listFiles(path, true)
         val filePaths = new Iterator[Path] {

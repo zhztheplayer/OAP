@@ -35,6 +35,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.JoinedRow
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection
 import org.apache.spark.sql.execution.datasources._
+import org.apache.spark.sql.execution.datasources.spinach.utils.SpinachUtils
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.{DataSourceRegister, Filter}
 import org.apache.spark.sql.types.StructType
@@ -55,16 +56,8 @@ private[sql] class SpinachFileFormat extends FileFormat
     // TODO
     // 1. Make the scanning etc. as lazy loading, as inferSchema probably not be called
     // 2. We need to pass down the spinach meta file and its associated partition path
-    val partition2Meta = catalog.allFiles().map(_.getPath.getParent).map { parent =>
-      (parent, new Path(parent, SpinachFileFormat.SPINACH_META_FILE))
-    }
-      .filter(pair => pair._2.getFileSystem(hadoopConf).exists(pair._2))
-      .toMap
 
-    // TODO we dont support partition for now
-    val meta = partition2Meta.values.headOption.map {
-      DataSourceMeta.initialize(_, hadoopConf)
-    }
+    val meta = SpinachUtils.getMeta(hadoopConf, catalog)
     SpinachFileFormat.serializeDataSourceMeta(hadoopConf, meta)
     inferSchema = meta.map(_.schema)
 
@@ -87,7 +80,7 @@ private[sql] class SpinachFileFormat extends FileFormat
       options)
   }
 
-  override def shortName(): String = SpinachFileFormat.defaultName
+  override def shortName(): String = "spn"
 
   override def supportBatch(sparkSession: SparkSession, schema: StructType): Boolean = {
     // TODO we should naturelly support batch
@@ -248,7 +241,6 @@ private[sql] object SpinachFileFormat {
   val SPINACH_META_FILE = ".spinach.meta"
   val SPINACH_META_SCHEMA = "spinach.schema"
   val SPINACH_DATA_SOURCE_META = "spinach.meta.datasource"
-  val defaultName = "spn"
 
   def serializeDataSourceMeta(conf: Configuration, meta: Option[DataSourceMeta]): Unit = {
     SerializationUtil.writeObjectToConfAsBase64(SPINACH_DATA_SOURCE_META, meta, conf)

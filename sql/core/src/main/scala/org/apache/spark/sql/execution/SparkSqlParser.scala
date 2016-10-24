@@ -1374,12 +1374,27 @@ class SparkSqlAstBuilder(conf: SQLConf) extends AstBuilder {
       schemaLess)
   }
 
+  /**
+   * Create an index. Create a [[CreateIndex]] command.
+   *
+   * {{{
+   *   CREATE INDEX [IF NOT EXISTS] indexName ON tableName (col1 [ASC | DESC], col2, ...)
+   *   [USING BTREE]
+   * }}}
+   */
   override def visitSpinachCreateIndex(ctx: SpinachCreateIndexContext): LogicalPlan = withOrigin(ctx) {
     CreateIndex(
       ctx.IDENTIFIER.getText, visitTableIdentifier(ctx.tableIdentifier),
       visitIndexCols(ctx.indexCols), ctx.EXISTS != null)
   }
 
+  /**
+   * Drop an index. Create a [[DropIndex]] command.
+   *
+   * {{{
+   *   DROP INDEX [IF EXISTS] indexName on tableName
+   * }}}
+   */
   override def visitSpinachDropIndex(ctx: SpinachDropIndexContext): LogicalPlan = withOrigin(ctx) {
     DropIndex(ctx.IDENTIFIER.getText, visitTableIdentifier(ctx.tableIdentifier), ctx.EXISTS != null)
   }

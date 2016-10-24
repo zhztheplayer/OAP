@@ -26,12 +26,12 @@ import org.apache.hadoop.fs.{FSDataOutputStream, Path}
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
 import org.apache.spark.sql.execution.datasources.spinach.utils.IndexUtils
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.SparkSession
 import org.apache.spark.util.SerializableConfiguration
 
 private[spinach] case class SpinachIndexBuild(
@@ -39,7 +39,7 @@ private[spinach] case class SpinachIndexBuild(
     indexName: String,
     indexColumns: Array[IndexColumn],
     schema: StructType,
-    paths: Array[String]) extends Logging {
+    @transient paths: Array[Path]) extends Logging {
   @transient private lazy val ids =
     indexColumns.map(c => schema.map(_.name).toIndexedSeq.indexOf(c.columnName))
   @transient private lazy val keySchema = StructType(ids.map(schema.toIndexedSeq(_)))
@@ -48,8 +48,7 @@ private[spinach] case class SpinachIndexBuild(
       // the input path probably be pruned, do nothing
     } else {
       // TODO use internal scan
-      val path = paths(0)
-      @transient val p = new Path(path)
+      @transient val p = paths(0)
       @transient val fs = p.getFileSystem(sparkSession.sparkContext.hadoopConfiguration)
       @transient val fileIter = fs.listFiles(p, true)
       @transient val dataPaths = new Iterator[Path] {
