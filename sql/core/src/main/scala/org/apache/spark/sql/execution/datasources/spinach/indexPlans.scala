@@ -25,7 +25,7 @@ import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.{Ascending, Attribute, Descending}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, SubqueryAlias}
 import org.apache.spark.sql.execution.command.RunnableCommand
-import org.apache.spark.sql.execution.datasources.{LogicalRelation, HadoopFsRelation}
+import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation}
 import org.apache.spark.sql.execution.datasources.spinach.utils.SpinachUtils
 
 /**
@@ -72,7 +72,7 @@ case class CreateIndex(
               path, sparkSession.sparkContext.hadoopConfiguration,
               metaBuilder.withNewSchema(oldMeta.schema).build(),
               deleteIfExits = true)
-            SpinachIndexBuild(sparkSession, indexName, indexColumns, schema, Array(path)).execute()
+            SpinachIndexBuild(sparkSession, indexName, indexColumns, s, Array(path)).execute()
           case None =>
             sys.error("meta cannot be empty during the index building")
         }

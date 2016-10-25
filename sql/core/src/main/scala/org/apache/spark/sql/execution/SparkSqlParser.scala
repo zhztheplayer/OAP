@@ -1382,11 +1382,12 @@ class SparkSqlAstBuilder(conf: SQLConf) extends AstBuilder {
    *   [USING BTREE]
    * }}}
    */
-  override def visitSpinachCreateIndex(ctx: SpinachCreateIndexContext): LogicalPlan = withOrigin(ctx) {
-    CreateIndex(
-      ctx.IDENTIFIER.getText, visitTableIdentifier(ctx.tableIdentifier),
-      visitIndexCols(ctx.indexCols), ctx.EXISTS != null)
-  }
+  override def visitSpinachCreateIndex(ctx: SpinachCreateIndexContext): LogicalPlan =
+    withOrigin(ctx) {
+      CreateIndex(
+        ctx.IDENTIFIER.getText, visitTableIdentifier(ctx.tableIdentifier),
+        visitIndexCols(ctx.indexCols), ctx.EXISTS != null)
+    }
 
   /**
    * Drop an index. Create a [[DropIndex]] command.

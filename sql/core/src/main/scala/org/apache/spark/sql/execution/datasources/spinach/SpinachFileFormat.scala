@@ -19,15 +19,13 @@ package org.apache.spark.sql.execution.datasources.spinach
 
 import java.net.URI
 
+import scala.annotation.meta.param
+
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.FileSystem
-import org.apache.hadoop.fs.FSDataOutputStream
-import org.apache.hadoop.fs.Path
-import org.apache.hadoop.mapreduce.Job
-import org.apache.hadoop.mapreduce.TaskAttemptContext
+import org.apache.hadoop.fs.{FileSystem, FSDataOutputStream, Path}
+import org.apache.hadoop.mapreduce.{Job, TaskAttemptContext}
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat
-import org.apache.parquet.hadoop.util.ContextUtil
-import org.apache.parquet.hadoop.util.SerializationUtil
+import org.apache.parquet.hadoop.util.{ContextUtil, SerializationUtil}
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{Row, SparkSession}
@@ -82,6 +80,12 @@ private[sql] class SpinachFileFormat extends FileFormat
 
   override def shortName(): String = "spn"
 
+<<<<<<< HEAD
+=======
+  /**
+   * Returns whether the reader will return the rows as batch or not.
+   */
+>>>>>>> fix stylecheck
   override def supportBatch(sparkSession: SparkSession, schema: StructType): Boolean = {
     // TODO we should naturelly support batch
     false
@@ -156,7 +160,11 @@ private[sql] class SpinachFileFormat extends FileFormat
 private[spinach] class SpinachOutputWriterFactory(
     sqlConf: SQLConf,
     dataSchema: StructType,
+<<<<<<< HEAD
     @transient protected val job: Job,
+=======
+    @(transient @param) job: Job,
+>>>>>>> fix stylecheck
     options: Map[String, String]) extends OutputWriterFactory {
   private val serializableConf: SerializableConfiguration = {
     val conf = ContextUtil.getConfiguration(job)
