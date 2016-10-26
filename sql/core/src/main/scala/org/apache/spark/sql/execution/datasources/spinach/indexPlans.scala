@@ -69,7 +69,8 @@ case class CreateIndex(
             metaBuilder.addIndexMeta(new IndexMeta(indexName, BTreeIndex(entries)))
 
             DataSourceMeta.write(
-              path, sparkSession.sparkContext.hadoopConfiguration,
+              new Path(path.toString + "/" + SpinachFileFormat.SPINACH_META_FILE),
+              sparkSession.sparkContext.hadoopConfiguration,
               metaBuilder.withNewSchema(oldMeta.schema).build(),
               deleteIfExits = true)
             SpinachIndexBuild(sparkSession, indexName, indexColumns, s, Array(path)).execute()
@@ -128,7 +129,7 @@ case class DropIndex(
           "." + indexName + SpinachFileFormat.SPINACH_INDEX_EXTENSION)).foreach(fs.delete(_, true))
 
         DataSourceMeta.write(
-          path,
+          new Path(path.toString + "/" + SpinachFileFormat.SPINACH_META_FILE),
           sparkSession.sparkContext.hadoopConfiguration,
           metaBuilder.withNewSchema(oldMeta.schema).build(),
           deleteIfExits = true)

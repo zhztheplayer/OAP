@@ -56,14 +56,16 @@ private[sql] class SpinachFileFormat extends FileFormat
     // 2. We need to pass down the spinach meta file and its associated partition path
 
     val meta = SpinachUtils.getMeta(hadoopConf, catalog)
-    SpinachFileFormat.serializeDataSourceMeta(hadoopConf, meta)
+    // SpinachFileFormat.serializeDataSourceMeta(hadoopConf, meta)
     inferSchema = meta.map(_.schema)
+    fc = fileCatalog
 
     this
   }
 
   // TODO inferSchema could be lazy computed
   var inferSchema: Option[StructType] = _
+  var fc: FileCatalog = _
 
   override def prepareWrite(
     sparkSession: SparkSession,
@@ -80,12 +82,9 @@ private[sql] class SpinachFileFormat extends FileFormat
 
   override def shortName(): String = "spn"
 
-<<<<<<< HEAD
-=======
   /**
    * Returns whether the reader will return the rows as batch or not.
    */
->>>>>>> fix stylecheck
   override def supportBatch(sparkSession: SparkSession, schema: StructType): Boolean = {
     // TODO we should naturelly support batch
     false
@@ -119,7 +118,8 @@ private[sql] class SpinachFileFormat extends FileFormat
       options: Map[String, String],
       hadoopConf: Configuration): PartitionedFile => Iterator[InternalRow] = {
     // TODO we need to pass the extra data source meta information via the func parameter
-    SpinachFileFormat.deserializeDataSourceMeta(hadoopConf) match {
+    // SpinachFileFormat.deserializeDataSourceMeta(hadoopConf) match {
+    SpinachUtils.getMeta(hadoopConf, fc) match {
       case Some(meta) =>
         val ic = new IndexContext(meta)
         BPlusTreeSearch.build(filters.toArray, ic)
@@ -160,11 +160,7 @@ private[sql] class SpinachFileFormat extends FileFormat
 private[spinach] class SpinachOutputWriterFactory(
     sqlConf: SQLConf,
     dataSchema: StructType,
-<<<<<<< HEAD
     @transient protected val job: Job,
-=======
-    @(transient @param) job: Job,
->>>>>>> fix stylecheck
     options: Map[String, String]) extends OutputWriterFactory {
   private val serializableConf: SerializableConfiguration = {
     val conf = ContextUtil.getConfiguration(job)
