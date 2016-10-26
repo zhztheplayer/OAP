@@ -31,6 +31,7 @@ import org.apache.spark.sql.catalyst.parser.SqlBaseParser._
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, OneRowRelation, ScriptInputOutputSchema}
 import org.apache.spark.sql.execution.command._
 import org.apache.spark.sql.execution.datasources.{CreateTempViewUsing, _}
+import org.apache.spark.sql.execution.datasources.spinach.{CreateIndex, DropIndex, IndexColumn}
 import org.apache.spark.sql.internal.{HiveSerDe, SQLConf, VariableSubstitution}
 import org.apache.spark.sql.types.DataType
 
@@ -1371,5 +1372,40 @@ class SparkSqlAstBuilder(conf: SQLConf) extends AstBuilder {
       inSerdeProps, outSerdeProps,
       reader, writer,
       schemaLess)
+  }
+
+  /**
+   * Create an index. Create a [[CreateIndex]] command.
+   *
+   * {{{
+   *   CREATE INDEX [IF NOT EXISTS] indexName ON tableName (col1 [ASC | DESC], col2, ...)
+   *   [USING BTREE]
+   * }}}
+   */
+  override def visitSpinachCreateIndex(ctx: SpinachCreateIndexContext): LogicalPlan =
+    withOrigin(ctx) {
+      CreateIndex(
+        ctx.IDENTIFIER.getText, visitTableIdentifier(ctx.tableIdentifier),
+        visitIndexCols(ctx.indexCols), ctx.EXISTS != null)
+    }
+
+  /**
+   * Drop an index. Create a [[DropIndex]] command.
+   *
+   * {{{
+   *   DROP INDEX [IF EXISTS] indexName on tableName
+   * }}}
+   */
+  override def visitSpinachDropIndex(ctx: SpinachDropIndexContext): LogicalPlan = withOrigin(ctx) {
+    DropIndex(ctx.IDENTIFIER.getText, visitTableIdentifier(ctx.tableIdentifier), ctx.EXISTS != null)
+  }
+
+  override def visitIndexCols(ctx: IndexColsContext): Array[IndexColumn] = withOrigin(ctx) {
+    // ctx.indexCol.toArray(new Array[IndexColContext](ctx.indexCol.size)).map(visitIndexCol)
+    Array(visitIndexCol(ctx.indexCol))
+  }
+
+  override def visitIndexCol(ctx: IndexColContext): IndexColumn = withOrigin(ctx) {
+    IndexColumn(ctx.identifier.getText, ctx.DESC == null)
   }
 }
