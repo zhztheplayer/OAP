@@ -32,6 +32,7 @@ import org.apache.spark.util._
  * A heartbeat from executors to the driver. This is a shared message used by several internal
  * components to convey liveness or execution information for in-progress tasks. It will also
  * expire the hosts that have not heartbeated for more than spark.network.timeout.
+ * spark.executor.heartbeatInterval should be significantly less than spark.network.timeout.
  */
 private[spark] case class Heartbeat(
     executorId: String,
@@ -228,3 +229,4 @@ private[spark] class HeartbeatReceiver(sc: SparkContext, clock: Clock)
 private[spark] object HeartbeatReceiver {
   val ENDPOINT_NAME = "HeartbeatReceiver"
 }
+
