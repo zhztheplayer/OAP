@@ -41,10 +41,10 @@ trait FileFormat {
   // Instead of making the FileFormat as stateless, we give chance to initialize
   // the FileFormat before reading or writing
   def initialize(
-                  sparkSession: SparkSession,
-                  options: Map[String, String],
-                  fileIndex: FileIndex,
-                  readFiles: Option[Seq[FileStatus]] = None): FileFormat = {
+      sparkSession: SparkSession,
+      options: Map[String, String],
+      fileIndex: FileIndex,
+      readFiles: Option[Seq[FileStatus]] = None): FileFormat = {
     this.sparkSession = sparkSession
     this.parameters = options
     this.fileIndex = fileIndex
