@@ -137,8 +137,10 @@ object FileFormatWriter extends Logging {
 
         val commitMsgs = ret.map(_._1)
         val updatedPartitions = ret.flatMap(_._2).distinct.map(PartitioningUtils.parsePathFragment)
+        val writeResults = ret.flatMap(_._3)
 
         committer.commitJob(job, commitMsgs)
+        outputWriterFactory.commitJob(writeResults)
         logInfo(s"Job ${job.getJobID} committed.")
         refreshFunction(updatedPartitions)
       } catch { case cause: Throwable =>
@@ -156,7 +158,7 @@ object FileFormatWriter extends Logging {
       sparkPartitionId: Int,
       sparkAttemptNumber: Int,
       committer: FileCommitProtocol,
-      iterator: Iterator[InternalRow]): (TaskCommitMessage, Set[String]) = {
+      iterator: Iterator[InternalRow]): (TaskCommitMessage, Set[String], Seq[WriteResult]) = {
 
     val jobId = SparkHadoopWriter.createJobID(new Date, sparkStageId)
     val taskId = new TaskID(jobId, TaskType.MAP, sparkPartitionId)
@@ -187,9 +189,9 @@ object FileFormatWriter extends Logging {
     try {
       Utils.tryWithSafeFinallyAndFailureCallbacks(block = {
         // Execute the task to write rows out and commit the task.
-        val outputPartitions = writeTask.execute(iterator)
-        writeTask.releaseResources()
-        (committer.commitTask(taskAttemptContext), outputPartitions)
+        var (outputPartitions, writeResults) = writeTask.execute(iterator)
+        writeResults = writeResults :+ writeTask.releaseResources()
+        (committer.commitTask(taskAttemptContext), outputPartitions, writeResults)
       })(catchBlock = {
         // If there is an error, release resource and then abort the task
         try {
@@ -215,8 +217,8 @@ object FileFormatWriter extends Logging {
      * Writes data out to files, and then returns the list of partition strings written out.
      * The list of partitions is sent back to the driver and used to update the catalog.
      */
-    def execute(iterator: Iterator[InternalRow]): Set[String]
-    def releaseResources(): Unit
+    def execute(iterator: Iterator[InternalRow]): (Set[String], Seq[WriteResult])
+    def releaseResources(): WriteResult
   }
 
   /** Writes data to a single directory (used for non-dynamic-partition writes). */
@@ -239,19 +241,21 @@ object FileFormatWriter extends Logging {
       outputWriter
     }
 
-    override def execute(iter: Iterator[InternalRow]): Set[String] = {
+    override def execute(iter: Iterator[InternalRow]): (Set[String], Seq[WriteResult]) = {
       while (iter.hasNext) {
         val internalRow = iter.next()
         outputWriter.writeInternal(internalRow)
       }
-      Set.empty
+      (Set.empty, Seq.empty)
     }
 
-    override def releaseResources(): Unit = {
+    override def releaseResources(): WriteResult = {
+      var res: WriteResult = Nil
       if (outputWriter != null) {
-        outputWriter.close()
+        res = outputWriter.close()
         outputWriter = null
       }
+      res
     }
   }
 
@@ -332,7 +336,7 @@ object FileFormatWriter extends Logging {
       newWriter
     }
 
-    override def execute(iter: Iterator[InternalRow]): Set[String] = {
+    override def execute(iter: Iterator[InternalRow]): (Set[String], Seq[WriteResult]) = {
       // We should first sort by partition columns, then bucket id, and finally sorting columns.
       val sortingExpressions: Seq[Expression] =
         description.partitionColumns ++ bucketIdExpression ++ sortColumns
@@ -380,12 +384,13 @@ object FileFormatWriter extends Logging {
 
       // If anything below fails, we should abort the task.
       var currentKey: UnsafeRow = null
+      var writeResults: Seq[WriteResult] = Nil
       val updatedPartitions = mutable.Set[String]()
       while (sortedIterator.next()) {
         val nextKey = getBucketingKey(sortedIterator.getKey).asInstanceOf[UnsafeRow]
         if (currentKey != nextKey) {
           if (currentWriter != null) {
-            currentWriter.close()
+            writeResults = writeResults :+ currentWriter.close()
             currentWriter = null
           }
           currentKey = nextKey.copy()
@@ -401,16 +406,19 @@ object FileFormatWriter extends Logging {
       }
       if (currentWriter != null) {
         currentWriter.close()
+        writeResults = writeResults :+ currentWriter.close()
         currentWriter = null
       }
-      updatedPartitions.toSet
+      (updatedPartitions.toSet, writeResults)
     }
 
-    override def releaseResources(): Unit = {
+    override def releaseResources(): WriteResult = {
+      var res: WriteResult = Nil
       if (currentWriter != null) {
-        currentWriter.close()
+        res = currentWriter.close()
         currentWriter = null
       }
+      res
     }
   }
 }
