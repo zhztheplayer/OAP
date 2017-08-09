@@ -23,7 +23,7 @@ import scala.reflect.ClassTag
 import scala.util.control.NonFatal
 
 import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.internal.config._
+import org.apache.spark.sql.internal.StaticSQLConf.CATALOG_IMPLEMENTATION
 import org.apache.spark.scheduler.{SparkListener, SparkListenerApplicationEnd}
 import org.apache.spark.sql.execution.ui.SQLListener
 import org.apache.spark.sql.internal.SessionState
