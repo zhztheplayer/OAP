@@ -50,19 +50,15 @@ private[sql] class OapFileFormat extends FileFormat
   override def initialize(
     sparkSession: SparkSession,
     options: Map[String, String],
-    fileCatalog: FileCatalog,
-    readFiles: Option[Seq[FileStatus]] = None): FileFormat = {
-    super.initialize(sparkSession, options, fileCatalog)
+    files: Seq[FileStatus]): FileFormat = {
+    super.initialize(sparkSession, options, files)
 
     val hadoopConf = sparkSession.sparkContext.hadoopConfiguration
     // TODO
     // 1. Make the scanning etc. as lazy loading, as inferSchema probably not be called
     // 2. We need to pass down the oap meta file and its associated partition path
 
-    val parents = readFiles match {
-      case Some(files) => files.map(file => file.getPath.getParent)
-      case _ => fileCatalog.allFiles().map(_.getPath.getParent)
-    }
+    val parents = files.map(file => file.getPath.getParent)
 
     // TODO we support partitions, but this only read meta from one of the partitions
     val partition2Meta = parents.distinct.reverse.map { parent =>

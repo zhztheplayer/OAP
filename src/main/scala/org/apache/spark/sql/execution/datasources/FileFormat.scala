@@ -34,20 +34,19 @@ import org.apache.spark.sql.types.StructType
  * Used to read and write data stored in files to/from the [[InternalRow]] format.
  */
 trait FileFormat {
-  @transient protected var fileIndex: FileIndex = _
-  @transient protected var parameters: Map[String, String] = _
+  @transient protected var options: Map[String, String] = _
   @transient protected var sparkSession: SparkSession = _
+  @transient protected var files: Seq[FileStatus] = _
 
   // Instead of making the FileFormat as stateless, we give chance to initialize
   // the FileFormat before reading or writing
   def initialize(
       sparkSession: SparkSession,
       options: Map[String, String],
-      fileIndex: FileIndex,
-      readFiles: Option[Seq[FileStatus]] = None): FileFormat = {
+      files: Seq[FileStatus]): FileFormat = {
     this.sparkSession = sparkSession
-    this.parameters = options
-    this.fileIndex = fileIndex
+    this.options = options
+    this.files = files 
     this
   }
 

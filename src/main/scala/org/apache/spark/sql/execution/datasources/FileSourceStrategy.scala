@@ -97,20 +97,19 @@ object FileSourceStrategy extends Strategy with Logging {
           oapFileFormat
             .initialize(_fsRelation.sparkSession,
               _fsRelation.options,
-              _fsRelation.location,
-              Some(selectedPartitions.flatMap(p => p.files)))
+              selectedPartitions.flatMap(p => p.files).toSeq)
 
           if (oapFileFormat.hasAvailableIndex(normalizedFilters)) {
             logInfo("hasAvailableIndex = true, will replace with OapFileFormat.")
-            _fsRelation.copy(fileFormat = oapFileFormat)
+            _fsRelation.copy(fileFormat = oapFileFormat)(_fsRelation.sparkSession)
           } else {
             logInfo("hasAvailableIndex = false, will retain ParquetFileFormat.")
-            _fsRelation.fileFormat.initialize(_fsRelation.sparkSession, _fsRelation.options, _fsRelation.location)
+            _fsRelation.fileFormat.initialize(_fsRelation.sparkSession, _fsRelation.options, selectedPartitions.flatMap(p => p.files).toSeq)
             _fsRelation
           }
 
         case _: FileFormat =>
-          _fsRelation.fileFormat.initialize(_fsRelation.sparkSession, _fsRelation.options, _fsRelation.location)
+          _fsRelation.fileFormat.initialize(_fsRelation.sparkSession, _fsRelation.options, selectedPartitions.flatMap(p => p.files).toSeq)
           _fsRelation
       }
 
