@@ -23,15 +23,6 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.types.StructType
 
-/** A container for all the details required when writing an index. */
-case class WriteIndexRelation(
-    sparkSession: SparkSession,
-    keySchema: StructType,
-    prepareJobForWrite: Job => IndexOutputWriterFactory) {
-  def toWriteRelation: WriteRelation = WriteRelation(
-    sparkSession, keySchema, null, prepareJobForWrite, None)
-}
-
 abstract class IndexOutputWriterFactory extends OutputWriterFactory {
   override def newInstance(
       path: String,

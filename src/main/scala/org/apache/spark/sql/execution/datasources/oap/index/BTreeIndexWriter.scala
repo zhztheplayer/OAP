@@ -20,40 +20,40 @@ package org.apache.spark.sql.execution.datasources.oap.index
 import java.io.ByteArrayOutputStream
 import java.util.Comparator
 
-import scala.collection.JavaConverters._
-
 import com.google.common.collect.ArrayListMultimap
+import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
-import org.apache.hadoop.mapreduce.Job
-
-import org.apache.spark.{SparkException, TaskContext}
 import org.apache.spark.rdd.InputFileNameHolder
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
-import org.apache.spark.sql.execution.datasources.WriteResult
 import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
 import org.apache.spark.sql.execution.datasources.oap.statistics._
 import org.apache.spark.sql.execution.datasources.oap.utils.{BTreeNode, BTreeUtils}
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.util.Utils
+
+import scala.collection.JavaConverters._
 
 // TODO respect `sparkSession.conf.get(SQLConf.PARTITION_MAX_FILES)`
 private[oap] class BTreeIndexWriter(
-    relation: WriteIndexRelation,
-    job: Job,
     indexColumns: Array[IndexColumn],
     keySchema: StructType,
     indexName: String,
     time: String,
-    isAppend: Boolean) extends IndexWriter(relation, job, isAppend) {
+    isAppend: Boolean) extends IndexWriter {
 
-  override def writeIndexFromRows(
-      taskContext: TaskContext, iterator: Iterator[InternalRow]): Seq[IndexBuildResult] = {
+  override def setHadoopConf(hadoopConf: Configuration) = {
+    val filename = InputFileNameHolder.getInputFileName().toString
+    hadoopConf.set(IndexWriter.INPUT_FILE_NAME, filename)
+    hadoopConf.set(IndexWriter.INDEX_NAME, indexName)
+    hadoopConf.set(IndexWriter.INDEX_TIME, time)
+  }
+
+  override def writeIndexFromRows(description: WriteJobDescription,
+      writer: IndexOutputWriter, iterator: Iterator[InternalRow]): Seq[IndexBuildResult] = {
     var taskReturn: Seq[IndexBuildResult] = Nil
     var writeNewFile = false
-    executorSideSetup(taskContext)
-    val configuration = taskAttemptContext.getConfiguration
+    val configuration = description.serializableHadoopConf.value
     // to get input filename
     if (!iterator.hasNext) return Nil
     // configuration.set(DATASOURCE_OUTPUTPATH, outputPath)
@@ -72,13 +72,6 @@ private[oap] class BTreeIndexWriter(
       if (skip) return Nil
     }
     val filename = InputFileNameHolder.getInputFileName().toString
-    configuration.set(IndexWriter.INPUT_FILE_NAME, filename)
-    configuration.set(IndexWriter.INDEX_NAME, indexName)
-    configuration.set(IndexWriter.INDEX_TIME, time)
-    // TODO deal with partition
-    // configuration.set(FileOutputFormat.OUTDIR, getWorkPath)
-    var writer = newIndexOutputWriter()
-    writer.initConverter(dataSchema)
 
     def buildOrdering(keySchema: StructType): Ordering[InternalRow] = {
       // here i change to use param id to index_id to get datatype in keySchema
@@ -92,33 +85,6 @@ private[oap] class BTreeIndexWriter(
     }
     lazy val ordering = buildOrdering(keySchema)
 
-    def commitTask(): Seq[WriteResult] = {
-      try {
-        var writeResults: Seq[WriteResult] = Nil
-        if (writer != null) {
-          writeResults = writeResults :+ writer.close()
-          writer = null
-        }
-        super.commitTask()
-        writeResults
-      } catch {
-        case cause: Throwable =>
-          // This exception will be handled in `InsertIntoHadoopFsRelation.insert$writeRows`, and
-          // will cause `abortTask()` to be invoked.
-          throw new RuntimeException("Failed to commit task", cause)
-      }
-    }
-
-    def abortTask(): Unit = {
-      try {
-        if (writer != null) {
-          writer.close()
-        }
-      } finally {
-        super.abortTask()
-      }
-    }
-
     def writeTask(): Seq[IndexBuildResult] = {
       val statisticsManager = new StatisticsManager
       statisticsManager.initialize(BTreeIndexType, keySchema, configuration)
@@ -128,7 +94,7 @@ private[oap] class BTreeIndexWriter(
       while (iterator.hasNext && !writeNewFile) {
         val fname = InputFileNameHolder.getInputFileName().toString
         if (fname != filename) {
-          taskReturn = taskReturn ++: writeIndexFromRows(taskContext, iterator)
+          taskReturn = taskReturn ++: writeIndexFromRows(description, writer, iterator)
           writeNewFile = true
         } else {
           val v = genericProjector(iterator.next()).copy()
@@ -197,17 +163,7 @@ private[oap] class BTreeIndexWriter(
       taskReturn :+ IndexBuildResult(filename, cnt, "", new Path(filename).getParent.toString)
     }
 
-    // If anything below fails, we should abort the task.
-    try {
-      Utils.tryWithSafeFinallyAndFailureCallbacks {
-        val res = writeTask()
-        commitTask()
-        res
-      }(catchBlock = abortTask())
-    } catch {
-      case t: Throwable =>
-        throw new SparkException("Task failed while writing rows", t)
-    }
+    writeTask()
   }
 
   /**
@@ -256,14 +212,13 @@ private[oap] class BTreeIndexWriter(
   /**
    * write file correspond to [[UnsafeIndexNode]]
    */
-  private def writeIndexNode(
-                              tree: BTreeNode,
-                              writer: IndexOutputWriter,
-                              map: java.util.HashMap[InternalRow, Long],
-                              keysList: java.util.LinkedList[InternalRow],
-                              listOffsetFromEnd: Int,
-                              updateOffset: Long,
-                              nextPointer: Long): Long = {
+  private def writeIndexNode(tree: BTreeNode,
+      writer: IndexOutputWriter,
+      map: java.util.HashMap[InternalRow, Long],
+      keysList: java.util.LinkedList[InternalRow],
+      listOffsetFromEnd: Int,
+      updateOffset: Long,
+      nextPointer: Long): Long = {
     var subOffset = 0
     // write road sign count on every node first
     IndexUtils.writeInt(writer, tree.root)

@@ -22,6 +22,7 @@ import org.apache.hadoop.mapreduce.Job
 
 import org.apache.spark.SparkException
 import org.apache.spark.internal.Logging
+import org.apache.spark.internal.io.FileCommitProtocol
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes._
 import org.apache.spark.sql.catalyst.expressions._
@@ -55,10 +56,10 @@ case class CreateIndex(
   override def run(sparkSession: SparkSession): Seq[Row] = {
     val (fileCatalog, s, readerClassName, identifier) = relation match {
       case LogicalRelation(
-      HadoopFsRelation(_, fileCatalog, _, s, _, _: OapFileFormat, _), _, id) =>
+      HadoopFsRelation(fileCatalog, _, s, _, _: OapFileFormat, _), _, id) =>
         (fileCatalog, s, OapFileFormat.OAP_DATA_FILE_CLASSNAME, id)
       case LogicalRelation(
-      HadoopFsRelation(_, fileCatalog, _, s, _, _: ParquetFileFormat, _), _, id) =>
+      HadoopFsRelation(fileCatalog, _, s, _, _: ParquetFileFormat, _), _, id) =>
         if (!sparkSession.conf.get(SQLConf.OAP_PARQUET_ENABLED)) {
           throw new OapException(s"turn on ${
             SQLConf.OAP_PARQUET_ENABLED.key} to allow index building on parquet files")
@@ -137,42 +138,34 @@ case class CreateIndex(
       ds = ds.filter(s"$k='$v'")
     }
     val queryExecution = ds.queryExecution
-    val retVal = SQLExecution.withNewExecutionId(sparkSession, queryExecution) {
-      val indexRelation =
-        WriteIndexRelation(
-          sparkSession,
-          keySchema,
-          indexFileFormat.prepareWrite(sparkSession, _, null, keySchema))
 
-      val writerContainer = {
-        // TODO Partition and bucket TBD
-        IndexWriterFactory.getIndexWriter(indexRelation,
-          job,
-          indexColumns,
-          keySchema,
-          indexName,
-          time,
-          indexType,
-          isAppend = false)
-      }
+    val committer = FileCommitProtocol.instantiate(
+      sparkSession.sessionState.conf.fileCommitProtocolClass,
+      jobId = java.util.UUID.randomUUID().toString,
+      outputPath = null,
+      isAppend = false)
 
-      // This call shouldn't be put into the `try` block below because it only initializes and
-      // prepares the job, any exception thrown from here shouldn't cause abortJob() to be called.
-      writerContainer.driverSideSetup()
+    val indexWriter = IndexWriterFactory.getIndexWriter(indexColumns,
+        keySchema,
+        indexName,
+        time,
+        indexType,
+        false)
 
-      try {
-        val results = sparkSession.sparkContext.runJob(
-          queryExecution.toRdd, writerContainer.writeIndexFromRows _)
-        writerContainer.commitJob(results.flatten)
-        results.flatten
-      } catch { case cause: Throwable =>
-        logError("Aborting job.", cause)
-        writerContainer.abortJob()
-        throw new SparkException("Job aborted.", cause)
-      }
-    }.toSeq
-//    val ret = OapIndexBuild(sparkSession, indexName,
-//      indexColumns, s, bAndP.map(_._2), readerClassName, indexType).execute()
+    val retVal = indexWriter.write(sparkSession = sparkSession,
+      queryExecution = ds.queryExecution,
+      fileFormat = indexFileFormat,
+      committer = committer,
+      outputSpec = indexWriter.OutputSpec(
+        null, Map.empty),
+      hadoopConf = configuration,
+      partitionColumns = Seq.empty,
+      bucketSpec = Option.empty,
+      refreshFunction = null,
+      options = Map.empty)
+
+    // val ret = OapIndexBuild(sparkSession, indexName,
+    // indexColumns, s, bAndP.map(_._2), readerClassName, indexType).execute()
     val retMap = retVal.groupBy(_.parent)
     bAndP.foreach(bp =>
       retMap.getOrElse(bp._2.toString, Nil).foreach(r =>

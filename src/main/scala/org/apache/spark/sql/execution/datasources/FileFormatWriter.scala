@@ -19,40 +19,38 @@ package org.apache.spark.sql.execution.datasources
 
 import java.util.{Date, UUID}
 
-import scala.collection.mutable
-
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.mapreduce._
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
-
 import org.apache.spark._
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.io.FileCommitProtocol
 import org.apache.spark.internal.io.FileCommitProtocol.TaskCommitMessage
-import org.apache.spark.sql.{Dataset, SparkSession}
-import org.apache.spark.sql.catalyst.catalog.{BucketSpec, ExternalCatalogUtils}
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
+import org.apache.spark.sql.catalyst.catalog.{BucketSpec, ExternalCatalogUtils}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.physical.HashPartitioning
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.execution.{QueryExecution, SQLExecution, UnsafeKVExternalSorter}
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
-import org.apache.spark.util.{SerializableConfiguration, Utils}
 import org.apache.spark.util.collection.unsafe.sort.UnsafeExternalSorter
+import org.apache.spark.util.{SerializableConfiguration, Utils}
+
+import scala.collection.mutable
 
 
 /** A helper object for writing FileFormat data out to a location. */
-object FileFormatWriter extends Logging {
+class FileFormatWriter extends Logging {
 
   /** Describes how output files should be placed in the filesystem. */
   case class OutputSpec(
     outputPath: String, customPartitionLocations: Map[TablePartitionSpec, String])
 
   /** A shared job description for all the write tasks. */
-  private class WriteJobDescription(
+  class WriteJobDescription(
       val uuid: String,  // prevent collision between different (appending) write jobs
       val serializableHadoopConf: SerializableConfiguration,
       val outputWriterFactory: OutputWriterFactory,
@@ -93,7 +91,7 @@ object FileFormatWriter extends Logging {
       partitionColumns: Seq[Attribute],
       bucketSpec: Option[BucketSpec],
       refreshFunction: (Seq[TablePartitionSpec]) => Unit,
-      options: Map[String, String]): Unit = {
+      options: Map[String, String]): Seq[WriteResult] = {
 
     val job = Job.getInstance(hadoopConf)
     job.setOutputKeyClass(classOf[Void])
@@ -143,6 +141,7 @@ object FileFormatWriter extends Logging {
         outputWriterFactory.commitJob(writeResults)
         logInfo(s"Job ${job.getJobID} committed.")
         refreshFunction(updatedPartitions)
+        writeResults
       } catch { case cause: Throwable =>
         logError(s"Aborting job ${job.getJobID}.", cause)
         committer.abortJob(job)
@@ -150,6 +149,13 @@ object FileFormatWriter extends Logging {
       }
     }
   }
+
+  def getWriteTask(description: WriteJobDescription, taskAttemptContext: TaskAttemptContext,
+      committer: FileCommitProtocol): Option[ExecuteWriteTask] = {
+    return Option.empty
+  }
+
+  def setHadoopConf(hadoopConf: Configuration) = {}
 
   /** Writes data out in a single Spark task. */
   private def executeTask(
@@ -173,6 +179,7 @@ object FileFormatWriter extends Logging {
       hadoopConf.set("mapred.task.id", taskAttemptId.toString)
       hadoopConf.setBoolean("mapred.task.is.map", true)
       hadoopConf.setInt("mapred.task.partition", 0)
+      setHadoopConf(hadoopConf)
 
       new TaskAttemptContextImpl(hadoopConf, taskAttemptId)
     }
@@ -180,10 +187,12 @@ object FileFormatWriter extends Logging {
     committer.setupTask(taskAttemptContext)
 
     val writeTask =
-      if (description.partitionColumns.isEmpty && description.bucketSpec.isEmpty) {
-        new SingleDirectoryWriteTask(description, taskAttemptContext, committer)
-      } else {
-        new DynamicPartitionWriteTask(description, taskAttemptContext, committer)
+      getWriteTask(description, taskAttemptContext, committer).getOrElse {
+        if (description.partitionColumns.isEmpty && description.bucketSpec.isEmpty) {
+          new SingleDirectoryWriteTask(description, taskAttemptContext, committer)
+        } else {
+          new DynamicPartitionWriteTask(description, taskAttemptContext, committer)
+        }
       }
 
     try {
@@ -212,7 +221,7 @@ object FileFormatWriter extends Logging {
    * to commit or abort tasks. Exceptions thrown by the implementation of this trait will
    * automatically trigger task aborts.
    */
-  private trait ExecuteWriteTask {
+  trait ExecuteWriteTask {
     /**
      * Writes data out to files, and then returns the list of partition strings written out.
      * The list of partitions is sent back to the driver and used to update the catalog.
