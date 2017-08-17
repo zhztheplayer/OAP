@@ -23,7 +23,7 @@ import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes._
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, EqualTo, Literal}
-import org.apache.spark.sql.execution.datasources.{FileCatalog, Partition, PartitionSpec}
+import org.apache.spark.sql.execution.datasources.{FileIndex, PartitionDirectory, PartitionSpec}
 import org.apache.spark.sql.execution.datasources.oap.{DataSourceMeta, OapFileFormat}
 import org.apache.spark.sql.types._
 
@@ -41,12 +41,11 @@ object OapUtils {
     }
   }
 
-  def getPartitions(fileCatalog: FileCatalog,
-                    partitionSpec: Option[TablePartitionSpec] = None): Seq[Partition] = {
+  def getPartitions(fileIndex: FileIndex,
+                    partitionSpec: Option[TablePartitionSpec] = None): Seq[PartitionDirectory] = {
     val filters = if (partitionSpec.nonEmpty) {
-      val PartitionSpec(partitionColumns, _) = fileCatalog.partitionSpec()
       val partitionColumnsInfo: Map[String, DataType] =
-        partitionColumns.map {
+        fileIndex.partitionSchema.map {
           field => (field.name, field.dataType)
         }.toMap
       // partition column spec check
@@ -70,7 +69,7 @@ object OapUtils {
         EqualTo(AttributeReference(key, partitionColumnsInfo.get(key).get)(), Literal(v))
       }.toSeq
     } else Nil
-    fileCatalog.listFiles(filters)
+    fileIndex.listFiles(filters)
   }
 }
 
