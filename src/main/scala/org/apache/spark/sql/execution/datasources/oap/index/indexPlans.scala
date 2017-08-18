@@ -166,7 +166,7 @@ case class CreateIndex(
 
     // val ret = OapIndexBuild(sparkSession, indexName,
     // indexColumns, s, bAndP.map(_._2), readerClassName, indexType).execute()
-    val retMap = retVal.groupBy(_.parent)
+    val retMap = retVal.map(_.asInstanceOf[IndexBuildResult]).groupBy(_.parent)
     bAndP.foreach(bp =>
       retMap.getOrElse(bp._2.toString, Nil).foreach(r =>
         if (!bp._3) bp._1.addFileMeta(
@@ -197,7 +197,7 @@ case class DropIndex(
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
     relation match {
-      case LogicalRelation(HadoopFsRelation(_, fileCatalog, _, _, _, format, _), _, identifier)
+      case LogicalRelation(HadoopFsRelation(fileCatalog, _, _, _, format, _), _, identifier)
           if format.isInstanceOf[OapFileFormat] || format.isInstanceOf[ParquetFileFormat] =>
         logInfo(s"Dropping index $indexName")
         val partitions = OapUtils.getPartitions(fileCatalog, partitionSpec)
@@ -258,15 +258,16 @@ case class RefreshIndex(
   override def run(sparkSession: SparkSession): Seq[Row] = {
     val (fileCatalog, s, readerClassName) = relation match {
       case LogicalRelation(
-          HadoopFsRelation(_, fileCatalog, _, s, _, _: OapFileFormat, _), _, _) =>
+          HadoopFsRelation(fileCatalog, _, s, _, _: OapFileFormat, _), _, _) =>
         (fileCatalog, s, OapFileFormat.OAP_DATA_FILE_CLASSNAME)
       case LogicalRelation(
-          HadoopFsRelation(_, fileCatalog, _, s, _, _: ParquetFileFormat, _), _, _) =>
+          HadoopFsRelation(fileCatalog, _, s, _, _: ParquetFileFormat, _), _, _) =>
         (fileCatalog, s, OapFileFormat.PARQUET_DATA_FILE_CLASSNAME)
       case other =>
         throw new OapException(s"We don't support index refreshing for ${other.simpleString}")
     }
 
+    val configuration = sparkSession.sessionState.newHadoopConf()
     val partitions = OapUtils.getPartitions(fileCatalog).filter(_.files.nonEmpty)
     // TODO currently we ignore empty partitions, so each partition may have different indexes,
     // this may impact index updating. It may also fail index existence check. Should put index
@@ -332,44 +333,35 @@ case class RefreshIndex(
       val ids =
         indexColumns.map(c => s.map(_.name).toIndexedSeq.indexOf(c.columnName))
       val keySchema = StructType(ids.map(s.toIndexedSeq(_)))
-      SQLExecution.withNewExecutionId(sparkSession, queryExecution) {
-        val indexRelation =
-          WriteIndexRelation(
-            sparkSession,
-            keySchema,
-            indexFileFormat.prepareWrite(sparkSession, _, null, keySchema))
+      val committer = FileCommitProtocol.instantiate(
+        sparkSession.sessionState.conf.fileCommitProtocolClass,
+        jobId = java.util.UUID.randomUUID().toString,
+        outputPath = null,
+        isAppend = false)
 
-        val writerContainer = {
-          // TODO Partition and bucket TBD
-          IndexWriterFactory.getIndexWriter(indexRelation,
-            job,
-            indexColumns.toArray,
-            keySchema,
-            i.name,
-            i.time,
-            indexType,
-            isAppend = true)
-        }
+      val indexWriter = IndexWriterFactory.getIndexWriter(indexColumns.toArray,
+          keySchema,
+          i.name,
+          i.time,
+          indexType,
+          true)
 
-        // This call shouldn't be put into the `try` block below because it only initializes and
-        // prepares the job, any exception thrown from here shouldn't cause abortJob() to be called.
-        writerContainer.driverSideSetup()
+      indexWriter.write(sparkSession = sparkSession,
+        queryExecution = queryExecution,
+        fileFormat = indexFileFormat,
+        committer = committer,
+        outputSpec = indexWriter.OutputSpec(
+          null, Map.empty),
+        hadoopConf = configuration,
+        partitionColumns = Seq.empty,
+        bucketSpec = Option.empty,
+        refreshFunction = null,
+        options = Map.empty)
 
-        try {
-          val results = sparkSession.sparkContext.runJob(
-            queryExecution.toRdd, writerContainer.writeIndexFromRows _)
-          writerContainer.commitJob(results.flatten)
-          results.flatten
-        } catch { case cause: Throwable =>
-          logError("Aborting job.", cause)
-          writerContainer.abortJob()
-          throw new SparkException("Job aborted.", cause)
-        }
-      }.toSeq
     })
     if (!buildrst.isEmpty) {
       val ret = buildrst.head
-      val retMap = ret.groupBy(_.parent)
+      val retMap = ret.map(_.asInstanceOf[IndexBuildResult]).groupBy(_.parent)
 
       // there some cases oap meta files have already been updated
       // e.g. when inserting data in oap files the meta has already updated
@@ -417,7 +409,7 @@ case class OapShowIndex(relation: LogicalPlan, relationName: String)
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
     val (fileCatalog, schema) = relation match {
-      case LogicalRelation(HadoopFsRelation(_, fileCatalog, _, s, _, _, _), _, id) =>
+      case LogicalRelation(HadoopFsRelation(fileCatalog, _, s, _, _, _), _, id) =>
         (fileCatalog, s)
       case other =>
         throw new OapException(s"We don't support index listing for ${other.simpleString}")

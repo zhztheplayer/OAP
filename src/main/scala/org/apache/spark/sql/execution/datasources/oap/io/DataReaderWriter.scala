@@ -20,7 +20,6 @@ package org.apache.spark.sql.execution.datasources.oap.io
 import org.apache.hadoop.fs.{FSDataInputStream, FSDataOutputStream}
 
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.MutableRow
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -35,7 +34,7 @@ private[oap] abstract class DataReaderWriter(val cardinal: Int) {
     }
   }
 
-  def read(in: FSDataInputStream, row: MutableRow): Unit = {
+  def read(in: FSDataInputStream, row: InternalRow): Unit = {
     if (in.readBoolean()) {
       readInternal(in, row)
     } else {
@@ -44,7 +43,7 @@ private[oap] abstract class DataReaderWriter(val cardinal: Int) {
   }
 
   protected[this] def writeInternal(out: FSDataOutputStream, row: InternalRow)
-  protected[this] def readInternal(in: FSDataInputStream, obj: MutableRow)
+  protected[this] def readInternal(in: FSDataInputStream, obj: InternalRow)
 }
 
 private[oap] object DataReaderWriter {
@@ -70,7 +69,7 @@ private[oap] class BoolDataReaderWriter(ordinal: Int) extends DataReaderWriter(o
     out.writeBoolean(row.getBoolean(ordinal))
   }
 
-  protected[this] def readInternal(in: FSDataInputStream, row: MutableRow): Unit = {
+  protected[this] def readInternal(in: FSDataInputStream, row: InternalRow): Unit = {
     row.setBoolean(ordinal, in.readBoolean())
   }
 }
@@ -80,7 +79,7 @@ private[oap] class ByteDataReaderWriter(ordinal: Int) extends DataReaderWriter(o
     out.writeByte(row.getByte(ordinal))
   }
 
-  protected[this] def readInternal(in: FSDataInputStream, row: MutableRow): Unit = {
+  protected[this] def readInternal(in: FSDataInputStream, row: InternalRow): Unit = {
     row.setByte(ordinal, in.readByte())
   }
 }
@@ -90,7 +89,7 @@ private[oap] class ShortDataReaderWriter(ordinal: Int) extends DataReaderWriter(
     out.writeShort(row.getShort(ordinal))
   }
 
-  protected[this] def readInternal(in: FSDataInputStream, row: MutableRow): Unit = {
+  protected[this] def readInternal(in: FSDataInputStream, row: InternalRow): Unit = {
     row.setShort(ordinal, in.readShort())
   }
 }
@@ -100,7 +99,7 @@ private[oap] class IntDataReaderWriter(ordinal: Int) extends DataReaderWriter(or
     out.writeInt(row.getInt(ordinal))
   }
 
-  protected[this] def readInternal(in: FSDataInputStream, row: MutableRow): Unit = {
+  protected[this] def readInternal(in: FSDataInputStream, row: InternalRow): Unit = {
     row.setInt(ordinal, in.readInt())
   }
 }
@@ -110,7 +109,7 @@ private[oap] class LongDataReaderWriter(ordinal: Int) extends DataReaderWriter(o
     out.writeLong(row.getLong(ordinal))
   }
 
-  protected[this] def readInternal(in: FSDataInputStream, row: MutableRow): Unit = {
+  protected[this] def readInternal(in: FSDataInputStream, row: InternalRow): Unit = {
     row.setLong(ordinal, in.readLong())
   }
 }
@@ -120,7 +119,7 @@ private[oap] class FloatDataReaderWriter(ordinal: Int) extends DataReaderWriter(
     out.writeFloat(row.getFloat(ordinal))
   }
 
-  protected[this] def readInternal(in: FSDataInputStream, row: MutableRow): Unit = {
+  protected[this] def readInternal(in: FSDataInputStream, row: InternalRow): Unit = {
     row.setFloat(ordinal, in.readFloat())
   }
 }
@@ -130,7 +129,7 @@ private[oap] class DoubleDataReaderWriter(ordinal: Int) extends DataReaderWriter
     out.writeDouble(row.getDouble(ordinal))
   }
 
-  protected[this] def readInternal(in: FSDataInputStream, row: MutableRow): Unit = {
+  protected[this] def readInternal(in: FSDataInputStream, row: InternalRow): Unit = {
     row.setDouble(ordinal, in.readDouble())
   }
 }
@@ -140,7 +139,7 @@ private[oap] class DateDataReaderWriter(ordinal: Int) extends DataReaderWriter(o
     out.writeInt(row.getInt(ordinal))
   }
 
-  protected[this] def readInternal(in: FSDataInputStream, row: MutableRow): Unit = {
+  protected[this] def readInternal(in: FSDataInputStream, row: InternalRow): Unit = {
     row.setInt(ordinal, in.readInt())
   }
 }
@@ -150,7 +149,7 @@ private[oap] class TimestampDataReaderWriter(ordinal: Int) extends DataReaderWri
     out.writeLong(row.getLong(ordinal))
   }
 
-  protected[this] def readInternal(in: FSDataInputStream, row: MutableRow): Unit = {
+  protected[this] def readInternal(in: FSDataInputStream, row: InternalRow): Unit = {
     row.setLong(ordinal, in.readLong())
   }
 }
@@ -163,7 +162,7 @@ private[oap] class StringDataReaderWriter(cardinal: Int) extends DataReaderWrite
     out.write(s.getBytes)
   }
 
-  protected[this] def readInternal(in: FSDataInputStream, row: MutableRow): Unit = {
+  protected[this] def readInternal(in: FSDataInputStream, row: InternalRow): Unit = {
     val len = in.readInt()
     val bytes = new Array[Byte](len)
     in.readFully(bytes)
