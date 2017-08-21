@@ -23,6 +23,7 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.scalatest.BeforeAndAfterEach
 
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.{QueryTest, Row}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.internal.SQLConf
@@ -32,6 +33,7 @@ import org.apache.spark.util.Utils
 class FilterSuite extends QueryTest with SharedSQLContext with BeforeAndAfterEach {
   import testImplicits._
 
+  sparkConf.set("spark.memory.offHeap.size", "100m")
   private var currentPath: String = _
 
   override def beforeEach(): Unit = {
