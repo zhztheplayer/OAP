@@ -27,7 +27,7 @@ import org.scalatest.BeforeAndAfterAll
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.GenericMutableRow
+import org.apache.spark.sql.catalyst.expressions.GenericInternalRow
 import org.apache.spark.sql.execution.datasources.oap.{DataSourceMeta, OapFileFormat}
 import org.apache.spark.sql.execution.datasources.oap.io._
 import org.apache.spark.sql.types._
@@ -144,7 +144,7 @@ class FiberSuite extends SparkFunSuite with Logging with BeforeAndAfterAll {
       schema: StructType, count: Int): Unit = {
     val out = FileSystem.get(conf).create(path, true)
     val writer = new OapDataWriter(false, out, schema, conf)
-    val row = new GenericMutableRow(schema.fields.length)
+    val row = new GenericInternalRow(schema.fields.length)
     for(i <- 0 until count) {
       schema.fields.zipWithIndex.foreach { entry =>
         if (shouldBeNull(i, entry._2)) {

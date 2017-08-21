@@ -116,7 +116,7 @@ private[sql] class OapFileFormat extends FileFormat
                             options: Map[String, String],
                             path: Path): Boolean = false
 
-  override private[sql] def buildReaderWithPartitionValues(
+  override def buildReaderWithPartitionValues(
       sparkSession: SparkSession,
       dataSchema: StructType,
       partitionSchema: StructType,
@@ -252,12 +252,14 @@ private[oap] class OapOutputWriterFactory(
     @transient protected val job: Job,
     options: Map[String, String]) extends OutputWriterFactory {
 
-  override def newInstance(
-                            path: String, bucketId: Option[Int],
+  override def newInstance(path: String,
                             dataSchema: StructType, context: TaskAttemptContext): OutputWriter = {
-    // TODO we don't support bucket yet
-    assert(bucketId.isDefined == false, "Oap doesn't support bucket yet.")
     new OapOutputWriter(path, dataSchema, context)
+  }
+
+  override def getFileExtension(context: TaskAttemptContext): String = {
+    OapFileFormat.OAP_DATA_EXTENSION +
+      context.getConfiguration.get(OapFileFormat.COMPRESSION, OapFileFormat.DEFAULT_COMPRESSION)
   }
 
   private def oapMetaFileExists(path: Path): Boolean = {

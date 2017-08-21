@@ -393,6 +393,7 @@
             <scalaVersion>${scala.version}</scalaVersion>
             <recompileMode>incremental</recompileMode>
             <useZincServer>true</useZincServer>
+            <zincPort>3301</zincPort>
             <args>
               <arg>-unchecked</arg>
               <arg>-deprecation</arg>

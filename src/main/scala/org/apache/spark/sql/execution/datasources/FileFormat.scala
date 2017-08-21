@@ -46,7 +46,7 @@ trait FileFormat {
       files: Seq[FileStatus]): FileFormat = {
     this.sparkSession = sparkSession
     this.options = options
-    this.files = files 
+    this.files = files
     this
   }
 

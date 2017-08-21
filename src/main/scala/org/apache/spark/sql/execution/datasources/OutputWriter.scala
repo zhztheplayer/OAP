@@ -61,12 +61,11 @@ abstract class OutputWriterFactory extends Serializable {
     throw new UnsupportedOperationException("newInstance with just path not supported")
   }
 
-
   /**
-    * This API called from the driver when all of the write task finished, and give the data
-    * source extensions to pass back the data writing task status, etc. writing the global
-    * meta information.
-    */
+   * This API called from the driver when all of the write task finished, and give the data
+   * source extensions to pass back the data writing task status, etc. writing the global
+   * meta information.
+   */
   def commitJob(taskResults: Array[WriteResult]): Unit = { }
 }
 

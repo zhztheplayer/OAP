@@ -39,7 +39,7 @@ private[oap] class BitMapIndexWriter(
     time: String,
     isAppend: Boolean) extends IndexWriter {
 
-  override def setHadoopConf(hadoopConf: Configuration) = {
+  override def setHadoopConf(hadoopConf: Configuration): Unit = {
     val filename = InputFileNameHolder.getInputFileName().toString
     hadoopConf.set(IndexWriter.INPUT_FILE_NAME, filename)
     hadoopConf.set(IndexWriter.INDEX_NAME, indexName)

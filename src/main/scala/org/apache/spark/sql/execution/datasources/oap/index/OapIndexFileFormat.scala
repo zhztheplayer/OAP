@@ -23,6 +23,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.execution.datasources.{FileFormat, OutputWriterFactory}
 import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.execution.datasources.oap.OapFileFormat
 
 private[index] class OapIndexFileFormat
   extends FileFormat
@@ -47,6 +48,11 @@ private[index] class OapIndexFileFormat
                                 dataSchema: StructType,
                                 context: TaskAttemptContext): IndexOutputWriter = {
         new IndexOutputWriter(bucketId, context)
+      }
+
+      override def getFileExtension(context: TaskAttemptContext): String = {
+        OapFileFormat.OAP_INDEX_EXTENSION +
+          context.getConfiguration.get(OapFileFormat.COMPRESSION, OapFileFormat.DEFAULT_COMPRESSION)
       }
     }
   }

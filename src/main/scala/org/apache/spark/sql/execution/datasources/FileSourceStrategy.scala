@@ -104,12 +104,14 @@ object FileSourceStrategy extends Strategy with Logging {
             _fsRelation.copy(fileFormat = oapFileFormat)(_fsRelation.sparkSession)
           } else {
             logInfo("hasAvailableIndex = false, will retain ParquetFileFormat.")
-            _fsRelation.fileFormat.initialize(_fsRelation.sparkSession, _fsRelation.options, selectedPartitions.flatMap(p => p.files).toSeq)
+            _fsRelation.fileFormat.initialize(_fsRelation.sparkSession, _fsRelation.options,
+              selectedPartitions.flatMap(p => p.files).toSeq)
             _fsRelation
           }
 
         case _: FileFormat =>
-          _fsRelation.fileFormat.initialize(_fsRelation.sparkSession, _fsRelation.options, selectedPartitions.flatMap(p => p.files).toSeq)
+          _fsRelation.fileFormat.initialize(_fsRelation.sparkSession, _fsRelation.options,
+            selectedPartitions.flatMap(p => p.files).toSeq)
           _fsRelation
       }
 

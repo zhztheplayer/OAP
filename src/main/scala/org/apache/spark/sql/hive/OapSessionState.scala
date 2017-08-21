@@ -26,8 +26,8 @@ import org.apache.spark.sql.internal.{SQLConf, VariableSubstitution}
 class OapSessionState(sparkSession: OapSession) extends HiveSessionState(sparkSession) {
   self =>
   // TODO extends `experimentalMethods.extraStrategies`
-  override lazy val metadataHive: HiveClient = 
-    sparkSession.sharedState.externalCatalog.asInstanceOf[HiveExternalCatalog].client.newSession() 
+  override lazy val metadataHive: HiveClient =
+    sparkSession.sharedState.externalCatalog.asInstanceOf[HiveExternalCatalog].client.newSession()
 
   override lazy val sqlParser: ParserInterface = new OapSqlParser(conf)
 }

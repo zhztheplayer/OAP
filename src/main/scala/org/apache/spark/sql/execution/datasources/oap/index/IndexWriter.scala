@@ -57,7 +57,8 @@ private[index] abstract class IndexWriter extends FileFormatWriter {
     }
   }
 
-  override def getWriteTask(description: WriteJobDescription, taskAttemptContext: TaskAttemptContext,
+  override def getWriteTask(description: WriteJobDescription,
+                   taskAttemptContext: TaskAttemptContext,
                    committer: FileCommitProtocol): Option[ExecuteWriteTask] = {
     Some(new IndexWriteTask(description, taskAttemptContext, committer))
   }

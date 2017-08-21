@@ -155,7 +155,7 @@ class FileFormatWriter extends Logging {
     return Option.empty
   }
 
-  def setHadoopConf(hadoopConf: Configuration) = {}
+  def setHadoopConf(hadoopConf: Configuration): Unit = {}
 
   /** Writes data out in a single Spark task. */
   private def executeTask(

@@ -26,7 +26,6 @@ import org.apache.spark.sql.types.StructType
 abstract class IndexOutputWriterFactory extends OutputWriterFactory {
   override def newInstance(
       path: String,
-      bucketId: Option[Int], // TODO: This doesn't belong here...
       dataSchema: StructType,
       context: TaskAttemptContext): OutputWriter =
     throw new NotImplementedError("not support specifying path")
