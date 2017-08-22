@@ -44,7 +44,7 @@ import scala.collection.mutable
 
 /** A helper object for writing FileFormat data out to a location. */
 class FileFormatWriter extends Logging
-  with Serializable{
+  with Serializable {
 
   /** Describes how output files should be placed in the filesystem. */
   case class OutputSpec(
