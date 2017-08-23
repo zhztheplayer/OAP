@@ -20,15 +20,12 @@ package org.apache.spark.sql.execution.datasources.oap.index
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.mapreduce.Job
 
-import org.apache.spark.SparkException
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.io.FileCommitProtocol
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, Project}
-import org.apache.spark.sql.catalyst.trees.TreeNode
-import org.apache.spark.sql.execution.SQLExecution
 import org.apache.spark.sql.execution.command.RunnableCommand
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
@@ -49,7 +46,7 @@ case class CreateIndex(
     indexType: AnyIndexType,
     partitionSpec: Option[TablePartitionSpec]) extends RunnableCommand with Logging {
 
-  override lazy val containsChild: Set[TreeNode[_]] = Seq(relation).toSet
+  override def children: Seq[LogicalPlan] = Seq(relation)
 
   override val output: Seq[Attribute] = Seq.empty
 
@@ -191,7 +188,7 @@ case class DropIndex(
     allowNotExists: Boolean,
     partitionSpec: Option[TablePartitionSpec]) extends RunnableCommand {
 
-  override lazy val containsChild: Set[TreeNode[_]] = Seq(relation).toSet
+  override def children: Seq[LogicalPlan] = Seq(relation)
 
   override val output: Seq[Attribute] = Seq.empty
 
@@ -251,7 +248,8 @@ case class DropIndex(
  */
 case class RefreshIndex(
     relation: LogicalPlan) extends RunnableCommand with Logging {
-  override lazy val containsChild: Set[TreeNode[_]] = Seq(relation).toSet
+
+  override def children: Seq[LogicalPlan] = Seq(relation)
 
   override val output: Seq[Attribute] = Seq.empty
 
@@ -396,7 +394,7 @@ case class RefreshIndex(
 case class OapShowIndex(relation: LogicalPlan, relationName: String)
     extends RunnableCommand with Logging {
 
-  override lazy val containsChild: Set[TreeNode[_]] = Seq(relation).toSet
+  override def children: Seq[LogicalPlan] = Seq(relation)
 
   override val output: Seq[Attribute] = {
     AttributeReference("table", StringType, nullable = true)() ::
