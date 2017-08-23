@@ -27,6 +27,7 @@ import org.apache.parquet.hadoop.api.RecordReader
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 import org.apache.spark.sql.execution.datasources.parquet.ParquetReadSupportHelper
 import org.apache.spark.sql.execution.datasources.oap.filecache._
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
 
 
@@ -69,6 +70,13 @@ private[oap] case class ParquetDataFile(path: String, schema: StructType) extend
       requestSchema.json
     }
     conf.set(ParquetReadSupportHelper.SPARK_ROW_REQUESTED_SCHEMA, requestSchemaString)
+
+    conf.setBooleanIfUnset(SQLConf.PARQUET_BINARY_AS_STRING.key,
+      SQLConf.PARQUET_BINARY_AS_STRING.defaultValue.get)
+    conf.setBooleanIfUnset(SQLConf.PARQUET_INT96_AS_TIMESTAMP.key,
+      SQLConf.PARQUET_INT96_AS_TIMESTAMP.defaultValue.get)
+    conf.setBooleanIfUnset(SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key,
+      SQLConf.PARQUET_WRITE_LEGACY_FORMAT.defaultValue.get)
 
     val readSupport = new OapReadSupportImpl
 
