@@ -25,7 +25,7 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileStatus, FileSystem, FSDataOutputStream, Path}
 import org.apache.hadoop.mapreduce.{Job, TaskAttemptContext}
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat
-import org.apache.parquet.hadoop.util.{ContextUtil, SerializationUtil}
+import org.apache.parquet.hadoop.util.SerializationUtil
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{Row, SparkSession}
@@ -258,8 +258,10 @@ private[oap] class OapOutputWriterFactory(
   }
 
   override def getFileExtension(context: TaskAttemptContext): String = {
-    OapFileFormat.OAP_DATA_EXTENSION +
-      context.getConfiguration.get(OapFileFormat.COMPRESSION, OapFileFormat.DEFAULT_COMPRESSION)
+//    "." +
+//      context.getConfiguration
+//        .get(OapFileFormat.COMPRESSION, OapFileFormat.DEFAULT_COMPRESSION) +
+      OapFileFormat.OAP_DATA_EXTENSION
   }
 
   private def oapMetaFileExists(path: Path): Boolean = {
@@ -330,9 +332,9 @@ private[oap] case class OapWriteResult(
     fileName: String, rowsWritten: Int, partitionString: String)
 
 private[oap] class OapOutputWriter(
-                                            path: String,
-                                            dataSchema: StructType,
-                                            context: TaskAttemptContext) extends OutputWriter {
+       path: String,
+       dataSchema: StructType,
+       context: TaskAttemptContext) extends OutputWriter {
   private var rowCount = 0
   private var partitionString: String = ""
   override def setPartitionString(ps: String): Unit = {
@@ -340,10 +342,9 @@ private[oap] class OapOutputWriter(
   }
   private val writer: OapDataWriter = {
     val isCompressed: Boolean = FileOutputFormat.getCompressOutput(context)
-    val file: Path = new Path(path, getFileName(OapFileFormat.OAP_DATA_EXTENSION))
+    val file: Path = new Path(path)
     val fs: FileSystem = file.getFileSystem(context.getConfiguration)
     val fileOut: FSDataOutputStream = fs.create(file, false)
-
     new OapDataWriter(isCompressed, fileOut, dataSchema, context.getConfiguration)
   }
 
@@ -367,7 +368,7 @@ private[oap] class OapOutputWriter(
     f"part-r-$split%05d-${uniqueWriteJobId}$extension"
   }
 
-  def dataFileName: String = getFileName(OapFileFormat.OAP_DATA_EXTENSION)
+  def dataFileName: String = path
 }
 
 private[sql] object OapFileFormat {
