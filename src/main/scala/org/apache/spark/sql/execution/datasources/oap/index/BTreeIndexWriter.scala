@@ -54,6 +54,7 @@ private[oap] class BTreeIndexWriter(
       val fs = FileSystem.get(configuration)
       var skip = true
       var nextFile = InputFileNameHolder.getInputFileName().toString
+      setIndexInfo(description, nextFile, indexName, time)
       iterator.next()
       while(iterator.hasNext && skip) {
         val cacheFile = nextFile
@@ -66,12 +67,7 @@ private[oap] class BTreeIndexWriter(
     }
 
     val filename = InputFileNameHolder.getInputFileName().toString
-    val taskConfig = description.outputWriterFactory
-      .asInstanceOf[IndexOutputWriterFactory]
-      .taskAttemptContext.getConfiguration
-    taskConfig.set(IndexWriter.INPUT_FILE_NAME, filename)
-    taskConfig.set(IndexWriter.INDEX_NAME, indexName)
-    taskConfig.set(IndexWriter.INDEX_TIME, time)
+    setIndexInfo(description, filename, indexName, time)
 
     def buildOrdering(keySchema: StructType): Ordering[InternalRow] = {
       // here i change to use param id to index_id to get datatype in keySchema
