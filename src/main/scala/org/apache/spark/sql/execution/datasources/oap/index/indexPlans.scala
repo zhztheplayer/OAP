@@ -51,17 +51,17 @@ case class CreateIndex(
   override val output: Seq[Attribute] = Seq.empty
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
-    val (fileCatalog, s, readerClassName, identifier) = relation match {
+    val (fileCatalog, s, readerClassName, identifier, path) = relation match {
       case LogicalRelation(
-      HadoopFsRelation(fileCatalog, _, s, _, _: OapFileFormat, _), _, id) =>
-        (fileCatalog, s, OapFileFormat.OAP_DATA_FILE_CLASSNAME, id)
+      HadoopFsRelation(fileCatalog, _, s, _, _: OapFileFormat, options), _, id) =>
+        (fileCatalog, s, OapFileFormat.OAP_DATA_FILE_CLASSNAME, id, options.get("path"))
       case LogicalRelation(
-      HadoopFsRelation(fileCatalog, _, s, _, _: ParquetFileFormat, _), _, id) =>
+      HadoopFsRelation(fileCatalog, _, s, _, _: ParquetFileFormat, options), _, id) =>
         if (!sparkSession.conf.get(SQLConf.OAP_PARQUET_ENABLED)) {
           throw new OapException(s"turn on ${
             SQLConf.OAP_PARQUET_ENABLED.key} to allow index building on parquet files")
         }
-        (fileCatalog, s, OapFileFormat.PARQUET_DATA_FILE_CLASSNAME, id)
+        (fileCatalog, s, OapFileFormat.PARQUET_DATA_FILE_CLASSNAME, id, options.get("path"))
       case other =>
         throw new OapException(s"We don't support index building for ${other.simpleString}")
     }
@@ -136,10 +136,23 @@ case class CreateIndex(
     }
     val queryExecution = ds.queryExecution
 
+    val outPutPath = path match {
+      case Some(p) => p
+      case None =>
+        throw
+          new IllegalArgumentException("Expected exactly one path to be specified, but no value")
+    }
+
+    val qualifiedOutputPath = {
+      val output = new Path(outPutPath)
+      val fs = output.getFileSystem(configuration)
+      output.makeQualified(fs.getUri, fs.getWorkingDirectory)
+    }
+
     val committer = FileCommitProtocol.instantiate(
       sparkSession.sessionState.conf.fileCommitProtocolClass,
       jobId = java.util.UUID.randomUUID().toString,
-      outputPath = null,
+      outputPath = outPutPath,
       isAppend = false)
 
     val indexWriter = IndexWriterFactory.getIndexWriter(indexColumns,
@@ -154,16 +167,17 @@ case class CreateIndex(
       fileFormat = indexFileFormat,
       committer = committer,
       outputSpec = indexWriter.OutputSpec(
-        null, Map.empty),
+        qualifiedOutputPath.toString, Map.empty),
       hadoopConf = configuration,
       partitionColumns = Seq.empty,
       bucketSpec = Option.empty,
-      refreshFunction = null,
+      refreshFunction = _ => Unit,
       options = Map.empty)
 
     // val ret = OapIndexBuild(sparkSession, indexName,
     // indexColumns, s, bAndP.map(_._2), readerClassName, indexType).execute()
-    val retMap = retVal.map(_.asInstanceOf[IndexBuildResult]).groupBy(_.parent)
+    val retMap = retVal.filter(_.isInstanceOf[IndexBuildResult])
+      .map(_.asInstanceOf[IndexBuildResult]).groupBy(_.parent)
     bAndP.foreach(bp =>
       retMap.getOrElse(bp._2.toString, Nil).foreach(r =>
         if (!bp._3) bp._1.addFileMeta(
