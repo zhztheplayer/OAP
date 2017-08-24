@@ -71,13 +71,6 @@ private[oap] case class ParquetDataFile(path: String, schema: StructType) extend
     }
     conf.set(ParquetReadSupportHelper.SPARK_ROW_REQUESTED_SCHEMA, requestSchemaString)
 
-    conf.setBooleanIfUnset(SQLConf.PARQUET_BINARY_AS_STRING.key,
-      SQLConf.PARQUET_BINARY_AS_STRING.defaultValue.get)
-    conf.setBooleanIfUnset(SQLConf.PARQUET_INT96_AS_TIMESTAMP.key,
-      SQLConf.PARQUET_INT96_AS_TIMESTAMP.defaultValue.get)
-    conf.setBooleanIfUnset(SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key,
-      SQLConf.PARQUET_WRITE_LEGACY_FORMAT.defaultValue.get)
-
     val readSupport = new OapReadSupportImpl
 
     val meta: ParquetDataFileHandle = DataFileHandleCacheManager(this, conf)

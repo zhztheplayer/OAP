@@ -104,7 +104,9 @@ object FileSourceStrategy extends Strategy with Logging {
               Map(SQLConf.PARQUET_BINARY_AS_STRING.key ->
                 _fsRelation.sparkSession.sessionState.conf.isParquetBinaryAsString.toString,
                 SQLConf.PARQUET_INT96_AS_TIMESTAMP.key ->
-                  _fsRelation.sparkSession.sessionState.conf.isParquetINT96AsTimestamp.toString) ++
+                  _fsRelation.sparkSession.sessionState.conf.isParquetINT96AsTimestamp.toString,
+                SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key ->
+                  _fsRelation.sparkSession.sessionState.conf.writeLegacyParquetFormat.toString) ++
                 _fsRelation.options
 
             _fsRelation.copy(fileFormat = oapFileFormat,
