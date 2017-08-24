@@ -28,8 +28,8 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, Project}
 import org.apache.spark.sql.execution.command.RunnableCommand
 import org.apache.spark.sql.execution.datasources._
-import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
 import org.apache.spark.sql.execution.datasources.oap._
+import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
 import org.apache.spark.sql.execution.datasources.oap.utils.OapUtils
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{IntegerType, StringType, StructType}
@@ -268,13 +268,13 @@ case class RefreshIndex(
   override val output: Seq[Attribute] = Seq.empty
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
-    val (fileCatalog, s, readerClassName) = relation match {
+    val (fileCatalog, s, readerClassName, path) = relation match {
       case LogicalRelation(
-          HadoopFsRelation(fileCatalog, _, s, _, _: OapFileFormat, _), _, _) =>
-        (fileCatalog, s, OapFileFormat.OAP_DATA_FILE_CLASSNAME)
+          HadoopFsRelation(fileCatalog, _, s, _, _: OapFileFormat, options), _, _) =>
+        (fileCatalog, s, OapFileFormat.OAP_DATA_FILE_CLASSNAME, options.get("path"))
       case LogicalRelation(
-          HadoopFsRelation(fileCatalog, _, s, _, _: ParquetFileFormat, _), _, _) =>
-        (fileCatalog, s, OapFileFormat.PARQUET_DATA_FILE_CLASSNAME)
+          HadoopFsRelation(fileCatalog, _, s, _, _: ParquetFileFormat, options), _, _) =>
+        (fileCatalog, s, OapFileFormat.PARQUET_DATA_FILE_CLASSNAME, options.get("path"))
       case other =>
         throw new OapException(s"We don't support index refreshing for ${other.simpleString}")
     }
@@ -345,10 +345,24 @@ case class RefreshIndex(
       val ids =
         indexColumns.map(c => s.map(_.name).toIndexedSeq.indexOf(c.columnName))
       val keySchema = StructType(ids.map(s.toIndexedSeq(_)))
+
+      val outPutPath = path match {
+        case Some(p) => p
+        case None =>
+          throw
+            new IllegalArgumentException("Expected exactly one path to be specified, but no value")
+      }
+
+      val qualifiedOutputPath = {
+        val output = new Path(outPutPath)
+        val fs = output.getFileSystem(configuration)
+        output.makeQualified(fs.getUri, fs.getWorkingDirectory)
+      }
+
       val committer = FileCommitProtocol.instantiate(
         sparkSession.sessionState.conf.fileCommitProtocolClass,
         jobId = java.util.UUID.randomUUID().toString,
-        outputPath = null,
+        outputPath = outPutPath,
         isAppend = false)
 
       val indexWriter = IndexWriterFactory.getIndexWriter(indexColumns.toArray,
@@ -363,17 +377,18 @@ case class RefreshIndex(
         fileFormat = indexFileFormat,
         committer = committer,
         outputSpec = indexWriter.OutputSpec(
-          null, Map.empty),
+          qualifiedOutputPath.toString, Map.empty),
         hadoopConf = configuration,
         partitionColumns = Seq.empty,
         bucketSpec = Option.empty,
-        refreshFunction = null,
+        refreshFunction = _ => Unit,
         options = Map.empty)
 
     })
     if (!buildrst.isEmpty) {
       val ret = buildrst.head
-      val retMap = ret.map(_.asInstanceOf[IndexBuildResult]).groupBy(_.parent)
+      val retMap = ret.filter(_.isInstanceOf[IndexBuildResult])
+        .map(_.asInstanceOf[IndexBuildResult]).groupBy(_.parent)
 
       // there some cases oap meta files have already been updated
       // e.g. when inserting data in oap files the meta has already updated

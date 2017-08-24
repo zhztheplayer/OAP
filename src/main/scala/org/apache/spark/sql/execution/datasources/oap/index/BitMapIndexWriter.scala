@@ -106,6 +106,7 @@ private[oap] class BitMapIndexWriter(
         kv._2.foreach(bs.set)
         hashMap.put(kv._1, bs)
       })
+      InputFileNameHolder.setInputFileName(filename)
       val header = writeHead(writer, IndexFile.INDEX_VERSION)
       // serialize hashMap and get length
       val writeBuf = new ByteArrayOutputStream()
@@ -126,6 +127,7 @@ private[oap] class BitMapIndexWriter(
       IndexUtils.writeLong(writer, indexEnd) // statistics start pos
       IndexUtils.writeLong(writer, offset) // index file end offset
       IndexUtils.writeLong(writer, indexEnd) // dataEnd
+      InputFileNameHolder.unsetInputFileName()
 
 
       // writer.close()

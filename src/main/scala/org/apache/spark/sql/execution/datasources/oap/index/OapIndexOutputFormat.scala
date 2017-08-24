@@ -98,13 +98,12 @@ private[index] class OapIndexOutputFormat[T] extends FileOutputFormat[Void, T] {
 
   override def getRecordWriter(
       taskAttemptContext: TaskAttemptContext): NoBoundaryRecordWriter[T] = {
-    val threadName = Thread.currentThread().getName
     val conf = ContextUtil.getConfiguration(taskAttemptContext)
     // TODO enable index codec
     // val codec = getCodec(taskAttemptContext)
     val extension = ".index"
     val input = InputFileNameHolder.getInputFileName().toString
-//      conf.get(IndexWriter.INPUT_FILE_NAME)
+    // conf.get(IndexWriter.INPUT_FILE_NAME)
     val indexName = conf.get(IndexWriter.INDEX_NAME)
     val time = conf.get(IndexWriter.INDEX_TIME)
     // TODO replace '/' with OS specific separator

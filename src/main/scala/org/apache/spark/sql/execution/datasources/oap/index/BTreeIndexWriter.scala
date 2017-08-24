@@ -72,7 +72,6 @@ private[oap] class BTreeIndexWriter(
       }
       if (skip) return Nil
     }
-    val threadName = Thread.currentThread().getName
     val filename = InputFileNameHolder.getInputFileName().toString
 
     def buildOrdering(keySchema: StructType): Ordering[InternalRow] = {
