@@ -48,6 +48,7 @@ private[index] class OapIndexFileFormat
                bucketId: Option[Int],
                dataSchema: StructType,
                context: TaskAttemptContext): IndexOutputWriter = {
+        taskAttemptContext = context
         new IndexOutputWriter(bucketId, context)
       }
 
@@ -58,8 +59,9 @@ private[index] class OapIndexFileFormat
         newInstance(None, dataSchema, context)
 
       override def getFileExtension(context: TaskAttemptContext): String = {
-        OapFileFormat.OAP_INDEX_EXTENSION +
-          context.getConfiguration.get(OapFileFormat.COMPRESSION, OapFileFormat.DEFAULT_COMPRESSION)
+        OapFileFormat.OAP_INDEX_EXTENSION
+        // +context.getConfiguration
+        // .get(OapFileFormat.COMPRESSION, OapFileFormat.DEFAULT_COMPRESSION)
       }
     }
   }

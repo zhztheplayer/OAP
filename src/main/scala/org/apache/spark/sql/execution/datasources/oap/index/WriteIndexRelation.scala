@@ -17,13 +17,15 @@
 
 package org.apache.spark.sql.execution.datasources.oap.index
 
-import org.apache.hadoop.mapreduce.{Job, TaskAttemptContext}
+import org.apache.hadoop.mapreduce.TaskAttemptContext
 
-import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.types.StructType
 
 abstract class IndexOutputWriterFactory extends OutputWriterFactory {
+
+  var taskAttemptContext: TaskAttemptContext = _
+
   override def newInstance(
       path: String,
       dataSchema: StructType,

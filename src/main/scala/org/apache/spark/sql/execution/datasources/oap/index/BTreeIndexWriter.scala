@@ -42,14 +42,6 @@ private[oap] class BTreeIndexWriter(
     time: String,
     isAppend: Boolean) extends IndexWriter {
 
-  override def setHadoopConf(hadoopConf: Configuration): Unit = {
-    val threadName = Thread.currentThread().getName
-    val filename = InputFileNameHolder.getInputFileName().toString
-    hadoopConf.set(IndexWriter.INPUT_FILE_NAME, filename)
-    hadoopConf.set(IndexWriter.INDEX_NAME, indexName)
-    hadoopConf.set(IndexWriter.INDEX_TIME, time)
-  }
-
   override def writeIndexFromRows(description: WriteJobDescription,
       writer: IndexOutputWriter, iterator: Iterator[InternalRow]): Seq[IndexBuildResult] = {
     var taskReturn: Seq[IndexBuildResult] = Nil
@@ -72,7 +64,14 @@ private[oap] class BTreeIndexWriter(
       }
       if (skip) return Nil
     }
+
     val filename = InputFileNameHolder.getInputFileName().toString
+    val taskConfig = description.outputWriterFactory
+      .asInstanceOf[IndexOutputWriterFactory]
+      .taskAttemptContext.getConfiguration
+    taskConfig.set(IndexWriter.INPUT_FILE_NAME, filename)
+    taskConfig.set(IndexWriter.INDEX_NAME, indexName)
+    taskConfig.set(IndexWriter.INDEX_TIME, time)
 
     def buildOrdering(keySchema: StructType): Ordering[InternalRow] = {
       // here i change to use param id to index_id to get datatype in keySchema
@@ -126,7 +125,6 @@ private[oap] class BTreeIndexWriter(
       var i = 0
       var fileOffset = 0L
       val offsetMap = new java.util.HashMap[InternalRow, Long]()
-      InputFileNameHolder.setInputFileName(filename)
       fileOffset += writeHead(writer, IndexFile.INDEX_VERSION)
       // write data segment.
       while (i < partitionUniqueSize) {
@@ -161,7 +159,6 @@ private[oap] class BTreeIndexWriter(
       IndexUtils.writeLong(writer, dataEnd + treeOffset._1)
       IndexUtils.writeLong(writer, dataEnd)
       IndexUtils.writeLong(writer, offsetMap.get(uniqueKeysList.getFirst))
-      InputFileNameHolder.unsetInputFileName()
 
       taskReturn :+ IndexBuildResult(filename, cnt, "", new Path(filename).getParent.toString)
     }

@@ -39,13 +39,6 @@ private[oap] class BitMapIndexWriter(
     time: String,
     isAppend: Boolean) extends IndexWriter {
 
-  override def setHadoopConf(hadoopConf: Configuration): Unit = {
-    val filename = InputFileNameHolder.getInputFileName().toString
-    hadoopConf.set(IndexWriter.INPUT_FILE_NAME, filename)
-    hadoopConf.set(IndexWriter.INDEX_NAME, indexName)
-    hadoopConf.set(IndexWriter.INDEX_TIME, time)
-  }
-
   override def writeIndexFromRows(description: WriteJobDescription,
       writer: IndexOutputWriter, iterator: Iterator[InternalRow]): Seq[IndexBuildResult] = {
     var taskReturn: Seq[IndexBuildResult] = Nil
@@ -68,6 +61,12 @@ private[oap] class BitMapIndexWriter(
       if (skip) return Nil
     }
     val filename = InputFileNameHolder.getInputFileName().toString
+    val taskConfig = description.outputWriterFactory
+      .asInstanceOf[IndexOutputWriterFactory]
+      .taskAttemptContext.getConfiguration
+    taskConfig.set(IndexWriter.INPUT_FILE_NAME, filename)
+    taskConfig.set(IndexWriter.INDEX_NAME, indexName)
+    taskConfig.set(IndexWriter.INDEX_TIME, time)
 
     def writeTask(): Seq[IndexBuildResult] = {
       val statisticsManager = new StatisticsManager
@@ -106,7 +105,6 @@ private[oap] class BitMapIndexWriter(
         kv._2.foreach(bs.set)
         hashMap.put(kv._1, bs)
       })
-      InputFileNameHolder.setInputFileName(filename)
       val header = writeHead(writer, IndexFile.INDEX_VERSION)
       // serialize hashMap and get length
       val writeBuf = new ByteArrayOutputStream()
@@ -127,8 +125,6 @@ private[oap] class BitMapIndexWriter(
       IndexUtils.writeLong(writer, indexEnd) // statistics start pos
       IndexUtils.writeLong(writer, offset) // index file end offset
       IndexUtils.writeLong(writer, indexEnd) // dataEnd
-      InputFileNameHolder.unsetInputFileName()
-
 
       // writer.close()
       taskReturn :+ IndexBuildResult(filename, rowCnt, "", new Path(filename).getParent.toString)

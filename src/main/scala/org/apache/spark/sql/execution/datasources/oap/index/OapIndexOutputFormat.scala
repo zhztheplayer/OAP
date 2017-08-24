@@ -25,8 +25,6 @@ import org.apache.hadoop.mapreduce.{RecordWriter, TaskAttemptContext}
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat
 import org.apache.parquet.hadoop.util.ContextUtil
 
-import org.apache.spark.rdd.InputFileNameHolder
-
 private[index] class OapIndexOutputFormat[T] extends FileOutputFormat[Void, T] {
 
   protected object NoBoundaryRecordWriter {
@@ -102,8 +100,7 @@ private[index] class OapIndexOutputFormat[T] extends FileOutputFormat[Void, T] {
     // TODO enable index codec
     // val codec = getCodec(taskAttemptContext)
     val extension = ".index"
-    val input = InputFileNameHolder.getInputFileName().toString
-    // conf.get(IndexWriter.INPUT_FILE_NAME)
+    val input = conf.get(IndexWriter.INPUT_FILE_NAME)
     val indexName = conf.get(IndexWriter.INDEX_NAME)
     val time = conf.get(IndexWriter.INDEX_TIME)
     // TODO replace '/' with OS specific separator

@@ -181,7 +181,6 @@ class FileFormatWriter extends Logging
       hadoopConf.set("mapred.task.id", taskAttemptId.toString)
       hadoopConf.setBoolean("mapred.task.is.map", true)
       hadoopConf.setInt("mapred.task.partition", 0)
-      setHadoopConf(hadoopConf)
 
       new TaskAttemptContextImpl(hadoopConf, taskAttemptId)
     }
