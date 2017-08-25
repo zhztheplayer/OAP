@@ -272,7 +272,7 @@ class ParquetFileFormat
       sparkSession: SparkSession,
       options: Map[String, String],
       path: Path): Boolean = {
-    true
+      !sparkSession.conf.get(SQLConf.OAP_PARQUET_ENABLED)
   }
 
   override def buildReaderWithPartitionValues(
