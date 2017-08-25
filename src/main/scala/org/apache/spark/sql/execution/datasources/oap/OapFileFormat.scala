@@ -296,7 +296,7 @@ private[oap] class OapOutputWriterFactory(
     val builder = DataSourceMeta.newBuilder()
       .withNewDataReaderClassName(OapFileFormat.OAP_DATA_FILE_CLASSNAME)
     val conf = job.getConfiguration
-    val partitionMeta = taskResults.map {
+    val partitionMeta = taskResults.filter(_.isInstanceOf[OapWriteResult]).map {
       // The file fingerprint is not used at the moment.
       case s: OapWriteResult =>
         builder.addFileMeta(FileMeta("", s.rowsWritten, s.fileName))

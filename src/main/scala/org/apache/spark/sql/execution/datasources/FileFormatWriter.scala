@@ -415,7 +415,6 @@ class FileFormatWriter extends Logging
         currentWriter.writeInternal(sortedIterator.getValue)
       }
       if (currentWriter != null) {
-        currentWriter.close()
         writeResults = writeResults :+ currentWriter.close()
         currentWriter = null
       }
