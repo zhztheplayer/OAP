@@ -94,6 +94,13 @@ private[index] class OapIndexOutputFormat[T] extends FileOutputFormat[Void, T] {
     }
   }
 
+  protected class DummyNoBoundaryRecordWriter[T] extends NoBoundaryRecordWriter[T] {
+
+    override def close(context: TaskAttemptContext): Unit = {}
+
+    override def write(key: Void, value: T): Unit = {}
+  }
+
   override def getRecordWriter(
       taskAttemptContext: TaskAttemptContext): NoBoundaryRecordWriter[T] = {
     val conf = ContextUtil.getConfiguration(taskAttemptContext)
@@ -101,18 +108,22 @@ private[index] class OapIndexOutputFormat[T] extends FileOutputFormat[Void, T] {
     // val codec = getCodec(taskAttemptContext)
     val extension = ".index"
     val input = conf.get(IndexWriter.INPUT_FILE_NAME)
-    val indexName = conf.get(IndexWriter.INDEX_NAME)
-    val time = conf.get(IndexWriter.INDEX_TIME)
-    // TODO replace '/' with OS specific separator
-    val simpleName = input.substring(input.lastIndexOf('/') + 1, input.lastIndexOf('.'))
-    val directory = input.substring(0, input.lastIndexOf('/'))
-    val outputName =
-      directory + "/." + simpleName + "." + time + "." + indexName + extension
-    val file = this.getDefaultWorkFile(taskAttemptContext, outputName)
-    val fs = file.getFileSystem(conf)
-    // TODO maybe compression here
-    // overwrite = true for overwriting index files
-    new NoBoundaryRecordWriter[T](fs.create(file, true))
+    if (input != null && input.nonEmpty) {
+      val indexName = conf.get(IndexWriter.INDEX_NAME)
+      val time = conf.get(IndexWriter.INDEX_TIME)
+      // TODO replace '/' with OS specific separator
+      val simpleName = input.substring(input.lastIndexOf('/') + 1, input.lastIndexOf('.'))
+      val directory = input.substring(0, input.lastIndexOf('/'))
+      val outputName =
+        directory + "/." + simpleName + "." + time + "." + indexName + extension
+      val file = this.getDefaultWorkFile(taskAttemptContext, outputName)
+      val fs = file.getFileSystem(conf)
+      // TODO maybe compression here
+      // overwrite = true for overwriting index files
+      new NoBoundaryRecordWriter[T](fs.create(file, true))
+    } else {
+      new DummyNoBoundaryRecordWriter[T]
+    }
   }
 
   override def getDefaultWorkFile(context: TaskAttemptContext, extension: String): Path = {
