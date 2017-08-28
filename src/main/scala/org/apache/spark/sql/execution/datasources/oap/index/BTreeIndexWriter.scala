@@ -54,7 +54,6 @@ private[oap] class BTreeIndexWriter(
       val fs = FileSystem.get(configuration)
       var skip = true
       var nextFile = InputFileNameHolder.getInputFileName().toString
-      setIndexInfo(description, nextFile, indexName, time)
       iterator.next()
       while(iterator.hasNext && skip) {
         val cacheFile = nextFile
