@@ -326,9 +326,11 @@ class FileFormatWriter extends Logging
         ""
       }
       val ext = bucketId + description.outputWriterFactory.getFileExtension(taskAttemptContext)
+      var ps: String = ""
 
       val customPath = partDir match {
         case Some(dir) =>
+          ps = dir
           description.customPartitionLocations.get(PartitioningUtils.parsePathFragment(dir))
         case _ =>
           None
@@ -343,6 +345,7 @@ class FileFormatWriter extends Logging
         dataSchema = description.nonPartitionColumns.toStructType,
         context = taskAttemptContext)
       newWriter.initConverter(description.nonPartitionColumns.toStructType)
+      newWriter.setPartitionString(ps)
       newWriter
     }
 
