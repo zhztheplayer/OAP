@@ -46,20 +46,33 @@ private[oap] class BitMapIndexWriter(
     val configuration = description.serializableHadoopConf.value
     // to get input filename
     if (!iterator.hasNext) return Nil
+
     if (isAppend) {
-      val fs = FileSystem.get(configuration)
-      var skip = true
+      def isIndexExists(fileName: String): Boolean = {
+        val extension = ".index"
+        val simpleName =
+          fileName.substring(fileName.lastIndexOf('/') + 1, fileName.lastIndexOf('.'))
+        val directory = fileName.substring(0, fileName.lastIndexOf('/'))
+        val indexFileName =
+          directory + "/." + simpleName + "." + time + "." + indexName + extension
+        val fs = FileSystem.get(configuration)
+        fs.exists(new Path(indexFileName))
+      }
+
       var nextFile = InputFileNameHolder.getInputFileName().toString
-      iterator.next()
+      if(nextFile== null ||  nextFile.isEmpty) return Nil
+      var skip = isIndexExists(nextFile)
+
       while(iterator.hasNext && skip) {
         val cacheFile = nextFile
         nextFile = InputFileNameHolder.getInputFileName().toString
         // avoid calling `fs.exists` for every row
-        skip = cacheFile == nextFile || fs.exists(new Path(nextFile))
-        iterator.next()
+        skip = cacheFile == nextFile || isIndexExists(nextFile)
+        if(skip) iterator.next()
       }
       if (skip) return Nil
     }
+
     val filename = InputFileNameHolder.getInputFileName().toString
     setIndexInfo(description, filename, indexName, time)
 

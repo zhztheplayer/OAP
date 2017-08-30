@@ -368,7 +368,7 @@ private[oap] class OapOutputWriter(
     f"part-r-$split%05d-${uniqueWriteJobId}$extension"
   }
 
-  def dataFileName: String = path
+  def dataFileName: String = path.split("/").last
 }
 
 private[sql] object OapFileFormat {

@@ -20,9 +20,11 @@ package org.apache.spark.sql.execution.datasources.oap.index
 import java.io.ByteArrayOutputStream
 import java.util.Comparator
 
+import scala.collection.JavaConverters._
+
 import com.google.common.collect.ArrayListMultimap
-import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
+
 import org.apache.spark.rdd.InputFileNameHolder
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
@@ -31,8 +33,6 @@ import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
 import org.apache.spark.sql.execution.datasources.oap.statistics._
 import org.apache.spark.sql.execution.datasources.oap.utils.{BTreeNode, BTreeUtils}
 import org.apache.spark.sql.types.StructType
-
-import scala.collection.JavaConverters._
 
 // TODO respect `sparkSession.conf.get(SQLConf.PARTITION_MAX_FILES)`
 private[oap] class BTreeIndexWriter(
@@ -51,16 +51,27 @@ private[oap] class BTreeIndexWriter(
     if (!iterator.hasNext) return Nil
     // configuration.set(DATASOURCE_OUTPUTPATH, outputPath)
     if (isAppend) {
-      val fs = FileSystem.get(configuration)
-      var skip = true
+      def isIndexExists(fileName: String): Boolean = {
+        val extension = ".index"
+        val simpleName =
+          fileName.substring(fileName.lastIndexOf('/') + 1, fileName.lastIndexOf('.'))
+        val directory = fileName.substring(0, fileName.lastIndexOf('/'))
+        val indexFileName =
+          directory + "/." + simpleName + "." + time + "." + indexName + extension
+        val fs = FileSystem.get(configuration)
+        fs.exists(new Path(indexFileName))
+      }
+
       var nextFile = InputFileNameHolder.getInputFileName().toString
-      iterator.next()
+      if(nextFile== null ||  nextFile.isEmpty) return Nil
+      var skip = isIndexExists(nextFile)
+
       while(iterator.hasNext && skip) {
         val cacheFile = nextFile
         nextFile = InputFileNameHolder.getInputFileName().toString
         // avoid calling `fs.exists` for every row
-        skip = cacheFile == nextFile || fs.exists(new Path(nextFile))
-        iterator.next()
+        skip = cacheFile == nextFile || isIndexExists(nextFile)
+        if(skip) iterator.next()
       }
       if (skip) return Nil
     }

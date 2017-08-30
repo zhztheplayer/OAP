@@ -368,11 +368,11 @@ case class RefreshIndex(
       // Hack Alert: @liyuanjian when append=true, previous implement has bug,
       // just simple skip it now for the refresh command before fixing the refresh logic.
       val indexWriter = IndexWriterFactory.getIndexWriter(indexColumns.toArray,
-          keySchema,
-          i.name,
-          i.time,
-          indexType,
-          false)
+        keySchema,
+        i.name,
+        i.time,
+        indexType,
+        true)
 
       indexWriter.write(sparkSession = sparkSession,
         queryExecution = queryExecution,
