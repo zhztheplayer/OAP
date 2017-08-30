@@ -162,7 +162,8 @@ private[oap] class BTreeIndexWriter(
       IndexUtils.writeLong(writer, dataEnd)
       IndexUtils.writeLong(writer, offsetMap.get(uniqueKeysList.getFirst))
 
-      taskReturn :+ IndexBuildResult(filename, cnt, "", new Path(filename).getParent.toString)
+      taskReturn :+ IndexBuildResult(new Path(filename).getName, cnt, "",
+        new Path(filename).getParent.toString)
     }
 
     writeTask()

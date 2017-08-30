@@ -131,7 +131,8 @@ private[oap] class BitMapIndexWriter(
       IndexUtils.writeLong(writer, indexEnd) // dataEnd
 
       // writer.close()
-      taskReturn :+ IndexBuildResult(filename, rowCnt, "", new Path(filename).getParent.toString)
+      taskReturn :+ IndexBuildResult(new Path(filename).getName, rowCnt, "",
+        new Path(filename).getParent.toString)
     }
 
     writeTask()
