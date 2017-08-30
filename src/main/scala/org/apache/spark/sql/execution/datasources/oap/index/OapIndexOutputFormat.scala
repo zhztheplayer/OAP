@@ -93,14 +93,7 @@ private[index] class OapIndexOutputFormat[T] extends FileOutputFormat[Void, T] {
       out.close()
     }
   }
-
-  protected class DummyNoBoundaryRecordWriter[T] extends NoBoundaryRecordWriter[T] {
-
-    override def close(context: TaskAttemptContext): Unit = {}
-
-    override def write(key: Void, value: T): Unit = {}
-  }
-
+  
   override def getRecordWriter(
       taskAttemptContext: TaskAttemptContext): NoBoundaryRecordWriter[T] = {
     val conf = ContextUtil.getConfiguration(taskAttemptContext)
