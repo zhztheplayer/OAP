@@ -18,12 +18,16 @@
 package org.apache.spark.sql.execution.datasources.oap.index
 
 import org.apache.hadoop.mapreduce.TaskAttemptContext
+
 import org.apache.spark.internal.io.FileCommitProtocol
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
 import org.apache.spark.sql.execution.datasources.{FileFormatWriter, WriteResult}
+import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
+
 
 private[index] abstract class IndexWriter extends FileFormatWriter {
+
+  private var shouldCloseWriter: Boolean = false
 
   class IndexWriteTask(description: WriteJobDescription,
       taskAttemptContext: TaskAttemptContext,
@@ -44,12 +48,14 @@ private[index] abstract class IndexWriter extends FileFormatWriter {
     }
 
     override def execute(iter: Iterator[InternalRow]): (Set[String], Seq[WriteResult]) = {
-      (Set.empty, writeIndexFromRows(description, outputWriter, iter))
+      var result = writeIndexFromRows(description, outputWriter, iter)
+      shouldCloseWriter = result != Nil
+      (Set.empty, result)
     }
 
     override def releaseResources(): WriteResult = {
       var res: WriteResult = Nil
-      if (outputWriter != null) {
+      if (shouldCloseWriter && outputWriter != null) {
         res = outputWriter.close()
         outputWriter = null
       }

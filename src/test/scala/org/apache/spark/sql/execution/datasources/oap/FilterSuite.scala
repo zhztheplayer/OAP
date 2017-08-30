@@ -19,6 +19,9 @@ package org.apache.spark.sql.execution.datasources.oap
 
 import java.sql.Date
 
+import com.google.common.io.Files
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.Path
 import org.scalatest.BeforeAndAfterEach
 
 import org.apache.spark.sql.{QueryTest, Row}
@@ -31,10 +34,12 @@ import org.apache.spark.util.Utils
 class FilterSuite extends QueryTest with SharedSQLContext with BeforeAndAfterEach {
   import testImplicits._
 
+  private var currentPath: String = _
+
   override def beforeEach(): Unit = {
     sqlContext.conf.setConf(SQLConf.OAP_IS_TESTING, true)
     val path = Utils.createTempDir().getAbsolutePath
-
+    currentPath = path
     sql(s"""CREATE TEMPORARY VIEW oap_test (a INT, b STRING)
            | USING oap
            | OPTIONS (path '$path')""".stripMargin)
@@ -66,6 +71,7 @@ class FilterSuite extends QueryTest with SharedSQLContext with BeforeAndAfterEac
     sqlContext.dropTempTable("parquet_test_date")
     sql("DROP TABLE IF EXISTS t_refresh")
     sql("DROP TABLE IF EXISTS t_refresh_parquet")
+
   }
 
   test("empty table") {
@@ -303,7 +309,12 @@ class FilterSuite extends QueryTest with SharedSQLContext with BeforeAndAfterEac
       Row(1, "this is test 1") :: Nil)
 
     sql("insert into table oap_test select * from t")
+    val checkPath = new Path(currentPath)
+    val fs = checkPath.getFileSystem(new Configuration())
+    assert(fs.globStatus(new Path(checkPath, "*.index")).length == 2)
+
     sql("refresh oindex on oap_test")
+    assert(fs.globStatus(new Path(checkPath, "*.index")).length == 4)
 
     checkAnswer(sql("SELECT * FROM oap_test WHERE a = 1"),
       Row(1, "this is test 1") :: Row(1, "this is test 1") :: Nil)

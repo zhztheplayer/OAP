@@ -49,14 +49,10 @@ private[oap] class BitMapIndexWriter(
 
     if (isAppend) {
       def isIndexExists(fileName: String): Boolean = {
-        val extension = ".index"
-        val simpleName =
-          fileName.substring(fileName.lastIndexOf('/') + 1, fileName.lastIndexOf('.'))
-        val directory = fileName.substring(0, fileName.lastIndexOf('/'))
-        val indexFileName =
-          directory + "/." + simpleName + "." + time + "." + indexName + extension
+        val indexPath =
+          IndexUtils.indexFileFromDataFile(new Path(fileName), indexName, time)
         val fs = FileSystem.get(configuration)
-        fs.exists(new Path(indexFileName))
+        fs.exists(indexPath)
       }
 
       var nextFile = InputFileNameHolder.getInputFileName().toString
