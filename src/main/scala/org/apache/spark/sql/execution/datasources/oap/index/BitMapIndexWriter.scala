@@ -70,7 +70,7 @@ private[oap] class BitMapIndexWriter(
     }
 
     val filename = InputFileNameHolder.getInputFileName().toString
-    setIndexInfo(description, filename, indexName, time)
+    writer.initIndexInfo(filename, indexName, time)
 
     def writeTask(): Seq[IndexBuildResult] = {
       val statisticsManager = new StatisticsManager
@@ -130,7 +130,9 @@ private[oap] class BitMapIndexWriter(
       IndexUtils.writeLong(writer, offset) // index file end offset
       IndexUtils.writeLong(writer, indexEnd) // dataEnd
 
-      // writer.close()
+      // avoid fd leak
+      writer.close()
+
       taskReturn :+ IndexBuildResult(new Path(filename).getName, rowCnt, "",
         new Path(filename).getParent.toString)
     }

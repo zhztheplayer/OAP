@@ -73,7 +73,7 @@ private[oap] class BTreeIndexWriter(
     }
 
     val filename = InputFileNameHolder.getInputFileName().toString
-    setIndexInfo(description, filename, indexName, time)
+    writer.initIndexInfo(filename, indexName, time)
 
     def buildOrdering(keySchema: StructType): Ordering[InternalRow] = {
       // here i change to use param id to index_id to get datatype in keySchema
@@ -96,7 +96,7 @@ private[oap] class BTreeIndexWriter(
       while (iterator.hasNext && !writeNewFile) {
         val fname = InputFileNameHolder.getInputFileName().toString
         if (fname != filename) {
-          taskReturn = taskReturn ++: writeIndexFromRows(description, writer, iterator)
+          taskReturn = taskReturn ++: writeIndexFromRows(description, writer.copy(), iterator)
           writeNewFile = true
         } else {
           val v = genericProjector(iterator.next()).copy()
@@ -161,6 +161,9 @@ private[oap] class BTreeIndexWriter(
       IndexUtils.writeLong(writer, dataEnd + treeOffset._1)
       IndexUtils.writeLong(writer, dataEnd)
       IndexUtils.writeLong(writer, offsetMap.get(uniqueKeysList.getFirst))
+
+      // avoid fd leak
+      writer.close
 
       taskReturn :+ IndexBuildResult(new Path(filename).getName, cnt, "",
         new Path(filename).getParent.toString)

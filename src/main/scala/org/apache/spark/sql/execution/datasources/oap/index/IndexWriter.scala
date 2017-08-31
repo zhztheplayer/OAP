@@ -80,21 +80,6 @@ private[index] abstract class IndexWriter extends FileFormatWriter {
     writer.write(data)
     IndexFile.indexFileHeaderLength
   }
-
-
-  protected def setIndexInfo(
-                description: WriteJobDescription,
-                filename: String,
-                indexName: String,
-                time: String): Unit = {
-    val taskConfig = description.outputWriterFactory
-      .asInstanceOf[IndexOutputWriterFactory]
-      .taskAttemptContext.getConfiguration
-    taskConfig.setIfUnset(IndexWriter.INPUT_FILE_NAME, filename)
-    taskConfig.setIfUnset(IndexWriter.INDEX_NAME, indexName)
-    taskConfig.setIfUnset(IndexWriter.INDEX_TIME, time)
-  }
-
 }
 
 private[index] object IndexWriter {
