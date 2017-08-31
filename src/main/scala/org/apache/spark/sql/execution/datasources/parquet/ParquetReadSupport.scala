@@ -305,4 +305,3 @@ private[parquet] object ParquetReadSupport {
     expand(schema).asInstanceOf[StructType]
   }
 }
-

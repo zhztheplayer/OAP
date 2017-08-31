@@ -167,4 +167,3 @@ object SimpleTextRelation {
   // Used by the test case to check the value propagated in the hadoop confs.
   var lastHadoopConf: Option[Configuration] = None
 }
-

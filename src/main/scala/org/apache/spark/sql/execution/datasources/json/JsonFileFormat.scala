@@ -190,4 +190,3 @@ private[json] class JsonOutputWriter(
     recordWriter.close(context)
   }
 }
-

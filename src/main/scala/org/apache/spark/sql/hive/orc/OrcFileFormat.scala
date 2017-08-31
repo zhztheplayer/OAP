@@ -307,4 +307,3 @@ private[orc] object OrcRelation extends HiveInspectors {
     HiveShim.appendReadColumns(conf, sortedIDs, sortedNames)
   }
 }
-

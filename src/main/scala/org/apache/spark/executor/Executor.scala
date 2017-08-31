@@ -591,4 +591,3 @@ private[spark] object Executor {
   // used instead.
   val taskDeserializationProps: ThreadLocal[Properties] = new ThreadLocal[Properties]
 }
-

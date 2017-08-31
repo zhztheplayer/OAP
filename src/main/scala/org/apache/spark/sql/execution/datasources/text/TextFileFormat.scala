@@ -169,4 +169,3 @@ object TextOutputWriter {
     }
   }
 }
-
