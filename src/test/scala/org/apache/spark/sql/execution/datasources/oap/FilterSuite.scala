@@ -437,8 +437,14 @@ class FilterSuite extends QueryTest with SharedSQLContext with BeforeAndAfterEac
       Row(1, "this is test 1") :: Nil)
 
     sql("insert into table oap_test select * from t")
+    val check_path = new Path(currentPath)
+    assert(check_path.getFileSystem(
+      new Configuration()).globStatus(new Path(check_path, "*.index")).length == 2)
     sql("refresh oindex on oap_test")
+    assert(check_path.getFileSystem(
+      new Configuration()).globStatus(new Path(check_path, "*.index")).length == 4)
 
+    val a = sql("SELECT * FROM oap_test WHERE a = 1")
     checkAnswer(sql("SELECT * FROM oap_test WHERE a = 1"),
       Row(1, "this is test 1") :: Row(1, "this is test 1") :: Nil)
 
