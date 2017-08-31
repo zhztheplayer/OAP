@@ -20,14 +20,15 @@ package org.apache.spark.sql.execution.datasources
 import java.util.{Date, UUID}
 
 import scala.collection.mutable
+import scala.runtime.BoxedUnit
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.mapreduce._
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
-
 import org.apache.spark._
+
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.io.FileCommitProtocol
 import org.apache.spark.internal.io.FileCommitProtocol.TaskCommitMessage
@@ -200,10 +201,8 @@ class FileFormatWriter extends Logging
       Utils.tryWithSafeFinallyAndFailureCallbacks(block = {
         // Execute the task to write rows out and commit the task.
         var (outputPartitions, writeResults) = writeTask.execute(iterator)
-        val releaseResourcesResult = writeTask.releaseResources()
-        if (releaseResourcesResult != Nil) {
-          writeResults = writeResults :+ releaseResourcesResult
-        }
+        writeResults = (writeResults :+ writeTask.releaseResources())
+          .filterNot(r => r == Nil || r.isInstanceOf[BoxedUnit])
         (committer.commitTask(taskAttemptContext), outputPartitions, writeResults)
       })(catchBlock = {
         // If there is an error, release resource and then abort the task

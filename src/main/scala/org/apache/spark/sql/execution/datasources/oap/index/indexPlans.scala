@@ -176,7 +176,7 @@ case class CreateIndex(
 
     // val ret = OapIndexBuild(sparkSession, indexName,
     // indexColumns, s, bAndP.map(_._2), readerClassName, indexType).execute()
-    val retMap = retVal.filter(_.isInstanceOf[IndexBuildResult])
+    val retMap = retVal
       .map(_.asInstanceOf[IndexBuildResult]).groupBy(_.parent)
     bAndP.foreach(bp =>
       retMap.getOrElse(bp._2.toString, Nil).foreach(r =>
@@ -389,7 +389,7 @@ case class RefreshIndex(
     })
     if (!buildrst.isEmpty) {
       val ret = buildrst.head
-      val retMap = ret.filter(_.isInstanceOf[IndexBuildResult])
+      val retMap = ret
         .map(_.asInstanceOf[IndexBuildResult]).groupBy(_.parent)
 
       // there some cases oap meta files have already been updated
