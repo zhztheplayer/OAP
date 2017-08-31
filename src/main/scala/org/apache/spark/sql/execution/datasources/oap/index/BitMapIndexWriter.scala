@@ -87,7 +87,7 @@ private[oap] class BitMapIndexWriter(
       while (iterator.hasNext && !writeNewFile) {
         val fname = InputFileNameHolder.getInputFileName().toString
         if (fname != filename) {
-          taskReturn = taskReturn ++: writeIndexFromRows(description, writer, iterator)
+          taskReturn = taskReturn ++: writeIndexFromRows(description, writer.copy(), iterator)
           writeNewFile = true
         } else {
           val v = genericProjector(iterator.next()).copy()
