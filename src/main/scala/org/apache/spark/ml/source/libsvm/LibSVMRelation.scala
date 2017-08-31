@@ -184,4 +184,3 @@ private[libsvm] class LibSVMFileFormat extends TextBasedFileFormat with DataSour
     }
   }
 }
-

@@ -651,4 +651,3 @@ class MockDistributedFileSystem extends RawLocalFileSystem {
     super.getFileBlockLocations(file, start, len)
   }
 }
-

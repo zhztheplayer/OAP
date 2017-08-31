@@ -309,4 +309,3 @@ private[hive] class HiveThriftServer2(sqlContext: SQLContext)
     }
   }
 }
-

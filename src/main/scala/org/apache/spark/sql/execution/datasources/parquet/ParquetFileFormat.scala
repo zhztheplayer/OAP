@@ -677,4 +677,3 @@ object ParquetFileFormat extends Logging {
     }.toOption
   }
 }
-

@@ -619,4 +619,3 @@ object DataSource {
     CatalogStorageFormat.empty.copy(locationUri = path, properties = optionsWithoutPath)
   }
 }
-

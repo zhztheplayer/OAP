@@ -1072,4 +1072,3 @@ object StaticSQLConf {
     .booleanConf
     .createWithDefault(false)
 }
-
