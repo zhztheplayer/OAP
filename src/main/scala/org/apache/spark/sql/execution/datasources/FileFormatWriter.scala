@@ -200,7 +200,10 @@ class FileFormatWriter extends Logging
       Utils.tryWithSafeFinallyAndFailureCallbacks(block = {
         // Execute the task to write rows out and commit the task.
         var (outputPartitions, writeResults) = writeTask.execute(iterator)
-        writeResults = writeResults :+ writeTask.releaseResources()
+        val releaseResourcesResult = writeTask.releaseResources()
+        if (releaseResourcesResult != Nil) {
+          writeResults = writeResults :+ releaseResourcesResult
+        }
         (committer.commitTask(taskAttemptContext), outputPartitions, writeResults)
       })(catchBlock = {
         // If there is an error, release resource and then abort the task
