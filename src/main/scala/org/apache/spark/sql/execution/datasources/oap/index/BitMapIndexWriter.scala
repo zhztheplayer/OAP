@@ -19,8 +19,10 @@ package org.apache.spark.sql.execution.datasources.oap.index
 
 import java.io.{ByteArrayOutputStream, ObjectOutputStream}
 
-import org.apache.hadoop.conf.Configuration
+import scala.collection.mutable
+
 import org.apache.hadoop.fs.{FileSystem, Path}
+
 import org.apache.spark.rdd.InputFileNameHolder
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.FromUnsafeProjection
@@ -28,8 +30,6 @@ import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
 import org.apache.spark.sql.execution.datasources.oap.statistics._
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.collection.BitSet
-
-import scala.collection.mutable
 
 // TODO respect `sparkSession.conf.get(SQLConf.PARTITION_MAX_FILES)`
 private[oap] class BitMapIndexWriter(
