@@ -146,7 +146,7 @@ case class CreateIndex(
     val committer = FileCommitProtocol.instantiate(
       sparkSession.sessionState.conf.fileCommitProtocolClass,
       jobId = java.util.UUID.randomUUID().toString,
-      outputPath = outPutPath.toUri.toString,
+      outputPath = outPutPath.toUri.getPath,
       isAppend = false)
 
     val indexWriter = IndexWriterFactory.getIndexWriter(indexColumns,
@@ -161,7 +161,7 @@ case class CreateIndex(
       fileFormat = indexFileFormat,
       committer = committer,
       outputSpec = indexWriter.OutputSpec(
-        qualifiedOutputPath.toString, Map.empty),
+        qualifiedOutputPath.toUri.getPath, Map.empty),
       hadoopConf = configuration,
       partitionColumns = Seq.empty,
       bucketSpec = Option.empty,
@@ -351,7 +351,7 @@ case class RefreshIndex(
       val committer = FileCommitProtocol.instantiate(
         sparkSession.sessionState.conf.fileCommitProtocolClass,
         jobId = java.util.UUID.randomUUID().toString,
-        outputPath = outPutPath.toUri.toString,
+        outputPath = outPutPath.toUri.getPath,
         isAppend = false)
 
       // Hack Alert: @liyuanjian when append=true, previous implement has bug,
@@ -368,7 +368,7 @@ case class RefreshIndex(
         fileFormat = indexFileFormat,
         committer = committer,
         outputSpec = indexWriter.OutputSpec(
-          qualifiedOutputPath.toString, Map.empty),
+          qualifiedOutputPath.toUri.getPath, Map.empty),
         hadoopConf = configuration,
         partitionColumns = Seq.empty,
         bucketSpec = Option.empty,
