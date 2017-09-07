@@ -51,17 +51,17 @@ case class CreateIndex(
   override val output: Seq[Attribute] = Seq.empty
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
-    val (fileCatalog, s, readerClassName, identifier, path) = relation match {
+    val (fileCatalog, s, readerClassName, identifier) = relation match {
       case LogicalRelation(
-      HadoopFsRelation(fileCatalog, _, s, _, _: OapFileFormat, options), _, id) =>
-        (fileCatalog, s, OapFileFormat.OAP_DATA_FILE_CLASSNAME, id, options.get("path"))
+      HadoopFsRelation(fileCatalog, _, s, _, _: OapFileFormat, _), _, id) =>
+        (fileCatalog, s, OapFileFormat.OAP_DATA_FILE_CLASSNAME, id)
       case LogicalRelation(
-      HadoopFsRelation(fileCatalog, _, s, _, _: ParquetFileFormat, options), _, id) =>
+      HadoopFsRelation(fileCatalog, _, s, _, _: ParquetFileFormat, _), _, id) =>
         if (!sparkSession.conf.get(SQLConf.OAP_PARQUET_ENABLED)) {
           throw new OapException(s"turn on ${
             SQLConf.OAP_PARQUET_ENABLED.key} to allow index building on parquet files")
         }
-        (fileCatalog, s, OapFileFormat.PARQUET_DATA_FILE_CLASSNAME, id, options.get("path"))
+        (fileCatalog, s, OapFileFormat.PARQUET_DATA_FILE_CLASSNAME, id)
       case other =>
         throw new OapException(s"We don't support index building for ${other.simpleString}")
     }
@@ -125,7 +125,7 @@ case class CreateIndex(
       // p.files.foreach(f => builder.addFileMeta(FileMeta("", 0, f.getPath.toString)))
       (metaBuilder, parent, existOld)
     })
-    val job = Job.getInstance(configuration)
+
     val indexFileFormat = new OapIndexFileFormat
     val ids =
       indexColumns.map(c => s.map(_.name).toIndexedSeq.indexOf(c.columnName))
@@ -134,25 +134,19 @@ case class CreateIndex(
     partitionSpec.getOrElse(Map.empty).foreach { case (k, v) =>
       ds = ds.filter(s"$k='$v'")
     }
-    val queryExecution = ds.queryExecution
 
-    val outPutPath = path match {
-      case Some(p) => p
-      case None =>
-        throw
-          new IllegalArgumentException("Expected exactly one path to be specified, but no value")
-    }
+    val outPutPath = fileCatalog.rootPaths.head
+    assert(outPutPath != null, "Expected exactly one path to be specified, but no value")
 
     val qualifiedOutputPath = {
-      val output = new Path(outPutPath)
-      val fs = output.getFileSystem(configuration)
-      output.makeQualified(fs.getUri, fs.getWorkingDirectory)
+      val fs = outPutPath.getFileSystem(configuration)
+      outPutPath.makeQualified(fs.getUri, fs.getWorkingDirectory)
     }
 
     val committer = FileCommitProtocol.instantiate(
       sparkSession.sessionState.conf.fileCommitProtocolClass,
       jobId = java.util.UUID.randomUUID().toString,
-      outputPath = outPutPath,
+      outputPath = outPutPath.toUri.toString,
       isAppend = false)
 
     val indexWriter = IndexWriterFactory.getIndexWriter(indexColumns,
@@ -160,7 +154,7 @@ case class CreateIndex(
         indexName,
         time,
         indexType,
-        false)
+        isAppend = false)
 
     val retVal = indexWriter.write(sparkSession = sparkSession,
       queryExecution = ds.queryExecution,
@@ -268,13 +262,13 @@ case class RefreshIndex(
   override val output: Seq[Attribute] = Seq.empty
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
-    val (fileCatalog, s, readerClassName, path) = relation match {
+    val (fileCatalog, s, readerClassName) = relation match {
       case LogicalRelation(
-          HadoopFsRelation(fileCatalog, _, s, _, _: OapFileFormat, options), _, _) =>
-        (fileCatalog, s, OapFileFormat.OAP_DATA_FILE_CLASSNAME, options.get("path"))
+          HadoopFsRelation(fileCatalog, _, s, _, _: OapFileFormat, _), _, _) =>
+        (fileCatalog, s, OapFileFormat.OAP_DATA_FILE_CLASSNAME)
       case LogicalRelation(
-          HadoopFsRelation(fileCatalog, _, s, _, _: ParquetFileFormat, options), _, _) =>
-        (fileCatalog, s, OapFileFormat.PARQUET_DATA_FILE_CLASSNAME, options.get("path"))
+          HadoopFsRelation(fileCatalog, _, s, _, _: ParquetFileFormat, _), _, _) =>
+        (fileCatalog, s, OapFileFormat.PARQUET_DATA_FILE_CLASSNAME)
       case other =>
         throw new OapException(s"We don't support index refreshing for ${other.simpleString}")
     }
@@ -346,23 +340,18 @@ case class RefreshIndex(
         indexColumns.map(c => s.map(_.name).toIndexedSeq.indexOf(c.columnName))
       val keySchema = StructType(ids.map(s.toIndexedSeq(_)))
 
-      val outPutPath = path match {
-        case Some(p) => p
-        case None =>
-          throw
-            new IllegalArgumentException("Expected exactly one path to be specified, but no value")
-      }
+      val outPutPath = fileCatalog.rootPaths.head
+      assert(outPutPath != null, "Expected exactly one path to be specified, but no value")
 
       val qualifiedOutputPath = {
-        val output = new Path(outPutPath)
-        val fs = output.getFileSystem(configuration)
-        output.makeQualified(fs.getUri, fs.getWorkingDirectory)
+        val fs = outPutPath.getFileSystem(configuration)
+        outPutPath.makeQualified(fs.getUri, fs.getWorkingDirectory)
       }
 
       val committer = FileCommitProtocol.instantiate(
         sparkSession.sessionState.conf.fileCommitProtocolClass,
         jobId = java.util.UUID.randomUUID().toString,
-        outputPath = outPutPath,
+        outputPath = outPutPath.toUri.toString,
         isAppend = false)
 
       // Hack Alert: @liyuanjian when append=true, previous implement has bug,
@@ -372,7 +361,7 @@ case class RefreshIndex(
         i.name,
         i.time,
         indexType,
-        true)
+        isAppend = true)
 
       indexWriter.write(sparkSession = sparkSession,
         queryExecution = queryExecution,
@@ -387,7 +376,7 @@ case class RefreshIndex(
         options = Map.empty)
 
     })
-    if (!buildrst.isEmpty) {
+    if (buildrst.nonEmpty) {
       val ret = buildrst.head
       val retMap = ret
         .map(_.asInstanceOf[IndexBuildResult]).groupBy(_.parent)
