@@ -257,6 +257,8 @@ private[sql] class OapFileFormat extends FileFormat
 
         hadoopConf.setDouble(SQLConf.OAP_FULL_SCAN_THRESHOLD.key,
           sparkSession.conf.get(SQLConf.OAP_FULL_SCAN_THRESHOLD))
+        hadoopConf.setBoolean(SQLConf.OAP_ENABLE_OINDEX.key,
+          sparkSession.conf.get(SQLConf.OAP_ENABLE_OINDEX))
         val broadcastedHadoopConf =
           sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
 
@@ -291,7 +293,7 @@ private[sql] class OapFileFormat extends FileFormat
 
   def hasAvailableIndex(expressions: Seq[Expression]): Boolean = {
     meta match {
-      case Some(m) =>
+      case Some(m) if sparkSession.conf.get(SQLConf.OAP_ENABLE_OINDEX) =>
         val bTreeIndexAttrSet = new mutable.HashSet[String]()
         val bitmapIndexAttrSet = new mutable.HashSet[String]()
         var idx = 0
