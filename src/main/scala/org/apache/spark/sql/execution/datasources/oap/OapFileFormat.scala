@@ -49,9 +49,9 @@ private[sql] class OapFileFormat extends FileFormat
   with Serializable {
 
   override def initialize(
-    sparkSession: SparkSession,
-    options: Map[String, String],
-    files: Seq[FileStatus]): FileFormat = {
+      sparkSession: SparkSession,
+      options: Map[String, String],
+      files: Seq[FileStatus]): FileFormat = {
     super.initialize(sparkSession, options, files)
 
     val hadoopConf = sparkSession.sparkContext.hadoopConfiguration
