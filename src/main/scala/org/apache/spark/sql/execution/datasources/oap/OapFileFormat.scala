@@ -333,10 +333,18 @@ private[oap] class OapOutputWriterFactory(
   }
 
   override def getFileExtension(context: TaskAttemptContext): String = {
-//    "." +
-//      context.getConfiguration
-//        .get(OapFileFormat.COMPRESSION, OapFileFormat.DEFAULT_COMPRESSION) +
-      OapFileFormat.OAP_DATA_EXTENSION
+
+    val extensionMap = Map(
+      "UNCOMPRESSED" -> "",
+      "SNAPPY" -> ".snappy",
+      "GZIP" -> ".gzip",
+      "LZO" -> ".lzo")
+
+    val compressionType =
+      context.getConfiguration
+          .get(OapFileFormat.COMPRESSION, OapFileFormat.DEFAULT_COMPRESSION).trim
+
+    extensionMap(compressionType) + OapFileFormat.OAP_DATA_EXTENSION
   }
 
   private def oapMetaFileExists(path: Path): Boolean = {
@@ -417,19 +425,8 @@ private[oap] class OapOutputWriter(
   }
   private val writer: OapDataWriter = {
     val isCompressed = FileOutputFormat.getCompressOutput(context)
-    val conf = context.getConfiguration()
-    val compressionType =
-      conf.get(OapFileFormat.COMPRESSION, OapFileFormat.DEFAULT_COMPRESSION).trim()
-    val compressionFileFormat =
-      if (!compressionType.isEmpty() && !compressionType.matches("UNCOMPRESSED")) {
-        "." + compressionType.toLowerCase()
-      } else ""
+    val conf = context.getConfiguration
     val file: Path = new Path(path)
-    // TODO: use extension in data file name
-    /*
-    val file =
-      new Path(path, getFileName(compressionFileFormat + OapFileFormat.OAP_DATA_EXTENSION))
-    */
     val fs = file.getFileSystem(conf)
     val fileOut = fs.create(file, false)
 
@@ -445,15 +442,6 @@ private[oap] class OapOutputWriter(
   override def close(): WriteResult = {
     writer.close()
     OapWriteResult(dataFileName, rowCount, partitionString)
-  }
-
-  private def getFileName(extension: String): String = {
-    val configuration = context.getConfiguration
-    // this is the way how we pass down the uuid
-    val uniqueWriteJobId = configuration.get("spark.sql.sources.writeJobUUID")
-    val taskAttemptId = context.getTaskAttemptID
-    val split = taskAttemptId.getTaskID.getId
-    f"part-r-$split%05d-${uniqueWriteJobId}$extension"
   }
 
   def dataFileName: String = path.split("/").last
