@@ -131,9 +131,9 @@ class GuavaOapCache(cacheMemory: Long, cacheGuardianMemory: Long) extends OapCac
     try {
       val fiberCache = cache.get(fiber, cacheLoader(fiber, conf))
       // Avoid loading a fiber larger than MAX_WEIGHT / CONCURRENCY_LEVEL
-      assert(
-        fiberCache.size() <= MAX_WEIGHT * KB / CONCURRENCY_LEVEL,
-        s"Can't cache fiber larger than MAX_WEIGHT / $CONCURRENCY_LEVEL")
+      assert(fiberCache.size() <= MAX_WEIGHT * KB / 4,
+        s"Failed to cache fiber(${Utils.bytesToString(fiberCache.size())}) " +
+          s"with cache's MAX_WEIGHT(${Utils.bytesToString(MAX_WEIGHT.toLong * KB.toLong)}) / 4")
       fiberCache.occupy()
       fiberCache
     } finally {
