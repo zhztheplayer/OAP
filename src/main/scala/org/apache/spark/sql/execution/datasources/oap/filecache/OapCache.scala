@@ -26,6 +26,7 @@ import com.google.common.cache._
 import org.apache.hadoop.conf.Configuration
 
 import org.apache.spark.internal.Logging
+import org.apache.spark.util.Utils
 
 trait OapCache {
   def get(fiber: Fiber, conf: Configuration): FiberCache
@@ -66,7 +67,7 @@ class SimpleOapCache extends OapCache with Logging {
   override def cacheSize: Long = 0
 
   override def cacheStats: CacheStats = {
-    new CacheStats(0, 0, 0, 0, 0)
+    CacheStats(0, 0, 0, 0, 0)
   }
 
   override def cacheCount: Long = 0
@@ -82,6 +83,7 @@ class GuavaOapCache(cacheMemory: Long, cacheGuardianMemory: Long) extends OapCac
 
   private val KB: Double = 1024
   private val MAX_WEIGHT = (cacheMemory / KB).toInt
+  private val CONCURRENCY_LEVEL = 4
 
   // Total cached size for debug purpose
   private val _cacheSize: AtomicLong = new AtomicLong(0)
@@ -120,14 +122,23 @@ class GuavaOapCache(cacheMemory: Long, cacheGuardianMemory: Long) extends OapCac
     .removalListener(removalListener)
     .maximumWeight(MAX_WEIGHT)
     .weigher(weigher)
+    .concurrencyLevel(CONCURRENCY_LEVEL)
     .build[Fiber, FiberCache]()
 
   override def get(fiber: Fiber, conf: Configuration): FiberCache = {
-    val fiberCache = cache.get(fiber, cacheLoader(fiber, conf))
-    // Avoid loading a fiber larger than MAX_WEIGHT / 4, 4 is concurrency number
-    assert(fiberCache.size() <= MAX_WEIGHT * KB / 4, "Can't cache fiber larger than MAX_WEIGHT / 4")
-    fiberCache.occupy()
-    fiberCache
+    val readLock = FiberLockManager.getFiberLock(fiber).readLock()
+    readLock.lock()
+    try {
+      val fiberCache = cache.get(fiber, cacheLoader(fiber, conf))
+      // Avoid loading a fiber larger than MAX_WEIGHT / CONCURRENCY_LEVEL
+      assert(
+        fiberCache.size() <= MAX_WEIGHT * KB / CONCURRENCY_LEVEL,
+        s"Can't cache fiber larger than MAX_WEIGHT / $CONCURRENCY_LEVEL")
+      fiberCache.occupy()
+      fiberCache
+    } finally {
+      readLock.unlock()
+    }
   }
 
   override def getIfPresent(fiber: Fiber): FiberCache = cache.getIfPresent(fiber)
