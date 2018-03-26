@@ -19,7 +19,6 @@ package org.apache.spark.sql.execution.datasources.oap
 
 import java.net.URI
 
-import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
 import org.apache.hadoop.conf.Configuration
@@ -283,31 +282,30 @@ private[sql] class OapFileFormat extends FileFormat
         (file: PartitionedFile) => {
           assert(file.partitionValues.numFields == partitionSchema.size)
           val conf = broadcastedHadoopConf.value.value
-          val dataFile = DataFile(file.filePath, m.schema, m.dataReaderClassName, conf)
-          val dataFileHandle: DataFileHandle = DataFileHandleCacheManager(dataFile)
 
-          // read total records from metaFile
-          val totalRows = dataFileHandle match {
-            case oap: OapDataFileHandle =>
-              oap.totalRowCount()
-            case parquet: ParquetDataFileHandle =>
-              parquet.footer.getBlocks.asScala.foldLeft(0L) {
-                (sum, block) => sum + block.getRowCount
+          def canSkipByDataFileStatistics: Boolean = {
+            if (m.dataReaderClassName == OapFileFormat.OAP_DATA_FILE_CLASSNAME) {
+              val dataFile = DataFile(file.filePath, m.schema, m.dataReaderClassName, conf)
+              val dataFileHandle: OapDataFileHandle = DataFileHandleCacheManager(dataFile)
+              if (filters.exists(filter =>
+                canSkipFile(dataFileHandle.columnsMeta.map(_.statistics), filter, m.schema))) {
+                val totalRows = dataFileHandle.totalRowCount()
+                selectedRows.add(0)
+                skippedRows.add(totalRows)
+                return true
               }
-            case _ => 0L
+            }
+            false
           }
 
-          if (dataFileHandle.isInstanceOf[OapDataFileHandle] && filters.exists(filter =>
-            canSkipFile(dataFileHandle.asInstanceOf[OapDataFileHandle].columnsMeta.map(
-              _.statistics), filter, m.schema))) {
-            selectedRows.add(0)
-            skippedRows.add(totalRows)
+          if (canSkipByDataFileStatistics) {
             Iterator.empty
           } else {
             OapIndexInfo.partitionOapIndex.put(file.filePath, false)
             val reader = new OapDataReader(
               new Path(new URI(file.filePath)), m, filterScanners, requiredIds)
             val iter = reader.initialize(conf, options)
+            val totalRows = reader.totalRows()
             Option(TaskContext.get()).foreach(_.addTaskCompletionListener(_ => iter.close()))
             selectedRows.add(reader.selectedRows.getOrElse(totalRows))
             skippedRows.add(totalRows - reader.selectedRows.getOrElse(totalRows))

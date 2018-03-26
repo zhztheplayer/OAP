@@ -34,6 +34,10 @@ private[oap] class BPlusTreeScanner(idxMeta: IndexMeta) extends IndexScanner(idx
 
   var recordReader: BTreeIndexRecordReader = _
 
+  // Set by analyzeStatistics()
+  private var _totalRows: Long = 0
+  override def totalRows(): Long = _totalRows
+
   def initialize(dataPath: Path, conf: Configuration): IndexScanner = {
     assert(keySchema ne null)
     // val root = BTreeIndexCacheManager(dataPath, context, keySchema, meta)
@@ -43,6 +47,9 @@ private[oap] class BPlusTreeScanner(idxMeta: IndexMeta) extends IndexScanner(idx
 
     recordReader = BTreeIndexRecordReader(conf, keySchema)
     recordReader.initialize(path, intervalArray)
+
+    // For some case, analyzeStatistics will be skipped, so we have to get totalRows here as well.
+    _totalRows = recordReader.totalRows()
     this
   }
 
@@ -61,6 +68,9 @@ private[oap] class BPlusTreeScanner(idxMeta: IndexMeta) extends IndexScanner(idx
 
       val stats = StatisticsManager.read(footerCache, offset, keySchema)
       val result = StatisticsManager.analyse(stats, intervalArray, conf)
+
+      _totalRows = (0 until footer.getNodesCount).map(footer.getRowCountOfNode).sum
+
       result
     } finally {
       if (footerCache != null) footerCache.release()
