@@ -25,7 +25,7 @@ import org.apache.spark.sql.catalyst.planning.PhysicalOperation
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.oap.{OapFileFormat, OptimizedOrcFileFormat, OptimizedParquetFileFormat}
-import org.apache.spark.sql.execution.datasources.orc.ReadOnlyOrcFileFormat
+import org.apache.spark.sql.execution.datasources.orc.{ReadOnlyNativeOrcFileFormat, ReadOnlyOrcFileFormat}
 import org.apache.spark.sql.execution.datasources.parquet.{ParquetFileFormat, ReadOnlyParquetFileFormat}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.oap.OapConf
@@ -113,8 +113,9 @@ object FileSourceStrategy extends Strategy with Logging {
         case _: ReadOnlyParquetFileFormat =>
           logInfo("index operation for parquet, retain ReadOnlyParquetFileFormat.")
           _fsRelation
-        case _: ReadOnlyOrcFileFormat =>
-          logInfo("index operation for orc, retain ReadOnlyOrcFileFormat.")
+        case _: ReadOnlyOrcFileFormat | _: ReadOnlyNativeOrcFileFormat =>
+          logInfo("index operation for orc, retain ReadOnlyOrcFileFormat or " +
+            "ReadOnlyNativeOrcFileFormat.")
           _fsRelation
         // There are two scenarios will use OptimizedParquetFileFormat:
         // 1. canUseCache: OAP_PARQUET_ENABLED is true and OAP_PARQUET_DATA_CACHE_ENABLED is true
