@@ -11,7 +11,7 @@ This project is to enable columnar processing operators for spark sql, columnar 
 
 ## Introduction
 
-Two key concepts of this project:
+#### Two key concepts of this project:
 1. Use arrow as column vector format as intermediate data among spark operator.
 2. Use Gandiva to evaluate columnar operator expressions.
 
@@ -19,17 +19,24 @@ Two key concepts of this project:
 
 ## Installation
 
-#### build and install a columnarSupported spark
+#### Build and install a columnarSupported spark
 
 ``` shell
 git clone https://github.com/xuechendi/spark.git
 cd spark
-git checkout wip_columnar_optimize
+git checkout master
 ./build/mvn -Pyarn -Phadoop-3.2 -Dhadoop.version=3.2.0 -DskipTests clean install
 ```
 
-#### after spark installation to /root/.m2/repository, build this plugin
+#### Install Apache Arrow and Gandiva
 
+Please refer this markdown to install Apache Arrow and Gandiva.
+[Apache Arrow Installation](/resource/ApacheArrowInstallation.md)
+
+
+#### Build this project
+
+This project has dependencies of Apache Spark and Apache Arrow, so please make sure these two project has been installed under /root/.m2/repository/ before start build this project.
 ``` shell
 cd SparkColumnarPlugin
 mvn package
