@@ -1,4 +1,4 @@
-package com.intel.sparkcolumnarPlugin.expression
+package com.intel.sparkColumnarPlugin.expression
 
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.types._

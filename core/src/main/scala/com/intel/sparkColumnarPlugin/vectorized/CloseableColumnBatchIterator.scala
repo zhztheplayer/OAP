@@ -1,4 +1,4 @@
-package com.intel.sparkcolumnarPlugin.vectorized
+package com.intel.sparkColumnarPlugin.vectorized
 
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 import org.apache.spark.TaskContext

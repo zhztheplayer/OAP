@@ -1,6 +1,7 @@
-package com.intel.sparkcolumnarPlugin.execution
+package com.intel.sparkColumnarPlugin.execution
 
-import com.intel.sparkcolumnarPlugin.vectorized._
+import com.intel.sparkColumnarPlugin.expression._
+import com.intel.sparkColumnarPlugin.vectorized._
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions._

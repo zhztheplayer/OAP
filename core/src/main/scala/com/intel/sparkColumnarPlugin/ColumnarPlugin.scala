@@ -1,7 +1,7 @@
-package com.intel.sparkcolumnarPlugin
+package com.intel.sparkColumnarPlugin
 
-import com.intel.sparkcolumnarPlugin.expression._
-import com.intel.sparkcolumnarPlugin.execution._
+import com.intel.sparkColumnarPlugin.expression._
+import com.intel.sparkColumnarPlugin.execution._
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{SparkSession, SparkSessionExtensions}
@@ -42,11 +42,11 @@ case class ColumnarOverrides() extends Rule[SparkPlan] {
       new ColumnarProjectExec(plan.projectList.map((exp) =>
         replaceWithColumnarExpression(exp).asInstanceOf[NamedExpression]),
         replaceWithColumnarPlan(plan.child))
-    case plan: BatchScanExec =>
+    /*case plan: BatchScanExec =>
       logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
       new ColumnarBatchScanExec(plan.output.map((exp) =>
         replaceWithColumnarExpression(exp).asInstanceOf[AttributeReference]),
-        plan.scan)
+        plan.scan)*/
     case p =>
       logWarning(s"Columnar Processing for ${p.getClass} is not currently supported.")
       p.withNewChildren(p.children.map(replaceWithColumnarPlan))

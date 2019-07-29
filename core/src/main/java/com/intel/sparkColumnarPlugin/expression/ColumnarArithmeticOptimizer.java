@@ -1,34 +1,42 @@
 package com.intel.sparkColumnarPlugin.expression;
 
 import java.util.Random;
+import org.apache.spark.sql.vectorized.ColumnVector;
+import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector;
 
 public class ColumnarArithmeticOptimizer {
+
+  public static void columnarBatchAdd(int numRows, OnHeapColumnVector[] inputVectors, OnHeapColumnVector resultVector) {
+    int[][] input = new int[inputVectors.length][];
+    for (int j = 0; j < inputVectors.length; j++) {
+      input[j] = inputVectors[j].intData;
+    }
+    columnarBatchAdd(numRows, input, resultVector.intData);
+  }
 
   public static void columnarBatchAdd(int numRows, int[][] input, int[] result) {
   //public static void columnarBatchAdd(int numRows, float[][] input, float[] result) {
     //System.out.println("java columnarBatchAdd");
-    for (int i = 0; i < numRows; i++) {
-      for (int j = 0; j < input.length; j++) {
+    for (int j = 0; j < input.length; j++) {
+      for (int i = 0; i < numRows; i++) {
         result[i] += input[j][i];
       }
     }
+  }
+
+  public static void columnarBatchMultiply(int numRows, OnHeapColumnVector[] inputVectors, OnHeapColumnVector resultVector) {
+    int[][] input = new int[inputVectors.length][];
+    for (int j = 0; j < inputVectors.length; j++) {
+      input[j] = inputVectors[j].intData;
+    }
+    columnarBatchMultiply(numRows, input, resultVector.intData);
   }
 
   public static void columnarBatchMultiply(int numRows, int[][] input, int[] result) {
     //System.out.println("java columnarBatchMultiply");
-    for (int i = 0; i < numRows; i++) {
-      for (int j = 0; j < input.length; j++) {
-        result[i] *= input[j][i];
-      }
-    }
-  }
-
-  // Blocked Implementation
-  public static void columnarBatchAdd_column(int numRows, int[][] input, int[] result) {
-  //public static void columnarBatchAdd_column(int numRows, float[][] input, float[] result) {
     for (int j = 0; j < input.length; j++) {
       for (int i = 0; i < numRows; i++) {
-        result[i] += input[j][i];
+        result[i] *= input[j][i];
       }
     }
   }

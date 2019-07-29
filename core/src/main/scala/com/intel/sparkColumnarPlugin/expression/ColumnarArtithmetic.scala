@@ -1,4 +1,4 @@
-package com.intel.sparkcolumnarPlugin.expression
+package com.intel.sparkColumnarPlugin.expression
 
 import com.intel.sparkColumnarPlugin.expression._
 import scala.collection.mutable.ArrayBuffer
@@ -20,14 +20,14 @@ class ColumnarAdd(left: Expression, right: Expression)
     var ret: Any = null
     
     if (input.isInstanceOf[ColumnarBatch]) {
-      val args = new ArrayBuffer[Array[Int]]()
+      val args = new ArrayBuffer[OnHeapColumnVector]()
 
       if (left.isInstanceOf[ColumnarAdd]){
         lhs = left.columnarEval((input, args))
       } else {
         lhs = left.columnarEval(input)
         if (lhs.isInstanceOf[ColumnVector]) {
-          args += lhs.asInstanceOf[OnHeapColumnVector].intData
+          args += lhs.asInstanceOf[OnHeapColumnVector]
         }
       }
       
@@ -36,7 +36,7 @@ class ColumnarAdd(left: Expression, right: Expression)
       } else {
         rhs = right.columnarEval(input)
         if (rhs.isInstanceOf[ColumnVector]) {
-          args += rhs.asInstanceOf[OnHeapColumnVector].intData
+          args += rhs.asInstanceOf[OnHeapColumnVector]
         }
       }
       val batch = input.asInstanceOf[ColumnarBatch]
@@ -44,26 +44,26 @@ class ColumnarAdd(left: Expression, right: Expression)
       // do ColumnarAdd here
       if (args.length > 0) {
         val result = new OnHeapColumnVector(batch.numRows(), dataType)
-        ColumnarArithmeticOptimizer.columnarBatchAdd(batch.numRows(), args.toArray, result.intData)
+        ColumnarArithmeticOptimizer.columnarBatchAdd(batch.numRows(), args.toArray, result.asInstanceOf[OnHeapColumnVector])
         ret = result
       } 
     }else {
       if (left.isInstanceOf[ColumnarAdd]) {
         lhs = left.columnarEval(input)
       } else {
-        val tmp = input.asInstanceOf[Tuple2[Any, ArrayBuffer[Array[Int]]]]
+        val tmp = input.asInstanceOf[Tuple2[Any, ArrayBuffer[ColumnVector]]]
         lhs = left.columnarEval(tmp._1)
         if (lhs.isInstanceOf[ColumnVector]) {
-          tmp._2 += lhs.asInstanceOf[OnHeapColumnVector].intData
+          tmp._2 += lhs.asInstanceOf[OnHeapColumnVector]
         }
       }
       if (right.isInstanceOf[ColumnarAdd]) {
         rhs = right.columnarEval(input)
       } else {
-        val tmp = input.asInstanceOf[Tuple2[Any, ArrayBuffer[Array[Int]]]]
+        val tmp = input.asInstanceOf[Tuple2[Any, ArrayBuffer[ColumnVector]]]
         rhs = right.columnarEval(tmp._1)
         if (rhs.isInstanceOf[ColumnVector]) {
-          tmp._2 += rhs.asInstanceOf[OnHeapColumnVector].intData
+          tmp._2 += rhs.asInstanceOf[OnHeapColumnVector]
         }
       }
     }
@@ -89,14 +89,14 @@ class ColumnarMultiply(left: Expression, right: Expression)
     var ret: Any = null
     
     if (input.isInstanceOf[ColumnarBatch]) {
-      val args = new ArrayBuffer[Array[Int]]()
+      val args = new ArrayBuffer[OnHeapColumnVector]()
 
       if (left.isInstanceOf[ColumnarMultiply]){
         lhs = left.columnarEval((input, args))
       } else {
         lhs = left.columnarEval(input)
         if (lhs.isInstanceOf[ColumnVector]) {
-          args += lhs.asInstanceOf[OnHeapColumnVector].intData
+          args += lhs.asInstanceOf[OnHeapColumnVector]
         }
       }
       
@@ -105,7 +105,7 @@ class ColumnarMultiply(left: Expression, right: Expression)
       } else {
         rhs = right.columnarEval(input)
         if (rhs.isInstanceOf[ColumnVector]) {
-          args += rhs.asInstanceOf[OnHeapColumnVector].intData
+          args += rhs.asInstanceOf[OnHeapColumnVector]
         }
       }
       val batch = input.asInstanceOf[ColumnarBatch]
@@ -113,26 +113,26 @@ class ColumnarMultiply(left: Expression, right: Expression)
       // do ColumnarMultiply here
       if (args.length > 0) {
         val result = new OnHeapColumnVector(batch.numRows(), dataType)
-        ColumnarArithmeticOptimizer.columnarBatchMultiply(batch.numRows(), args.toArray, result.intData)
+        ColumnarArithmeticOptimizer.columnarBatchMultiply(batch.numRows(), args.toArray, result.asInstanceOf[OnHeapColumnVector])
         ret = result
       } 
     }else {
       if (left.isInstanceOf[ColumnarMultiply]) {
         lhs = left.columnarEval(input)
       } else {
-        val tmp = input.asInstanceOf[Tuple2[Any, ArrayBuffer[Array[Int]]]]
+        val tmp = input.asInstanceOf[Tuple2[Any, ArrayBuffer[ColumnVector]]]
         lhs = left.columnarEval(tmp._1)
         if (lhs.isInstanceOf[ColumnVector]) {
-          tmp._2 += lhs.asInstanceOf[OnHeapColumnVector].intData
+          tmp._2 += lhs.asInstanceOf[OnHeapColumnVector]
         }
       }
       if (right.isInstanceOf[ColumnarMultiply]) {
         rhs = right.columnarEval(input)
       } else {
-        val tmp = input.asInstanceOf[Tuple2[Any, ArrayBuffer[Array[Int]]]]
+        val tmp = input.asInstanceOf[Tuple2[Any, ArrayBuffer[ColumnVector]]]
         rhs = right.columnarEval(tmp._1)
         if (rhs.isInstanceOf[ColumnVector]) {
-          tmp._2 += rhs.asInstanceOf[OnHeapColumnVector].intData
+          tmp._2 += rhs.asInstanceOf[OnHeapColumnVector]
         }
       }
     }
