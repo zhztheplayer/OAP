@@ -13,40 +13,11 @@ import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 
 case class ColumnarOverrides() extends Rule[SparkPlan] {
-  def replaceWithColumnarExpression(exp: Expression): Expression = exp match {
-    case a: Alias =>
-      logInfo(s"Columnar Processing for expression ${exp.getClass} ${exp} is supported.")
-      //Alias(replaceWithColumnarExpression(a.child), a.name)(a.exprId, a.qualifier, a.explicitMetadata)
-      new ColumnarAlias(replaceWithColumnarExpression(a.child), a.name)(a.exprId, a.qualifier, a.explicitMetadata)
-    case att: AttributeReference =>
-      logInfo(s"Columnar Processing for expression ${exp.getClass} ${exp} is supported.")
-      new ColumnarAttributeReference(att)
-    case lit: Literal =>
-      logInfo(s"Columnar Processing for expression ${exp.getClass} ${exp} is supported.")
-      new ColumnarLiteral(lit)
-      //lit // No sub expressions and already supports columnar so just return it
-    case add: Add =>
-      logInfo(s"Columnar Processing for expression ${exp.getClass} ${exp} is supported.")
-      new ColumnarAdd(replaceWithColumnarExpression(add.left), replaceWithColumnarExpression(add.right))
-    case mul: Multiply =>
-      logInfo(s"Columnar Processing for expression ${exp.getClass} ${exp} is supported.")
-      new ColumnarMultiply(replaceWithColumnarExpression(mul.left), replaceWithColumnarExpression(mul.right))
-    case exp =>
-      logWarning(s"Columnar Processing for expression ${exp.getClass} ${exp} is not currently supported.")
-      exp
-  }
 
   def replaceWithColumnarPlan(plan: SparkPlan): SparkPlan = plan match {
     case plan: ProjectExec =>
       logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
-      new ColumnarProjectExec(plan.projectList.map((exp) =>
-        replaceWithColumnarExpression(exp).asInstanceOf[NamedExpression]),
-        replaceWithColumnarPlan(plan.child))
-    /*case plan: BatchScanExec =>
-      logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
-      new ColumnarBatchScanExec(plan.output.map((exp) =>
-        replaceWithColumnarExpression(exp).asInstanceOf[AttributeReference]),
-        plan.scan)*/
+      new ColumnarProjectExec(plan.projectList, replaceWithColumnarPlan(plan.child))
     case p =>
       logWarning(s"Columnar Processing for ${p.getClass} is not currently supported.")
       p.withNewChildren(p.children.map(replaceWithColumnarPlan))

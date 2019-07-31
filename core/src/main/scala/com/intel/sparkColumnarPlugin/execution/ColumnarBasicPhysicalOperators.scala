@@ -20,19 +20,11 @@ class ColumnarProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
   override def supportCodegen: Boolean = false
 
   override def doExecuteColumnar() : RDD[ColumnarBatch] = {
-    val boundProjectList: Seq[Any] = BindReferences.bindReferences(projectList, child.output)
-    val rdd = child.executeColumnar()
-    rdd.mapPartitions((itr) => new CloseableColumnBatchIterator(itr,
-      (cb) => {
-        val newColumns = boundProjectList.map(
-          expr => {
-            logInfo(s"expr is $expr, class is ${expr.getClass}")
-            expr.asInstanceOf[Expression].columnarEval(cb).asInstanceOf[ColumnVector]
-          }
-        ).toArray
-        new ColumnarBatch(newColumns, cb.numRows())
-      })
-    )
+    child.executeColumnar().mapPartitions { iter =>
+      val project = ColumnarProjection.create(projectList, child.output)
+      project.initialize()
+      new CloseableColumnBatchIterator(iter.map(project))
+    }
   }
 
   // We have to override equals because subclassing a case class like ProjectExec is not that clean
