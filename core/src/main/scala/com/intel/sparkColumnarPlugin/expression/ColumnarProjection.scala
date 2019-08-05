@@ -2,6 +2,7 @@ package com.intel.sparkColumnarPlugin.expression
 
 import io.netty.buffer.ArrowBuf
 import java.util._
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.Lists
 import org.apache.spark.internal.Logging
@@ -25,53 +26,58 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
 import scala.collection.mutable.ArrayBuffer
 
-class ColumnarProjection(exprs: Seq[Expression]) extends (ColumnarBatch => ColumnarBatch) with Logging {
+class ColumnarProjection(exprs: Seq[Expression])
+  extends (ColumnarBatch => ColumnarBatch) with AutoCloseable with Logging {
   // build gandiva projection here.
-  val columnarExprs: Seq[Expression] = exprs.map(
+  var elapseTime_make: Long = 0
+  var elapseTime_process: Long = 0
+  var process_last_end: Long = 0
+  var elapseTime_eval: Long = 0
+  val make_start = System.nanoTime()
+  val columnarExprs: Seq[Expression] = exprs.map(ColumnarExpressionConverter.replaceWithColumnarExpression(_))
+  val prepareList: Seq[(ExpressionTree, ListBuffer[Field], ArrowType)] = columnarExprs.map(
     expr => {
-      ColumnarExpressionConverter.replaceWithColumnarExpression(expr)
-    }
-  )
-  val projectorList: Seq[(Projector, ArrowType)] = columnarExprs.map(
-    expr => {
-      val fieldTypes: ListBuffer[Field] = new ListBuffer[Field]();
-      val (node, resultType): (TreeNode, ArrowType) = expr.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
-      val result: Field = Field.nullable("result", resultType);
-      (makeProjector(node, result, fieldTypes), resultType)
-    }
-  )
+      val fieldTypes = new ListBuffer[Field]()
+      val (node, resultType) = expr.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
+      val result = Field.nullable("result", resultType)
+      (TreeBuilder.makeExpression(node, result), fieldTypes, resultType)
+    })
+  val projector = Projector.make(new Schema(prepareList(0)._2.toList.asJava),
+                                 prepareList.map(_._1).toList.asJava)
+  val arrowSchema = new Schema(prepareList.map(args => Field.nullable("result", args._3)).toList.asJava)
+  val schema = ArrowUtils.fromArrowSchema(arrowSchema)
+  elapseTime_make += System.nanoTime() - make_start
 
   def initialize(): Unit = {
+    process_last_end = System.nanoTime()
 
+  }
+
+  override def close(): Unit = {
+    logInfo(s"Gandiva Make took ${TimeUnit.NANOSECONDS.toMillis(elapseTime_make)} ms.")
+    logInfo(s"Gandiva Process took total ${TimeUnit.NANOSECONDS.toMillis(elapseTime_eval)} ms.")
+    logInfo(s"End to end took total ${TimeUnit.NANOSECONDS.toMillis(elapseTime_process)} ms.")
   }
 
   def apply(columnarBatch: ColumnarBatch): ColumnarBatch = {
     // call gandiva evaluate to process
     // and return result as ColumnarBatch
     //logInfo("apply columnarBatch")
-    val resultColumnVectors = projectorList.map {
-      case (projector, resultType) => {
-        val input = createArrowRecordBatch(columnarBatch)
-        val output = createArrowColumnVectors(columnarBatch.numRows(), resultType)
-        val outputVectors = output.map(
-          columnVector => {
-            //logInfo(s"createArrowColumnVectors for result, numRows: ${columnarBatch.numRows()}, columnVector: $columnVector")
-            columnVector.asInstanceOf[ArrowWritableColumnVector].getValueVector()
-          }
-        ).toList
-        //logInfo(s"start to evaluate")
-        projector.evaluate(input, outputVectors.asJava)
-        releaseArrowRecordBatch(input)
-        output(0)
-      }
-    }.toArray
-    new ColumnarBatch(resultColumnVectors, columnarBatch.numRows())  
-  }
+    val eval_start = System.nanoTime()
+    val input = createArrowRecordBatch(columnarBatch)
+    val resultColumnVectors = ArrowWritableColumnVector.allocateColumns(
+      columnarBatch.numRows(), schema).toArray
+    val outputVectors = resultColumnVectors.map(
+      columnVector => columnVector.getValueVector()
+    ).toList
+    projector.evaluate(input, outputVectors.asJava)
+    releaseArrowRecordBatch(input)
 
-  def makeProjector(node: TreeNode, result: Field, inputDataTypes: ListBuffer[Field]): Projector = {
-    val exprTree = TreeBuilder.makeExpression(node, result) :: Nil
-    val schema = new Schema(inputDataTypes.toList.asJava)
-    Projector.make(schema, exprTree.asJava)
+    elapseTime_eval += System.nanoTime() - eval_start
+    elapseTime_process += System.nanoTime() - process_last_end
+    process_last_end = System.nanoTime()
+
+    new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), columnarBatch.numRows())  
   }
 
   def createArrowRecordBatch(columnarBatch: ColumnarBatch): ArrowRecordBatch = {
@@ -86,11 +92,6 @@ class ColumnarProjection(exprs: Seq[Expression]) extends (ColumnarBatch => Colum
       inputData += inputVector.getDataBuffer()
     }
     new ArrowRecordBatch(numRowsInBatch, fieldNodes.toList.asJava, inputData.toList.asJava)
-  }
-
-  def createArrowColumnVectors(numRowInBatch: Int, resultType: ArrowType): Array[ColumnVector] = {
-    val schema = StructType(StructField("result", ArrowUtils.fromArrowType(resultType), true) :: Nil)
-    ArrowWritableColumnVector.allocateColumns(numRowInBatch, schema).toArray
   }
 
  def releaseArrowRecordBatch(recordBatch: ArrowRecordBatch): Unit = {

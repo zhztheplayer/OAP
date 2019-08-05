@@ -14,7 +14,6 @@ class CloseableColumnBatchIterator(itr: Iterator[ColumnarBatch])
 
   private def closeCurrentBatch(): Unit = {
     if (cb != null) {
-      logInfo(s"close $cb")
       cb.close
       cb = null
     }
