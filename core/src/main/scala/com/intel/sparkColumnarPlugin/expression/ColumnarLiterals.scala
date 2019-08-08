@@ -15,9 +15,12 @@ class ColumnarLiteral(lit: Literal) extends Literal(lit.value, lit.dataType) wit
 
   override def doColumnarCodeGen(fieldTypes: ListBuffer[Field]): (TreeNode, ArrowType) = {
     val resultType = CodeGeneration.getResultType(dataType)
-    val field = Field.nullable(s"literal", resultType)
-    fieldTypes += field
-    (TreeBuilder.makeField(field), resultType)
+    dataType match {
+      case t: StringType =>
+        (TreeBuilder.makeStringLiteral(value.asInstanceOf[String]), resultType)
+      case t: IntegerType =>
+        (TreeBuilder.makeLiteral(value.asInstanceOf[Integer]), resultType)
+    }
   }
 }
 

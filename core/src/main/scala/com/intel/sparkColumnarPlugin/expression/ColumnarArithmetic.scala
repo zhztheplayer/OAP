@@ -29,6 +29,19 @@ class ColumnarAdd(left: Expression, right: Expression, original: Expression)
   }
 }
 
+class ColumnarSubtract(left: Expression, right: Expression, original: Expression)
+  extends Subtract(left: Expression, right: Expression) with ColumnarExpression with Logging {
+  override def doColumnarCodeGen(fieldTypes: ListBuffer[Field]): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
+    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
+
+    val resultType = CodeGeneration.getResultType(left_type, right_type)
+    //logInfo(s"(TreeBuilder.makeFunction(multiply, Lists.newArrayList($left_node, $right_node), $resultType), $resultType)")
+    (TreeBuilder.makeFunction(
+      "subtract", Lists.newArrayList(left_node, right_node), resultType), resultType)
+  }
+}
+
 class ColumnarMultiply(left: Expression, right: Expression, original: Expression)
   extends Multiply(left: Expression, right: Expression) with ColumnarExpression with Logging {
   override def doColumnarCodeGen(fieldTypes: ListBuffer[Field]): (TreeNode, ArrowType) = {
@@ -42,13 +55,30 @@ class ColumnarMultiply(left: Expression, right: Expression, original: Expression
   }
 }
 
+class ColumnarDivide(left: Expression, right: Expression, original: Expression)
+  extends Divide(left: Expression, right: Expression) with ColumnarExpression with Logging {
+  override def doColumnarCodeGen(fieldTypes: ListBuffer[Field]): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
+    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
+
+    val resultType = CodeGeneration.getResultType(left_type, right_type)
+    //logInfo(s"(TreeBuilder.makeFunction(multiply, Lists.newArrayList($left_node, $right_node), $resultType), $resultType)")
+    (TreeBuilder.makeFunction(
+      "divide", Lists.newArrayList(left_node, right_node), resultType), resultType)
+  }
+}
+
 object ColumnarBinaryArithmetic {
 
   def create(left: Expression, right: Expression, original: Expression): Expression = original match {
     case a: Add =>
       new ColumnarAdd(left, right, a)
+    case s: Subtract =>
+      new ColumnarSubtract(left, right, s)
     case m: Multiply =>
       new ColumnarMultiply(left, right, m)
+    case d: Divide =>
+      new ColumnarDivide(left, right, d)
     case other =>
       throw new UnsupportedOperationException(s"not currently supported: $other.")
   }

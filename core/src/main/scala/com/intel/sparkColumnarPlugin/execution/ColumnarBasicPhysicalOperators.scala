@@ -5,7 +5,7 @@ import com.intel.sparkColumnarPlugin.vectorized._
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
+import org.apache.spark.sql.execution._
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 
 /**
@@ -22,7 +22,6 @@ class ColumnarProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
   override def doExecuteColumnar() : RDD[ColumnarBatch] = {
     child.executeColumnar().mapPartitions { iter =>
       val project = ColumnarProjection.create(projectList, child.output)
-      project.initialize()
       new CloseableColumnBatchIterator(iter.map(project))
     }
   }
@@ -36,6 +35,33 @@ class ColumnarProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
       return false
     }
     return other.isInstanceOf[ColumnarProjectExec]
+  }
+}
+
+class ColumnarFilterExec(condition: Expression, child: SparkPlan)
+  extends FilterExec(condition, child) {
+
+  override def supportsColumnar = true
+
+  // Disable code generation
+  override def supportCodegen: Boolean = false
+
+  override def doExecuteColumnar() : RDD[ColumnarBatch] = {
+    child.executeColumnar().mapPartitions { iter =>
+      val filter = ColumnarFilter.create(condition, child.output)
+      new CloseableColumnBatchIterator(iter.map(filter))
+    }
+  }
+
+  // We have to override equals because subclassing a case class like ProjectExec is not that clean
+  // One of the issues is that the generated equals will see ColumnarProjectExec and ProjectExec
+  // as being equal and this can result in the withNewChildren method not actually replacing
+  // anything
+  override def equals(other: Any): Boolean = {
+    if (!super.equals(other)) {
+      return false
+    }
+    return other.isInstanceOf[ColumnarFilterExec]
   }
 }
 

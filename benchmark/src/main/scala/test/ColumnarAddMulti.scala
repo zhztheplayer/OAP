@@ -5,7 +5,7 @@ import org.apache.spark.sql.SparkSession
 object ColumnarAddMulti {
   def main(args:Array[String]) {
     val fieldsNum = if (args.length > 0) args(0).toInt else 1
-    val spark = SparkSession.builder.appName(s"ColumnarAdd_$fieldsNum").getOrCreate()
+    val spark = SparkSession.builder.appName(s"ColumnarAddMulti_$fieldsNum").getOrCreate()
     var df = spark.read.format("parquet").load("/tpcds/web_sales")
    
     fieldsNum match {

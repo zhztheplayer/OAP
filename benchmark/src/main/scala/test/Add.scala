@@ -11,25 +11,25 @@ object Add {
     
     fieldsNum match {
       case 1 => 
-        df = df.select((df("ws_sold_time_sk")).alias("columnarAddValue"))
+        df = df.select((df("ws_sold_time_sk")).alias("AddValue"))
       case 2 => 
-        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk")).alias("columnarAddValue"))
+        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk")).alias("AddValue"))
       case 3 => 
-        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk")).alias("columnarAddValue"))
+        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk")).alias("AddValue"))
       case 4 => 
-        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk")).alias("columnarAddValue"))
+        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk")).alias("AddValue"))
       case 5 => 
-        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk") + df("ws_bill_cdemo_sk")).alias("columnarAddValue"))
+        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk") + df("ws_bill_cdemo_sk")).alias("AddValue"))
       case 6 => 
-        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk") + df("ws_bill_cdemo_sk") + df("ws_bill_hdemo_sk")).alias("columnarAddValue"))
+        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk") + df("ws_bill_cdemo_sk") + df("ws_bill_hdemo_sk")).alias("AddValue"))
       case 7 => 
-        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk") + df("ws_bill_cdemo_sk") + df("ws_bill_hdemo_sk") + df("ws_bill_addr_sk")).alias("columnarAddValue"))
+        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk") + df("ws_bill_cdemo_sk") + df("ws_bill_hdemo_sk") + df("ws_bill_addr_sk")).alias("AddValue"))
       case 8 => 
-        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk") + df("ws_bill_cdemo_sk") + df("ws_bill_hdemo_sk") + df("ws_bill_addr_sk") + df("ws_ship_customer_sk")).alias("columnarAddValue"))
+        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk") + df("ws_bill_cdemo_sk") + df("ws_bill_hdemo_sk") + df("ws_bill_addr_sk") + df("ws_ship_customer_sk")).alias("AddValue"))
       case 9 => 
-        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk") + df("ws_bill_cdemo_sk") + df("ws_bill_hdemo_sk") + df("ws_bill_addr_sk") + df("ws_ship_customer_sk") + df("ws_ship_cdemo_sk")).alias("columnarAddValue"))
+        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk") + df("ws_bill_cdemo_sk") + df("ws_bill_hdemo_sk") + df("ws_bill_addr_sk") + df("ws_ship_customer_sk") + df("ws_ship_cdemo_sk")).alias("AddValue"))
       case 10 => 
-        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk") + df("ws_bill_cdemo_sk") + df("ws_bill_hdemo_sk") + df("ws_bill_addr_sk") + df("ws_ship_customer_sk") + df("ws_ship_cdemo_sk") + df("ws_ship_hdemo_sk")).alias("columnarAddValue"))
+        df = df.select((df("ws_sold_time_sk") + df("ws_ship_date_sk") + df("ws_item_sk") + df("ws_bill_customer_sk") + df("ws_bill_cdemo_sk") + df("ws_bill_hdemo_sk") + df("ws_bill_addr_sk") + df("ws_ship_customer_sk") + df("ws_ship_cdemo_sk") + df("ws_ship_hdemo_sk")).alias("AddValue"))
       case _ => 
         throw new Exception("arg not support")
     }
