@@ -24,7 +24,7 @@ This project is to enable columnar processing operators for spark sql, columnar 
 ``` shell
 git clone https://github.com/xuechendi/spark.git
 cd spark
-git checkout master
+git checkout wip_arrow_support_v2
 ./build/mvn -Pyarn -Phadoop-3.2 -Dhadoop.version=3.2.0 -DskipTests clean install
 ```
 

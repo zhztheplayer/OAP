@@ -2,9 +2,10 @@ package com.intel.sparkColumnarPlugin.expression
 
 import io.netty.buffer.ArrowBuf
 import java.util._
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeUnit
 
 import com.google.common.collect.Lists
+import org.apache.hadoop.mapreduce.TaskAttemptID
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
@@ -54,7 +55,6 @@ class ColumnarProjection(exprs: Seq[Expression])
   }
 
   def apply(columnarBatch: ColumnarBatch): ColumnarBatch = {
-    //logInfo(s"apply ${columnarBatch}")
     if (schema == null || projector == null) {
       val start_make: Long = System.nanoTime()
       val fieldTypesList = List.range(0, columnarBatch.numCols()).map(i =>
@@ -82,9 +82,7 @@ class ColumnarProjection(exprs: Seq[Expression])
       elapseTime_eval += System.nanoTime() - eval_start
     }
 
-    //logInfo(s"Gandiva Process took total ${TimeUnit.NANOSECONDS.toMillis(elapseTime_eval)} ms.")
     val resultColumnarBatch = new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), columnarBatch.numRows())  
-    //logInfo(s"return resultColumnarBatch ${resultColumnarBatch}")
     resultColumnarBatch
   }
 
@@ -107,7 +105,6 @@ class ColumnarProjection(exprs: Seq[Expression])
     val inputData = new ListBuffer[ArrowBuf]()
     val numRowsInBatch = columnarBatch.numRows()
     for (i <- 0 until columnarBatch.numCols()) {
-      //logInfo(s"createArrowRecordBatch from columnVector: ${columnarBatch.column(i)}")
       val inputVector = columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
       fieldNodes += new ArrowFieldNode(numRowsInBatch, inputVector.getNullCount())
       inputData += inputVector.getValidityBuffer()

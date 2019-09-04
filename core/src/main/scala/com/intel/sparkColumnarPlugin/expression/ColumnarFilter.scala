@@ -105,10 +105,12 @@ class ColumnarFilter(expr: Expression)
       releaseArrowRecordBatch(input)
       elapseTime_eval += System.nanoTime() - eval_start
 
+      logInfo(s"Gandiva filter evaluated, result numLines is ${selectionVector.getRecordCount()}.")
       new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), selectionVector.getRecordCount())
     } else {
       val resultColumnVectors = ArrowWritableColumnVector.allocateColumns(
         columnarBatch.numRows(), schema).toArray
+      logInfo(s"Gandiva filter evaluated, result numLines is ${columnarBatch.numRows()}.")
       new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), columnarBatch.numRows())
     }
   }
