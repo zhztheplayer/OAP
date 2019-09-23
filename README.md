@@ -19,6 +19,27 @@ This project is to enable columnar processing operators for spark sql, columnar 
 
 ## Installation
 
+#### Build and install 1.11.0 Parquet, we will leverage Parquet-Arrow 1.11.0 version for convering Parquet Schema to Arrow Schema in spark. So make sure, Parquet-Arrow 1.11.0 installed in your mvn dependency path.
+
+``` shell
+wget http://archive.apache.org/dist/thrift/0.12.0/thrift-0.12.0.tar.gz
+tar xzf thrift-0.12.0.tar.gz
+cd thrift-0.12.0
+chmod +x ./configure
+./configure --disable-gen-erl --disable-gen-hs --without-ruby --without-haskell --without-erlang --without-php --without-nodejs
+make install
+
+yum install boost-devel
+./configure --disable-gen-erl --disable-gen-hs --without-ruby --without-haskell --without-erlang --without-php --without-nodejs
+make install -j
+
+git clone https://github.com/apache/parquet-mr.git
+git checkout apache-parquet-1.11.0
+mvn clean install -pl parquet-arrow -am -DskipTests
+ls /root/.m2/repository/org/apache/parquet/parquet-arrow/1.11.0/
+parquet-arrow-1.11.0.jar  parquet-arrow-1.11.0.jar.lastUpdated  parquet-arrow-1.11.0.pom  parquet-arrow-1.11.0.pom.lastUpdated  parquet-arrow-1.11.0-tests.jar  _remote.repositories
+```
+
 #### Build and install a columnarSupported spark
 
 ``` shell
