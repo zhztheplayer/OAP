@@ -70,6 +70,8 @@ make install
 cd ../java
 # change property 'arrow.cpp.build.dir' to the relative path of cpp build dir in adapter/parquet/pom.xml and gandiva/pom.xml
 mvn clean install -P arrow-jni -am -DskipTests
+# if you are behine proxy, please also add proxy for socks
+mvn clean install -P arrow-jni -am -DskipTests -DsocksProxyHost=${proxyHost} -DsocksProxyPort=1080 
 ```
 
 run test
