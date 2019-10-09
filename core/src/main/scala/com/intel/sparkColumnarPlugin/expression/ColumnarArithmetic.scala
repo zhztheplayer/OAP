@@ -18,7 +18,7 @@ import scala.collection.mutable.ListBuffer
  */
 class ColumnarAdd(left: Expression, right: Expression, original: Expression)
   extends Add(left: Expression, right: Expression) with ColumnarExpression with Logging {
-  override def doColumnarCodeGen(fieldTypes: ListBuffer[Field]): (TreeNode, ArrowType) = {
+  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
     val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
     val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
 
@@ -31,7 +31,7 @@ class ColumnarAdd(left: Expression, right: Expression, original: Expression)
 
 class ColumnarSubtract(left: Expression, right: Expression, original: Expression)
   extends Subtract(left: Expression, right: Expression) with ColumnarExpression with Logging {
-  override def doColumnarCodeGen(fieldTypes: ListBuffer[Field]): (TreeNode, ArrowType) = {
+  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
     val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
     val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
 
@@ -44,7 +44,7 @@ class ColumnarSubtract(left: Expression, right: Expression, original: Expression
 
 class ColumnarMultiply(left: Expression, right: Expression, original: Expression)
   extends Multiply(left: Expression, right: Expression) with ColumnarExpression with Logging {
-  override def doColumnarCodeGen(fieldTypes: ListBuffer[Field]): (TreeNode, ArrowType) = {
+  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
     val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
     val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
 
@@ -57,7 +57,7 @@ class ColumnarMultiply(left: Expression, right: Expression, original: Expression
 
 class ColumnarDivide(left: Expression, right: Expression, original: Expression)
   extends Divide(left: Expression, right: Expression) with ColumnarExpression with Logging {
-  override def doColumnarCodeGen(fieldTypes: ListBuffer[Field]): (TreeNode, ArrowType) = {
+  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
     val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
     val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
 

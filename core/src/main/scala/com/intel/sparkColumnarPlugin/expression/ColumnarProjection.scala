@@ -32,19 +32,9 @@ class ColumnarProjection(exprs: Seq[Expression])
   extends (ColumnarBatch => ColumnarBatch) with AutoCloseable with Logging {
   // build gandiva projection here.
   var elapseTime_make: Long = 0
-  var elapseTime_eval: Long = 0
   val columnarExprs: Seq[Expression] = exprs.map(ColumnarExpressionConverter.replaceWithColumnarExpression(_))
-  val prepareList: Seq[(ExpressionTree, ListBuffer[Field], ArrowType)] = columnarExprs.map(
-    expr => {
-      val fieldTypes = new ListBuffer[Field]()
-      val (node, resultType) = expr.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
-      val result = Field.nullable("result", resultType)
-      (TreeBuilder.makeExpression(node, result), fieldTypes, resultType)
-    })
   var schema: StructType = _
   var projector: Projector = _
-  val resultSchema = new Schema(prepareList.map(
-    expr => Field.nullable(s"result", expr._3)).toList.asJava)
 
   def initialize(): Unit = {
 
@@ -59,19 +49,33 @@ class ColumnarProjection(exprs: Seq[Expression])
       val start_make: Long = System.nanoTime()
       val fieldTypesList = List.range(0, columnarBatch.numCols()).map(i =>
         Field.nullable(s"c_$i", CodeGeneration.getResultType(columnarBatch.column(i).dataType()))
-      ).asJava
-      val arrowSchema = new Schema(fieldTypesList)
+      )
+      val prepareList: Seq[(ExpressionTree, ArrowType)] = columnarExprs.map(
+        expr => {
+          val (node, resultType) =
+            expr.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypesList)
+          if (node == null) {
+            null
+          } else {
+            val result = Field.nullable("result", resultType)
+            (TreeBuilder.makeExpression(node, result), resultType)
+          }
+        }).filter(_ != null)
+      val resultSchema = new Schema(prepareList.map(
+        expr => Field.nullable(s"result", expr._2)).toList.asJava)
+      val arrowSchema = new Schema(fieldTypesList.asJava)
+      logInfo(s"arrowSchema is $arrowSchema")
 
       schema = createStructType(resultSchema)
-      projector = createProjector(arrowSchema)
+      projector = createProjector(arrowSchema, prepareList)
       elapseTime_make = System.nanoTime() - start_make
       logInfo(s"Gandiva make total ${TimeUnit.NANOSECONDS.toMillis(elapseTime_make)} ms.")
     }
 
     val resultColumnVectors = ArrowWritableColumnVector.allocateColumns(
       columnarBatch.numRows(), schema).toArray
+    val eval_start = System.nanoTime()
     if (columnarBatch.numRows() != 0) { 
-      val eval_start = System.nanoTime()
       val input = createArrowRecordBatch(columnarBatch)
       val outputVectors = resultColumnVectors.map(
         columnVector => columnVector.getValueVector()
@@ -79,18 +83,22 @@ class ColumnarProjection(exprs: Seq[Expression])
       projector.evaluate(input, outputVectors)
       releaseArrowRecordBatch(input)
   
-      elapseTime_eval += System.nanoTime() - eval_start
     }
+    val metrics = columnarBatch.taskId().asInstanceOf[Array[Long]];
+    metrics(2) += System.nanoTime() - eval_start
 
     val resultColumnarBatch = new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), columnarBatch.numRows())  
     resultColumnarBatch
   }
 
-  def createProjector(arrowSchema: Schema): Projector = synchronized {
+  def createProjector(arrowSchema: Schema, prepareList: Seq[(ExpressionTree, ArrowType)])
+    : Projector = synchronized {
     if (projector != null) {
       return projector
     }
-    Projector.make(arrowSchema, prepareList.map(_._1).toList.asJava)
+    val fieldNodesList = prepareList.map(_._1).toList.asJava
+    logInfo(s"fieldNodesList is $fieldNodesList")
+    Projector.make(arrowSchema, fieldNodesList)
   }
 
   def createStructType(arrowSchema: Schema): StructType = synchronized {
@@ -114,7 +122,6 @@ class ColumnarProjection(exprs: Seq[Expression])
   }
 
  def releaseArrowRecordBatch(recordBatch: ArrowRecordBatch): Unit = {
-    val buffers = recordBatch.getBuffers();
     recordBatch.close();
   }
 }

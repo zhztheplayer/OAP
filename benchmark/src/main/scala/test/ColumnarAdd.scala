@@ -39,6 +39,7 @@ object ColumnarAdd {
       df.show()
     } else if (args.length == 2 && args(1) == "save") {
       df.write.parquet("/tpcds_output/web_sales")
+      df.write.parquet("/tpcds_output_2/web_sales")
     } else {
       df.foreach(r => {
       })

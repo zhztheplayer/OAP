@@ -18,7 +18,7 @@ import scala.collection.mutable.ListBuffer
  */
 class ColumnarIsNotNull(child: Expression, original: Expression)
   extends IsNotNull(child: Expression) with ColumnarExpression with Logging {
-  override def doColumnarCodeGen(fieldTypes: ListBuffer[Field]): (TreeNode, ArrowType) = {
+  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
     val (child_node, childType): (TreeNode, ArrowType) = child.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
 
     val resultType = new ArrowType.Bool()

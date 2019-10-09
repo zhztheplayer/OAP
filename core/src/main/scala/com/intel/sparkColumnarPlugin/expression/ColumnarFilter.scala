@@ -38,12 +38,6 @@ class ColumnarFilter(expr: Expression)
   var elapseTime_eval: Long = 0
   val columnarExpr: Expression = ColumnarExpressionConverter.replaceWithColumnarExpression(expr)
   
-  val prepareList: (TreeNode, ListBuffer[Field], ArrowType) = {
-    val fieldTypes = new ListBuffer[Field]()
-    val (cond, resultType) =
-      columnarExpr.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
-    (cond, fieldTypes, resultType)
-  }
 
   var filter: Filter = _
   var projector: Projector = _
@@ -69,11 +63,17 @@ class ColumnarFilter(expr: Expression)
       val start_make: Long = System.nanoTime()
       val fieldTypesList = List.range(0, columnarBatch.numCols()).map(i =>
         Field.nullable(s"c_$i", CodeGeneration.getResultType(columnarBatch.column(i).dataType()))
-      ).asJava
-      val arrowSchema = new Schema(fieldTypesList)
+      )
+      val arrowSchema = new Schema(fieldTypesList.asJava)
+
+      val prepareList: (TreeNode, ArrowType) = {
+        val (cond, resultType) =
+          columnarExpr.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypesList)
+        (cond, resultType)
+      }
 
       schema = createStructType(arrowSchema)
-      filter = createFilter(arrowSchema)
+      filter = createFilter(arrowSchema, prepareList)
       val exprTreeList = List.range(0, columnarBatch.numCols()).map(i => {
         val dataType = CodeGeneration.getResultType(columnarBatch.column(i).dataType())
         TreeBuilder.makeExpression(TreeBuilder.makeField(Field.nullable(s"c_$i", dataType)),
@@ -115,7 +115,7 @@ class ColumnarFilter(expr: Expression)
     }
   }
 
-  def createFilter(arrowSchema: Schema): Filter = synchronized {
+  def createFilter(arrowSchema: Schema, prepareList: (TreeNode, ArrowType)): Filter = synchronized {
     if (filter != null) {
       return filter
     }

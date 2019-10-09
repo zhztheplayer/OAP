@@ -17,7 +17,7 @@ class ColumnarAlias(child: Expression, name: String)(
     override val explicitMetadata: Option[Metadata])
   extends Alias(child, name)(exprId, qualifier, explicitMetadata) with ColumnarExpression {
 
-  override def doColumnarCodeGen(fieldTypes: ListBuffer[Field]): (TreeNode, ArrowType) = {
+  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
     child.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
   }
 

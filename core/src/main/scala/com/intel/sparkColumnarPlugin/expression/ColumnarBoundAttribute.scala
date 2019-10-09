@@ -15,11 +15,21 @@ import scala.collection.mutable.ListBuffer
 class ColumnarBoundReference(ordinal: Int, dataType: DataType, nullable: Boolean)
   extends BoundReference(ordinal, dataType, nullable) with ColumnarExpression {
 
-  override def doColumnarCodeGen(fieldTypes: ListBuffer[Field]): (TreeNode, ArrowType) = {
+  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
     val resultType = CodeGeneration.getResultType(dataType)
     val field = Field.nullable(s"c_$ordinal", resultType)
-    fieldTypes += field
-    (TreeBuilder.makeField(field), resultType)
+    var found = false
+    for (f <- fieldTypes) {
+      if (found || f.equals(field)) {
+        found = true
+      } else {
+        found = false
+      }
+    }
+    if (found)
+      (TreeBuilder.makeField(field), resultType)
+    else
+      (null, null)
   }
 
 }

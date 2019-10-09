@@ -13,7 +13,7 @@ import scala.collection.mutable.ListBuffer
 
 class ColumnarLiteral(lit: Literal) extends Literal(lit.value, lit.dataType) with ColumnarExpression {
 
-  override def doColumnarCodeGen(fieldTypes: ListBuffer[Field]): (TreeNode, ArrowType) = {
+  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
     val resultType = CodeGeneration.getResultType(dataType)
     dataType match {
       case t: StringType =>
