@@ -61,7 +61,7 @@ apache arrow, parquet and gandiva
 ``` shell
 git clone https://github/xuechendi/arrow
 git checkout wip_hdfs_parquet_reader
-cd arrow/cpp/build
+cd arrow/cpp/release-build
 cmake -DARROW_GANDIVA_JAVA=ON -DARROW_GANDIVA=ON -DARROW_PARQUET=ON -DARROW_HDFS=ON -DARROW_BOOST_USE_SHARED=ON -DARROW_JNI=ON ..
 make
 make install
