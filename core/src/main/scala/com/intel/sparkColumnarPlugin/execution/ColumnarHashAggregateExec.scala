@@ -1,0 +1,91 @@
+package com.intel.sparkColumnarPlugin.execution
+
+import com.intel.sparkColumnarPlugin.expression._
+import com.intel.sparkColumnarPlugin.vectorized._
+
+import java.util.concurrent.TimeUnit._
+
+import org.apache.spark.TaskContext
+import org.apache.spark.memory.{SparkOutOfMemoryError, TaskMemoryManager}
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.errors._
+import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
+import org.apache.spark.sql.catalyst.expressions.aggregate._
+import org.apache.spark.sql.catalyst.expressions.codegen._
+import org.apache.spark.sql.catalyst.expressions.codegen.Block._
+import org.apache.spark.sql.catalyst.plans.physical._
+import org.apache.spark.sql.catalyst.util.DateTimeUtils._
+import org.apache.spark.sql.catalyst.util.truncatedString
+import org.apache.spark.sql.execution._
+import org.apache.spark.sql.execution.aggregate.HashAggregateExec
+import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
+import org.apache.spark.sql.execution.vectorized.MutableColumnarRow
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+import org.apache.spark.sql.types.{DecimalType, StringType, StructType}
+import org.apache.spark.unsafe.KVIterator
+import org.apache.spark.util.Utils
+
+import scala.collection.Iterator
+
+/**
+ * Columnar Based HashAggregateExec.
+ */
+class ColumnarHashAggregateExec(
+    requiredChildDistributionExpressions: Option[Seq[Expression]],
+    groupingExpressions: Seq[NamedExpression],
+    aggregateExpressions: Seq[AggregateExpression],
+    aggregateAttributes: Seq[Attribute],
+    initialInputBufferOffset: Int,
+    resultExpressions: Seq[NamedExpression],
+    child: SparkPlan) extends HashAggregateExec(
+      requiredChildDistributionExpressions,
+      groupingExpressions,
+      aggregateExpressions,
+      aggregateAttributes,
+      initialInputBufferOffset,
+      resultExpressions,
+      child) {
+
+  override def supportsColumnar = true
+
+  // Disable code generation
+  override def supportCodegen: Boolean = false
+
+  override def doExecuteColumnar() : RDD[ColumnarBatch] = {
+    val numOutputRows = longMetric("numOutputRows")
+    val peakMemory = longMetric("peakMemory")
+    val spillSize = longMetric("spillSize")
+    val avgHashProbe = longMetric("avgHashProbe")
+    val aggTime = longMetric("aggTime")
+
+    child.executeColumnar().mapPartitionsWithIndex { (partIndex, iter) =>
+
+      val beforeAgg = System.nanoTime()
+      val hasInput = iter.hasNext
+      val res = if (!hasInput && groupingExpressions.nonEmpty) {
+        // This is a grouped aggregate and the input iterator is empty,
+        // so return an empty iterator.
+        Iterator.empty
+      } else {
+        val aggregation = ColumnarAggregation.create(
+            partIndex,
+            groupingExpressions,
+            child.output,
+            aggregateExpressions,
+            aggregateAttributes,
+            resultExpressions)
+        if (!hasInput && groupingExpressions.isEmpty) {
+          throw new UnsupportedOperationException(s"Not support groupingExpressions.isEmpty")
+        } else {
+          aggregation.createIterator(iter)
+        }
+      }
+      aggTime += NANOSECONDS.toMillis(System.nanoTime() - beforeAgg)
+      res
+    }
+  }
+}
+

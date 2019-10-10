@@ -2,6 +2,7 @@ package com.intel.sparkColumnarPlugin.expression
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.expressions.aggregate._
 object ColumnarExpressionConverter extends Logging {
 
   def replaceWithColumnarExpression(expr: Expression): Expression = expr match {
@@ -23,6 +24,9 @@ object ColumnarExpressionConverter extends Logging {
     case u: UnaryExpression =>
       logInfo(s"${expr.getClass} ${expr} is supported.")
       ColumnarUnaryOperator.create(replaceWithColumnarExpression(u.child), expr)
+    case a: AggregateExpression =>
+      logInfo(s"${expr.getClass} ${expr} is supported.")
+      new ColumnarAggregateExpression(a.aggregateFunction, a.mode, a.isDistinct, a.resultId)
     case expr =>
       logWarning(s"${expr.getClass} ${expr} is not currently supported.")
       expr

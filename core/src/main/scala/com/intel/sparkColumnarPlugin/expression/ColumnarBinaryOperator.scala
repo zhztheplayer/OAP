@@ -18,9 +18,9 @@ import scala.collection.mutable.ListBuffer
  */
 class ColumnarAnd(left: Expression, right: Expression, original: Expression)
   extends And(left: Expression, right: Expression) with ColumnarExpression with Logging {
-  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
-    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
-    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val resultType = new ArrowType.Bool()
     val funcNode = TreeBuilder.makeAnd(Lists.newArrayList(left_node, right_node))
@@ -30,9 +30,9 @@ class ColumnarAnd(left: Expression, right: Expression, original: Expression)
 
 class ColumnarOr(left: Expression, right: Expression, original: Expression)
   extends Or(left: Expression, right: Expression) with ColumnarExpression with Logging {
-  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
-    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
-    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val resultType = new ArrowType.Bool()
     val funcNode = TreeBuilder.makeOr(Lists.newArrayList(left_node, right_node))
@@ -42,9 +42,9 @@ class ColumnarOr(left: Expression, right: Expression, original: Expression)
 
 class ColumnarEqualTo(left: Expression, right: Expression, original: Expression)
   extends EqualTo(left: Expression, right: Expression) with ColumnarExpression with Logging {
-  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
-    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
-    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val resultType = new ArrowType.Bool()
     val funcNode = TreeBuilder.makeFunction(
@@ -55,9 +55,9 @@ class ColumnarEqualTo(left: Expression, right: Expression, original: Expression)
 
 class ColumnarEqualNull(left: Expression, right: Expression, original: Expression)
   extends EqualNullSafe(left: Expression, right: Expression) with ColumnarExpression with Logging {
-  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
-    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
-    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val resultType = new ArrowType.Bool()
     val funcNode = TreeBuilder.makeFunction(
@@ -68,9 +68,9 @@ class ColumnarEqualNull(left: Expression, right: Expression, original: Expressio
 
 class ColumnarLessThan(left: Expression, right: Expression, original: Expression)
   extends LessThan(left: Expression, right: Expression) with ColumnarExpression with Logging {
-  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
-    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
-    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val resultType = new ArrowType.Bool()
     val funcNode = TreeBuilder.makeFunction(
@@ -81,9 +81,9 @@ class ColumnarLessThan(left: Expression, right: Expression, original: Expression
 
 class ColumnarLessThanOrEqual(left: Expression, right: Expression, original: Expression)
   extends LessThanOrEqual(left: Expression, right: Expression) with ColumnarExpression with Logging {
-  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
-    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
-    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val resultType = new ArrowType.Bool()
     val funcNode = TreeBuilder.makeFunction(
@@ -94,9 +94,9 @@ class ColumnarLessThanOrEqual(left: Expression, right: Expression, original: Exp
 
 class ColumnarGreaterThan(left: Expression, right: Expression, original: Expression)
   extends GreaterThan(left: Expression, right: Expression) with ColumnarExpression with Logging {
-  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
-    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
-    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val resultType = new ArrowType.Bool()
     val funcNode = TreeBuilder.makeFunction(
@@ -107,9 +107,9 @@ class ColumnarGreaterThan(left: Expression, right: Expression, original: Express
 
 class ColumnarGreaterThanOrEqual(left: Expression, right: Expression, original: Expression)
   extends GreaterThanOrEqual(left: Expression, right: Expression) with ColumnarExpression with Logging {
-  override def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
-    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
-    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(fieldTypes)
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) = left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    val (right_node, right_type): (TreeNode, ArrowType) = right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val resultType = new ArrowType.Bool()
     val funcNode = TreeBuilder.makeFunction(

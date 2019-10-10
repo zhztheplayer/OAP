@@ -161,9 +161,9 @@ object ColumnarFilter extends AutoCloseable {
 
   def create(condition: Expression, inputSchema: Seq[Attribute]): ColumnarFilter = synchronized  {
     // make gandiva projection here.
-    if (columnarFilter == null) {
+    //if (columnarFilter == null) {
       columnarFilter = new ColumnarFilter(BindReferences.bindReference(condition, inputSchema))
-    }
+    //}
     columnarFilter
   }
 

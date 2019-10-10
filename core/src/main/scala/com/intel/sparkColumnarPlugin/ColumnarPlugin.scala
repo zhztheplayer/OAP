@@ -8,6 +8,7 @@ import org.apache.spark.sql.{SparkSession, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution._
+import org.apache.spark.sql.execution.aggregate.HashAggregateExec
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
@@ -24,6 +25,15 @@ case class ColumnarOverrides() extends Rule[SparkPlan] {
     case plan: FilterExec =>
       logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
       new ColumnarFilterExec(plan.condition, replaceWithColumnarPlan(plan.child))
+    case plan: HashAggregateExec =>
+      logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
+      new ColumnarHashAggregateExec(plan.requiredChildDistributionExpressions,
+                                    plan.groupingExpressions,
+                                    plan.aggregateExpressions,
+                                    plan.aggregateAttributes,
+                                    plan.initialInputBufferOffset,
+                                    plan.resultExpressions,
+                                    replaceWithColumnarPlan(plan.child))
     case p =>
       logWarning(s"Columnar Processing for ${p.getClass} is not currently supported.")
       p.withNewChildren(p.children.map(replaceWithColumnarPlan))

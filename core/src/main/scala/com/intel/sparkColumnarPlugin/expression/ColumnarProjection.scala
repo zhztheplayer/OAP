@@ -129,7 +129,7 @@ class ColumnarProjection(exprs: Seq[Expression])
 object ColumnarProjection
     extends CodeGeneratorWithInterpretedFallback[Seq[Expression], ColumnarProjection] with AutoCloseable {
 
-  var columnarProjection:ColumnarProjection = _
+  var columnarProjection: ColumnarProjection = _
   override protected def createCodeGeneratedObject(in: Seq[Expression]): ColumnarProjection = {
     throw new UnsupportedOperationException(
       s"${this.getClass} createCodeGeneratedObject is not currently supported.")
@@ -142,9 +142,9 @@ object ColumnarProjection
 
   def create(exprs: Seq[Expression], inputSchema: Seq[Attribute]): ColumnarProjection = synchronized  {
     // make gandiva projection here.
-    if (columnarProjection == null) {
+    //if (columnarProjection == null) {
       columnarProjection = new ColumnarProjection(bindReferences(exprs, inputSchema))
-    }
+    //}
     columnarProjection
   }
 

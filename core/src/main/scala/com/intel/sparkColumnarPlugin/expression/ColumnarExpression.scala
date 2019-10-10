@@ -10,7 +10,7 @@ import scala.collection.mutable.ListBuffer
 
 trait ColumnarExpression {
 
-  def doColumnarCodeGen(fieldTypes: List[Field]): (TreeNode, ArrowType) = {
+  def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
     throw new UnsupportedOperationException(s"Not support doColumnarCodeGen.")
   }
 }
