@@ -25,8 +25,12 @@ object CodeGeneration {
       new ArrowType.Int(64, true)
     case t: FloatType =>
       new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)
+    case t: DecimalType =>
+      new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)
     case d: DecimalType =>
       new ArrowType.Decimal(d.precision, d.scale)
+    case d: StringType =>
+      new ArrowType.Utf8()
     case other =>
       throw new UnsupportedOperationException(s"getResultType doesn't support $other.")
   }

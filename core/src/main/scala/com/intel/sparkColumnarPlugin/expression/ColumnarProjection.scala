@@ -32,7 +32,11 @@ class ColumnarProjection(exprs: Seq[Expression])
   extends (ColumnarBatch => ColumnarBatch) with AutoCloseable with Logging {
   // build gandiva projection here.
   var elapseTime_make: Long = 0
-  val columnarExprs: Seq[Expression] = exprs.map(ColumnarExpressionConverter.replaceWithColumnarExpression(_))
+  ColumnarExpressionConverter.reset()
+  val columnarExprs: Seq[Expression] = exprs.map(expr => {
+    ColumnarExpressionConverter.replaceWithColumnarExpression(expr)
+  })
+  val check_if_only_BoundReference = ColumnarExpressionConverter.ifNoCalculation
   var schema: StructType = _
   var projector: Projector = _
 
@@ -41,10 +45,16 @@ class ColumnarProjection(exprs: Seq[Expression])
   }
 
   override def close(): Unit = {
-    projector.close()
+    if (projector != null) {
+      projector.close()
+    }
   }
 
   def apply(columnarBatch: ColumnarBatch): ColumnarBatch = {
+    if (check_if_only_BoundReference) {
+      columnarBatch.retain()
+      return columnarBatch
+    }
     if (schema == null || projector == null) {
       val start_make: Long = System.nanoTime()
       val fieldTypesList = List.range(0, columnarBatch.numCols()).map(i =>
