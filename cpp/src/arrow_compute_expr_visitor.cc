@@ -14,13 +14,18 @@ arrow::Status ArrowComputeExprVisitor::Visit(const gandiva::FieldNode& node) {
 
 arrow::Status ArrowComputeExprVisitor::Visit(const gandiva::FunctionNode& node) {
   auto desc = node.descriptor();
-  if (in_record_batch->num_columns() > 1) {
+  if (node.children().size() > 1) {
     std::cerr << "node is " << node.ToString() << std::endl;
-    return arrow::Status::UnknownError("[ArrowComputeExprVisitor] sum(): input record batch size is greater than expected.");
+    return arrow::Status::UnknownError("[ArrowComputeExprVisitor] sum(): this node has more than one parameter.");
   }
-  auto col = in_record_batch->column(0);
+  auto col_name = (std::dynamic_pointer_cast<gandiva::FieldNode>(node.children()[0]))->field()->name();
+  auto col = in_record_batch->GetColumnByName(col_name);
+  if (col == nullptr) {
+    return arrow::Status::UnknownError("[ArrowComputeExprVisitor] sum(): get ", col_name, " from input failed.");
+  }
 
   arrow::compute::Datum output;
+  auto dataType = desc->return_type();
   auto status = arrow::Status::OK();
 
   if (desc->name().compare("sum") == 0) {
@@ -34,6 +39,7 @@ arrow::Status ArrowComputeExprVisitor::Visit(const gandiva::FunctionNode& node) 
     if (!status.ok()) return status;
   }
 
+  //std::cerr << "Datum type is " << output.type()->ToString() << std::endl;
   status = arrow::MakeArrayFromScalar(*(output.scalar()).get(), output.length(), result);
   if (!status.ok()) return status;
   return status;

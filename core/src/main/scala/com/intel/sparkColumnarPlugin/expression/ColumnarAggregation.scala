@@ -61,14 +61,16 @@ class ColumnarAggregation(
     val fieldTypesList = List.range(0, input.numCols()).map(i =>
       Field.nullable(s"c_$i", CodeGeneration.getResultType(input.column(i).dataType())))
 
+    var col_id = 0
     val gandivaExpressionTree: Seq[(ExpressionTree, Field, ExpressionTree)] =
       (aggregateColumnarExpressions zip aggregateAttributes).map{ case(expr, attr) => {
-        val (node, resultType, finalNode) =
-          expr.asInstanceOf[ColumnarAggregateExpression].doColumnarCodeGen_ext((fieldTypesList, attr))
+        val (node, result, finalNode) =
+          expr.asInstanceOf[ColumnarAggregateExpression].doColumnarCodeGen_ext(
+            (fieldTypesList(col_id), attr, s"result_${col_id}"))
+        col_id += 1
         if (node == null) {
           null
         } else {
-          val result = Field.nullable("result", resultType)
           (TreeBuilder.makeExpression(node, result), result, TreeBuilder.makeExpression(finalNode, result))
         }
       }}.filter(_ != null)
@@ -100,6 +102,7 @@ class ColumnarAggregation(
 
     resultCache.add(resultColumnarBatch);
     resultTotalRows += resultColumnarBatch.numRows()
+    //logInfo(s"getAggregationResult one batch done, result is ${resultColumnarBatch.column(0).getUTF8String(0)}")
   }
 
   def getAggregationResult(): ColumnarBatch = {
@@ -109,7 +112,7 @@ class ColumnarAggregation(
     resultCache.asScala.map(columnarBatch => {
       // get rows from cached columnarBatch and put into the final one
       for (i <- 0 until columnarBatch.numCols()) {
-        columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].mergeTo(resultColumnVectors(i))
+        columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].mergeTo(resultColumnVectors(i), rowId)
       }
       rowId += columnarBatch.numRows()
       columnarBatch.close()
@@ -124,7 +127,7 @@ class ColumnarAggregation(
     val finalColumnarBatch = fromArrowRecordBatch(resultArrowSchema, finalResultRecordBatch)
     releaseArrowRecordBatch(finalResultRecordBatch)
 
-    logInfo(s"getAggregationResult done, result is ${finalColumnarBatch.column(0).getUTF8String(0)}")
+    //logInfo(s"getAggregationResult done, result is ${finalColumnarBatch.column(0).getUTF8String(0)}")
     finalColumnarBatch
   }
 

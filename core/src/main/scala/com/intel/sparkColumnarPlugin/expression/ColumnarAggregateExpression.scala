@@ -1,5 +1,6 @@
 package com.intel.sparkColumnarPlugin.expression
 
+import com.google.common.collect.Lists
 import scala.collection.JavaConverters._
 import org.apache.arrow.gandiva.expression._
 import org.apache.arrow.vector.types.pojo.ArrowType
@@ -17,8 +18,8 @@ class ColumnarAggregateExpression(
     resultId: ExprId)
   extends AggregateExpression(aggregateFunction, mode, isDistinct, resultId)
   with ColumnarExpression with Logging {
-  def doColumnarCodeGen_ext(args: Object): (TreeNode, ArrowType, TreeNode) = {
-    val (inputFieldList, outpurAttr) = args.asInstanceOf[(List[Field], Attribute)]
+  def doColumnarCodeGen_ext(args: Object): (TreeNode, Field, TreeNode) = {
+    val (inputField, outpurAttr, resultName) = args.asInstanceOf[(Field, Attribute, String)]
 
     val funcName = mode match {
       case Partial => aggregateFunction.prettyName 
@@ -33,11 +34,11 @@ class ColumnarAggregateExpression(
       case other => other
     }
     logInfo(s"funcName is $funcName, finalFuncName is $finalFuncName, mode is $mode")
-    val colName = outpurAttr.name
     val resultType = CodeGeneration.getResultType(outpurAttr.dataType)
-    val fieldNodeList = inputFieldList.map(TreeBuilder.makeField(_))
-    (TreeBuilder.makeFunction(funcName, fieldNodeList.asJava, resultType),
-     resultType,
-     TreeBuilder.makeFunction(finalFuncName, fieldNodeList.asJava, resultType))
+    val resultFieldNode = Field.nullable(resultName, resultType)
+    (TreeBuilder.makeFunction(funcName, Lists.newArrayList(TreeBuilder.makeField(inputField)), resultType),
+     resultFieldNode,
+     TreeBuilder.makeFunction(
+       finalFuncName, Lists.newArrayList(TreeBuilder.makeField(resultFieldNode)), resultType))
   }
 }
