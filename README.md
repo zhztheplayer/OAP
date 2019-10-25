@@ -43,9 +43,8 @@ parquet-arrow-1.11.0.jar  parquet-arrow-1.11.0.jar.lastUpdated  parquet-arrow-1.
 #### Build and install a columnarSupported spark
 
 ``` shell
-git clone https://github.com/xuechendi/spark.git
-cd spark
-git checkout wip_arrow_support_v2
+git clone https://github.com/intel-bigdata/sparkv.git
+cd sparkv
 ./build/mvn -Pyarn -Phadoop-3.2 -Dhadoop.version=3.2.0 -DskipTests clean install
 ```
 
