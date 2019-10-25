@@ -144,6 +144,12 @@ private[sql] class FiberCacheManager(
     logDebug(s"Getting Fiber: $fiber")
     cacheBackend.get(fiber)
   }
+
+  def getIfPresent(fiber: FiberId): FiberCache = {
+    logDebug(s"Getting Fiber: $fiber")
+    cacheBackend.getIfPresent(fiber)
+  }
+
   // only for unit test
   def setCompressionConf(dataEnable: Boolean = false,
       dataCompressCodec: String = "SNAPPY"): Unit = {

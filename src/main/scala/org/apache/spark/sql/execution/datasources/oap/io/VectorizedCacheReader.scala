@@ -160,7 +160,7 @@ class VectorizedCacheReader(
         } else {
           val start = System.nanoTime()
           val fiberCache: FiberCache =
-            OapRuntime.getOrCreate.fiberCacheManager.get(DataFiberId(dataFile, id, groupId))
+            OapRuntime.getOrCreate.fiberCacheManager.get(VectorDataFiberId(dataFile, id, groupId))
           val end = System.nanoTime()
           loadFiberTime += (end - start)
           dataFile.update(id, fiberCache)
