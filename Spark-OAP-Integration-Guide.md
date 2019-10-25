@@ -1,10 +1,11 @@
 
-Spark OAP Integration Guide
+# Spark OAP Integration Guide
 
-Background 
+## Background 
 Although OAP (Optimized Analytical Package for Spark) acts as a plugin jar to Spark, there are still a few tricks to note when integration with Spark. The document gives you an overview of areas to check when integrating OAP with your Spark. Basically, OAP explored Spark extension & data source API to perform its core functionality. But there are other functionality aspects that cannot achieved by Spark extension and data source API. We made a few improvements or changes to the Spark internals to achieve the functionality.
 When you are doing an integration, you need to check whether you are running an unmodified up-stream version of Spark or a modified customized version of Spark.
-Integration an unmodified up-stream version of Spark
+
+## Integration an unmodified up-stream version of Spark
 If you are running an unmodified up-stream version of Spark, things will be much simple. We currently support Spark Spark 2.3.2 & Spark 2.4.1.
 In this case, you can follow the below steps to integrate OAP to Spark.
 Building
@@ -12,7 +13,8 @@ Building the OAP version for the specific Spark version. For example, the follow
 
 git checkout -b branch-0.6-spark-2.3.2 origin/branch-0.6-spark-2.3.2
 mvn clean -q -Ppersistent-memory -DskipTests package. Profile persistent-memory is Optional.
-Deploy
+
+## Deploy
 1.	Spark on Yarn with Client Mode
 In this mode, you need set the following three configurations in the “$SPARK_HOME/conf/sparkdefaults.conf” file. And then you can run by bin/spark-sql, bin/spark-shell, bin/spark-submit --deploymode client, sbin/start-thriftserver or bin/pyspark.
 
@@ -28,7 +30,7 @@ spark.files /{PATH_TO_OAP_JAR}/oap-0.6-with-spark-2.3.2.jar # absolute path
 spark.executor.extraClassPath ./ oap-0.6-with-spark-2.3.2.jar # relative path 
 spark.driver.extraClassPath ./oap-0.6-with-spark-2.3.2.jar # relative path
 
-Run
+## Run
 
 1. Index function
 You can run with the following example using spark shell for testing simple index case. And you need to replace the “namenode“ with your own cluster.
@@ -65,7 +67,8 @@ spark.sql.oap.fiberCache.persistent.memory.initial.size
 spark.sql.oap.fiberCache.persistent.memory.reserved.size
 spark.sql.oap.parquet.data.cache.enable true (for parquet fileformat)
 spark.sql.oap.orc.data.cache.enable true (for orc fileformat)
-Integration a modified customized version of Spark
+
+## Integration a modified customized version of Spark
 It will be more complicated to integrate OAP with a customized version of Spark. Steps needed for this case is to check whether the OAP changes of Spark internals will conflict or override with your private changes. 
 •	If no conflicts or overrides happens, the steps are the same as the steps of unmodified version of Spark described above. 
 •	If conflicts or overrides happen, you need to have a merge plan of the source code to make sure the changes you made in a file appears in the corresponding file changed in OAP project. Once merged, the steps are the same as above.
