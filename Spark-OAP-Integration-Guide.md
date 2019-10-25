@@ -8,13 +8,14 @@ When you are doing an integration, you need to check whether you are running an 
 ## Integration an unmodified up-stream version of Spark
 If you are running an unmodified up-stream version of Spark, things will be much simple. We currently support Spark Spark 2.3.2 & Spark 2.4.1.
 In this case, you can follow the below steps to integrate OAP to Spark.
-Building
-Building the OAP version for the specific Spark version. For example, the following builds OAP 0.6 for Spark 2.3.2
 
+### Building
+Building the OAP version for the specific Spark version. For example, the following builds OAP 0.6 for Spark 2.3.2
+```
 git checkout -b branch-0.6-spark-2.3.2 origin/branch-0.6-spark-2.3.2
 mvn clean -q -Ppersistent-memory -DskipTests package. Profile persistent-memory is Optional.
-
-## Deploy
+```
+### Deploy
 1.	Spark on Yarn with Client Mode
 In this mode, you need set the following three configurations in the “$SPARK_HOME/conf/sparkdefaults.conf” file. And then you can run by bin/spark-sql, bin/spark-shell, bin/spark-submit --deploymode client, sbin/start-thriftserver or bin/pyspark.
 
