@@ -1,17 +1,13 @@
 package com.intel.sparkColumnarPlugin
 
-import com.intel.sparkColumnarPlugin.expression._
 import com.intel.sparkColumnarPlugin.execution._
+
 import org.apache.spark.internal.Logging
-import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{SparkSession, SparkSessionExtensions}
-import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.HashAggregateExec
-import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
-import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
-import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
+import org.apache.spark.sql.{SparkSession, SparkSessionExtensions}
 
 case class ColumnarOverrides() extends Rule[SparkPlan] {
 
@@ -34,6 +30,12 @@ case class ColumnarOverrides() extends Rule[SparkPlan] {
                                     plan.initialInputBufferOffset,
                                     plan.resultExpressions,
                                     replaceWithColumnarPlan(plan.child))
+    case plan: ShuffleExchangeExec =>
+      logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
+      new ColumnarShuffleExchangeExec(plan.outputPartitioning,
+        plan.child,
+        plan.canChangeNumPartitions
+      )
     case p =>
       logWarning(s"Columnar Processing for ${p.getClass} is not currently supported.")
       p.withNewChildren(p.children.map(replaceWithColumnarPlan))
@@ -61,7 +63,7 @@ case class ColumnarOverrideRules(session: SparkSession) extends ColumnarRule wit
 /**
   * Extension point to enable columnar processing.
   *
-  * To run with columnar set spark.sql.extensions to org.apache.spark.example.Plugin
+  * To run with columnar set spark.sql.extensions to com.intel.sparkColumnarPlugin.ColumnarPlugin
   */
 class ColumnarPlugin extends Function1[SparkSessionExtensions, Unit] with Logging {
   override def apply(extensions: SparkSessionExtensions): Unit = {
