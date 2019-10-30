@@ -1,22 +1,20 @@
 #ifndef ARROW_COMPUTE_EXPR_VISITOR_H
 #define ARROW_COMPUTE_EXPR_VISITOR_H
 
-#include <iostream>
+#include <arrow/compute/context.h>
 #include <gandiva/node.h>
 #include <gandiva/node_visitor.h>
+#include <iostream>
 #include "code_generator.h"
-#include <arrow/compute/context.h>
 
-class ArrowComputeExprVisitor: public gandiva::NodeVisitor {
+class ArrowComputeExprVisitor : public gandiva::NodeVisitor {
  public:
-  ArrowComputeExprVisitor(
-      std::shared_ptr<arrow::Schema> schema_ptr,
-      std::shared_ptr<gandiva::Expression> expr):
-    schema(schema_ptr), expr(expr) {
-  }
+  ArrowComputeExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
+                          std::shared_ptr<gandiva::Expression> expr)
+      : schema(schema_ptr), expr(expr) {}
 
-  arrow::Status eval(std::shared_ptr<arrow::RecordBatch> &in,
-                     std::shared_ptr<arrow::Array> *out) {
+  arrow::Status eval(std::shared_ptr<arrow::RecordBatch>& in,
+                     std::shared_ptr<arrow::Array>* out) {
     in_record_batch = in;
     result = out;
     arrow::Status status = arrow::Status::OK();
@@ -26,6 +24,7 @@ class ArrowComputeExprVisitor: public gandiva::NodeVisitor {
     }
     return status;
   }
+
  private:
   std::shared_ptr<arrow::Schema> schema;
   std::shared_ptr<gandiva::Expression> expr;
