@@ -1,8 +1,6 @@
 package com.intel.sparkColumnarPlugin.vectorized;
 
-/**
- * ArrowBufBuilder.
- */
+/** ArrowBufBuilder. */
 public class ArrowBufBuilder {
 
   public long nativeInstanceId;
@@ -12,6 +10,7 @@ public class ArrowBufBuilder {
 
   /**
    * Create an instance for ArrowBufBuilder.
+   *
    * @param nativeInstanceId native ArrowBuf holder.
    * @param memoryAddress native ArrowBuf data addr.
    * @param size ArrowBuf size.
@@ -23,4 +22,4 @@ public class ArrowBufBuilder {
     this.capacity = capacity;
     this.nativeInstanceId = nativeInstanceId;
   }
-} 
+}

@@ -12,8 +12,8 @@ import org.apache.arrow.util.Preconditions;
 import io.netty.buffer.ArrowBuf;
 
 /**
- * A simple reference manager implementation for memory allocated by native code.
- * The underlying memory will be released when reference count reach zero.
+ * A simple reference manager implementation for memory allocated by native code. The underlying
+ * memory will be released when reference count reach zero.
  */
 public class AdaptorReferenceManager implements ReferenceManager {
   private native void nativeRelease(long nativeMemoryHolder);
@@ -22,8 +22,7 @@ public class AdaptorReferenceManager implements ReferenceManager {
   private long nativeMemoryHolder;
   private int size = 0;
 
-  AdaptorReferenceManager(long nativeMemoryHolder, int size)
-      throws IOException {
+  AdaptorReferenceManager(long nativeMemoryHolder, int size) throws IOException {
     JniUtils.getInstance();
     this.nativeMemoryHolder = nativeMemoryHolder;
     this.size = size;
@@ -41,8 +40,8 @@ public class AdaptorReferenceManager implements ReferenceManager {
 
   @Override
   public boolean release(int decrement) {
-    Preconditions.checkState(decrement >= 1,
-            "ref count decrement should be greater than or equal to 1");
+    Preconditions.checkState(
+        decrement >= 1, "ref count decrement should be greater than or equal to 1");
     // decrement the ref count
     final int refCnt;
     synchronized (this) {
@@ -80,18 +79,14 @@ public class AdaptorReferenceManager implements ReferenceManager {
     final long derivedBufferAddress = sourceBuffer.memoryAddress() + index;
 
     // create new ArrowBuf
-    final ArrowBuf derivedBuf = new ArrowBuf(
-            this,
-            null,
-            length,
-            derivedBufferAddress,
-            false);
+    final ArrowBuf derivedBuf = new ArrowBuf(this, null, length, derivedBufferAddress, false);
 
     return derivedBuf;
   }
 
   @Override
-  public OwnershipTransferResult transferOwnership(ArrowBuf sourceBuffer, BufferAllocator targetAllocator) {
+  public OwnershipTransferResult transferOwnership(
+      ArrowBuf sourceBuffer, BufferAllocator targetAllocator) {
     throw new UnsupportedOperationException();
   }
 

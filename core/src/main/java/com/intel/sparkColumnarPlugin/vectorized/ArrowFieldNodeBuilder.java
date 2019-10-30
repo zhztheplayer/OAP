@@ -1,8 +1,6 @@
 package com.intel.sparkColumnarPlugin.vectorized;
 
-/**
- * Wrapper for ArrowFieldNodeBuilder.
- */
+/** Wrapper for ArrowFieldNodeBuilder. */
 public class ArrowFieldNodeBuilder {
 
   public int length;
@@ -10,6 +8,7 @@ public class ArrowFieldNodeBuilder {
 
   /**
    * Create an instance of ArrowFieldNodeBuilder.
+   *
    * @param length numRows in this Field
    * @param nullCount numCount in this Fields
    */
@@ -17,6 +16,4 @@ public class ArrowFieldNodeBuilder {
     this.length = length;
     this.nullCount = nullCount;
   }
-
 }
-

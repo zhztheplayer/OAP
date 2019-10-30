@@ -1,8 +1,6 @@
 package com.intel.sparkColumnarPlugin.vectorized;
 
-/**
- * ArrowRecordBatchBuilder.
- */
+/** ArrowRecordBatchBuilder. */
 public class ArrowRecordBatchBuilder {
 
   public int length;
@@ -11,6 +9,7 @@ public class ArrowRecordBatchBuilder {
 
   /**
    * Create an instance to wrap native parameters for ArrowRecordBatchBuilder.
+   *
    * @param length ArrowRecordBatch rowNums.
    * @param nodeBuilders an Array hold ArrowFieldNodeBuilder.
    * @param bufferBuilders an Array hold ArrowBufBuilder.
@@ -21,5 +20,4 @@ public class ArrowRecordBatchBuilder {
     this.nodeBuilders = nodeBuilders;
     this.bufferBuilders = bufferBuilders;
   }
-
-} 
+}

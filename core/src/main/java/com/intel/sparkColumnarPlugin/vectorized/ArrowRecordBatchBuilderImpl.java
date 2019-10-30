@@ -9,9 +9,7 @@ import org.apache.arrow.vector.ipc.message.ArrowRecordBatch;
 
 import io.netty.buffer.ArrowBuf;
 
-/**
- * ArrowRecordBatchBuilderImpl used to wrap native returned data into an ArrowRecordBatch.
- */
+/** ArrowRecordBatchBuilderImpl used to wrap native returned data into an ArrowRecordBatch. */
 public class ArrowRecordBatchBuilderImpl {
 
   private int length;
@@ -19,6 +17,7 @@ public class ArrowRecordBatchBuilderImpl {
 
   /**
    * Create ArrowRecordBatchBuilderImpl instance from ArrowRecordBatchBuilder.
+   *
    * @param recordBatchBuilder ArrowRecordBatchBuilder instance.
    */
   public ArrowRecordBatchBuilderImpl(ArrowRecordBatchBuilder recordBatchBuilder) {
@@ -27,6 +26,7 @@ public class ArrowRecordBatchBuilderImpl {
 
   /**
    * Build ArrowRecordBatch from ArrowRecordBatchBuilder instance.
+   *
    * @throws IOException throws exception
    */
   public ArrowRecordBatch build() throws IOException {
@@ -47,5 +47,4 @@ public class ArrowRecordBatchBuilderImpl {
     }
     return new ArrowRecordBatch(recordBatchBuilder.length, nodes, buffers);
   }
-  
-} 
+}

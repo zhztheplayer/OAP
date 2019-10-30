@@ -89,6 +89,12 @@ For initial microbenchmark performance, we add 10 fields up with spark, data siz
 
 ![Performance](/resource/performance.png)
 
+## Coding Style
+
+For Java code, we used [google-java-format](https://github.com/google/google-java-format)
+For Scala code, we used [Spark Scala Format](https://github.com/apache/spark/blob/master/dev/.scalafmt.conf), please use [scalafmt](https://github.com/scalameta/scalafmt) or run ./scalafmt for scala codes format
+For Cpp codes, we used Clang-Format, check on this link [google-vim-codefmt](https://github.com/google/vim-codefmt) for details.
+
 ## contact
 
 chendi.xue@intel.com

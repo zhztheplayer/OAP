@@ -27,7 +27,12 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection}
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution.exchange.Exchange
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec.createShuffleWriteProcessor
-import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics, SQLShuffleReadMetricsReporter, SQLShuffleWriteMetricsReporter}
+import org.apache.spark.sql.execution.metric.{
+  SQLMetric,
+  SQLMetrics,
+  SQLShuffleReadMetricsReporter,
+  SQLShuffleWriteMetricsReporter
+}
 import org.apache.spark.sql.execution.vectorized.{ArrowWritableColumnVector, WritableColumnVector}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
@@ -38,17 +43,18 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable
 
 case class ColumnarShuffleExchangeExec(
-  override val outputPartitioning: Partitioning,
-  child: SparkPlan,
-  canChangeNumPartitions: Boolean = true) extends Exchange {
+    override val outputPartitioning: Partitioning,
+    child: SparkPlan,
+    canChangeNumPartitions: Boolean = true)
+    extends Exchange {
 
   private lazy val writeMetrics =
     SQLShuffleWriteMetricsReporter.createShuffleWriteMetrics(sparkContext)
   private lazy val readMetrics =
     SQLShuffleReadMetricsReporter.createShuffleReadMetrics(sparkContext)
   override lazy val metrics: Map[String, SQLMetric] = Map(
-    "dataSize" -> SQLMetrics.createSizeMetric(sparkContext, "data size")
-  ) ++ readMetrics ++ writeMetrics
+    "dataSize" -> SQLMetrics
+      .createSizeMetric(sparkContext, "data size")) ++ readMetrics ++ writeMetrics
 
   override def nodeName: String = "ColumnarExchange"
 
@@ -64,14 +70,13 @@ case class ColumnarShuffleExchangeExec(
   }
 
   @transient
-  lazy val shuffleDependency : ShuffleDependency[Int, ColumnarBatch, ColumnarBatch] = {
+  lazy val shuffleDependency: ShuffleDependency[Int, ColumnarBatch, ColumnarBatch] = {
     ColumnarShuffleExchangeExec.prepareShuffleDependency(
       inputRDD,
       child.output,
       outputPartitioning,
       serializer,
-      writeMetrics
-    )
+      writeMetrics)
   }
 
   def createShuffledRDD(partitionStartIndices: Option[Array[Int]]): ShuffledColumnarBatchRDD = {
@@ -91,13 +96,13 @@ case class ColumnarShuffleExchangeExec(
 object ColumnarShuffleExchangeExec {
 
   def prepareShuffleDependency(
-    rdd: RDD[ColumnarBatch],
-    outputAttributes: Seq[Attribute],
-    newPartitioning: Partitioning,
-    serializer: Serializer,
-    writeMetrics: Map[String, SQLMetric],
-    enableArrowColumnVector: Boolean = true
-  ): ShuffleDependency[Int, ColumnarBatch, ColumnarBatch] = {
+      rdd: RDD[ColumnarBatch],
+      outputAttributes: Seq[Attribute],
+      newPartitioning: Partitioning,
+      serializer: Serializer,
+      writeMetrics: Map[String, SQLMetric],
+      enableArrowColumnVector: Boolean = true)
+      : ShuffleDependency[Int, ColumnarBatch, ColumnarBatch] = {
 
     assert(enableArrowColumnVector, "only support arrow column vector")
 
@@ -140,7 +145,8 @@ object ColumnarShuffleExchangeExec {
         val projection = UnsafeProjection.create(h.partitionIdExpression :: Nil, outputAttributes)
         row => projection(row).getInt(0)
       case RangePartitioning(sortingExpressions, _) =>
-        val projection = UnsafeProjection.create(sortingExpressions.map(_.child), outputAttributes)
+        val projection =
+          UnsafeProjection.create(sortingExpressions.map(_.child), outputAttributes)
         row => projection(row)
       case SinglePartition => identity
       case _ => sys.error(s"Exchange not implemented for $newPartitioning")
@@ -151,8 +157,9 @@ object ColumnarShuffleExchangeExec {
       val rowIterator = cb.rowIterator().asScala
       val partitionIdMask = new Array[Int](cb.numRows())
 
-      rowIterator.zipWithIndex.foreach { case (row, idx) =>
-        partitionIdMask(idx) = part.getPartition(getPartitionKey(row))
+      rowIterator.zipWithIndex.foreach {
+        case (row, idx) =>
+          partitionIdMask(idx) = part.getPartition(getPartitionKey(row))
       }
       partitionIdMask
     }
@@ -163,8 +170,8 @@ object ColumnarShuffleExchangeExec {
       vectors.toArray
     }
 
-    def partitionIdToColumnVectors(partitionCounter: PartitionCounter)
-      : Map[Int, Array[WritableColumnVector]] = {
+    def partitionIdToColumnVectors(
+        partitionCounter: PartitionCounter): Map[Int, Array[WritableColumnVector]] = {
       val columnVectorsWithPartitionId = mutable.Map[Int, Array[WritableColumnVector]]()
       for (pid <- partitionCounter.keys) {
         val numRows = partitionCounter(pid)
@@ -176,25 +183,29 @@ object ColumnarShuffleExchangeExec {
     }
 
     val rddWithPartitionIds: RDD[Product2[Int, ColumnarBatch]] = {
-      rdd.mapPartitionsWithIndexInternal((_, cbIterator) => {
-        val converters = new RowToColumnConverter(schema)
-        cbIterator.flatMap { cb =>
-          val partitionCounter = new PartitionCounter
-          val partitionIdMask = getPartitionIdMask(cb)
-          partitionCounter.update(partitionIdMask)
+      rdd.mapPartitionsWithIndexInternal(
+        (_, cbIterator) => {
+          val converters = new RowToColumnConverter(schema)
+          cbIterator.flatMap {
+            cb =>
+              val partitionCounter = new PartitionCounter
+              val partitionIdMask = getPartitionIdMask(cb)
+              partitionCounter.update(partitionIdMask)
 
-          val toNewVectors = partitionIdToColumnVectors(partitionCounter)
-          val rowIterator = cb.rowIterator().asScala
-          rowIterator.zipWithIndex.foreach { rowWithIdx =>
-            val idx = rowWithIdx._2
-            val pid = partitionIdMask(idx)
-            converters.convert(rowWithIdx._1, toNewVectors(pid))
+              val toNewVectors = partitionIdToColumnVectors(partitionCounter)
+              val rowIterator = cb.rowIterator().asScala
+              rowIterator.zipWithIndex.foreach { rowWithIdx =>
+                val idx = rowWithIdx._2
+                val pid = partitionIdMask(idx)
+                converters.convert(rowWithIdx._1, toNewVectors(pid))
+              }
+              toNewVectors.toSeq.map {
+                case (pid, vectors) =>
+                  (pid, new ColumnarBatch(vectors.toArray, partitionCounter(pid)))
+              }
           }
-          toNewVectors.toSeq.map { case (pid, vectors) =>
-            (pid, new ColumnarBatch(vectors.toArray, partitionCounter(pid)))
-          }
-        }
-      }, isOrderSensitive = isOrderSensitive)
+        },
+        isOrderSensitive = isOrderSensitive)
     }
 
     val dependency =
@@ -217,12 +228,10 @@ private class PartitionCounter {
 
   def update(partitionIdMask: Array[Int]): Unit = {
     partitionIdMask.foreach { partitionId =>
-      pidCounter.update(partitionId,
-        pidCounter.get(partitionId) match {
-          case Some(cnt) => cnt + 1
-          case None => 1
-        }
-      )
+      pidCounter.update(partitionId, pidCounter.get(partitionId) match {
+        case Some(cnt) => cnt + 1
+        case None => 1
+      })
     }
   }
 

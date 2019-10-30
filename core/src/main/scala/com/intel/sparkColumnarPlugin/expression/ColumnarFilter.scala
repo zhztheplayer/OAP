@@ -32,12 +32,13 @@ import scala.collection.mutable.ListBuffer
 import scala.collection.mutable.ArrayBuffer
 
 class ColumnarFilter(expr: Expression)
-  extends (ColumnarBatch => ColumnarBatch) with AutoCloseable with Logging {
+    extends (ColumnarBatch => ColumnarBatch)
+    with AutoCloseable
+    with Logging {
   // build gandiva projection here.
   var elapseTime_make: Long = 0
   var elapseTime_eval: Long = 0
   val columnarExpr: Expression = ColumnarExpressionConverter.replaceWithColumnarExpression(expr)
-  
 
   var filter: Filter = _
   var projector: Projector = _
@@ -46,10 +47,8 @@ class ColumnarFilter(expr: Expression)
   val allocator = new RootAllocator(Long.MAX_VALUE)
   var selectionBuffer: ArrowBuf = _
 
-  def initialize(): Unit = {
+  def initialize(): Unit = {}
 
-  }
-  
   override def close(): Unit = {
     selectionBuffer.close()
     allocator.close()
@@ -61,9 +60,11 @@ class ColumnarFilter(expr: Expression)
     //logInfo(s"apply ${columnarBatch}")
     if (schema == null || filter == null || projector == null) {
       val start_make: Long = System.nanoTime()
-      val fieldTypesList = List.range(0, columnarBatch.numCols()).map(i =>
-        Field.nullable(s"c_$i", CodeGeneration.getResultType(columnarBatch.column(i).dataType()))
-      )
+      val fieldTypesList = List
+        .range(0, columnarBatch.numCols())
+        .map(i =>
+          Field
+            .nullable(s"c_$i", CodeGeneration.getResultType(columnarBatch.column(i).dataType())))
       val arrowSchema = new Schema(fieldTypesList.asJava)
 
       val prepareList: (TreeNode, ArrowType) = {
@@ -74,11 +75,15 @@ class ColumnarFilter(expr: Expression)
 
       schema = createStructType(arrowSchema)
       filter = createFilter(arrowSchema, prepareList)
-      val exprTreeList = List.range(0, columnarBatch.numCols()).map(i => {
-        val dataType = CodeGeneration.getResultType(columnarBatch.column(i).dataType())
-        TreeBuilder.makeExpression(TreeBuilder.makeField(Field.nullable(s"c_$i", dataType)),
-                                   Field.nullable("result", dataType))
-      }).asJava
+      val exprTreeList = List
+        .range(0, columnarBatch.numCols())
+        .map(i => {
+          val dataType = CodeGeneration.getResultType(columnarBatch.column(i).dataType())
+          TreeBuilder.makeExpression(
+            TreeBuilder.makeField(Field.nullable(s"c_$i", dataType)),
+            Field.nullable("result", dataType))
+        })
+        .asJava
       projector = createProjector(arrowSchema, exprTreeList)
       elapseTime_make = System.nanoTime() - start_make
       logInfo(s"Gandiva make total ${TimeUnit.NANOSECONDS.toMillis(elapseTime_make)} ms.")
@@ -95,34 +100,42 @@ class ColumnarFilter(expr: Expression)
       filter.evaluate(input, selectionVector)
 
       // TODO: apply selectedVector onto columnarBatch
-      val resultColumnVectors = ArrowWritableColumnVector.allocateColumns(
-        selectionVector.getRecordCount(), schema).toArray
-      val outputVectors = resultColumnVectors.map(
-        columnVector => columnVector.getValueVector()
-      ).toList.asJava
+      val resultColumnVectors = ArrowWritableColumnVector
+        .allocateColumns(selectionVector.getRecordCount(), schema)
+        .toArray
+      val outputVectors =
+        resultColumnVectors.map(columnVector => columnVector.getValueVector()).toList.asJava
       projector.evaluate(input, selectionVector, outputVectors);
 
       releaseArrowRecordBatch(input)
       elapseTime_eval += System.nanoTime() - eval_start
 
-      logInfo(s"Gandiva filter evaluated, result numLines is ${selectionVector.getRecordCount()}.")
-      new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), selectionVector.getRecordCount())
+      logInfo(
+        s"Gandiva filter evaluated, result numLines is ${selectionVector.getRecordCount()}.")
+      new ColumnarBatch(
+        resultColumnVectors.map(_.asInstanceOf[ColumnVector]),
+        selectionVector.getRecordCount())
     } else {
-      val resultColumnVectors = ArrowWritableColumnVector.allocateColumns(
-        columnarBatch.numRows(), schema).toArray
+      val resultColumnVectors =
+        ArrowWritableColumnVector.allocateColumns(columnarBatch.numRows(), schema).toArray
       logInfo(s"Gandiva filter evaluated, result numLines is ${columnarBatch.numRows()}.")
-      new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), columnarBatch.numRows())
+      new ColumnarBatch(
+        resultColumnVectors.map(_.asInstanceOf[ColumnVector]),
+        columnarBatch.numRows())
     }
   }
 
-  def createFilter(arrowSchema: Schema, prepareList: (TreeNode, ArrowType)): Filter = synchronized {
-    if (filter != null) {
-      return filter
+  def createFilter(arrowSchema: Schema, prepareList: (TreeNode, ArrowType)): Filter =
+    synchronized {
+      if (filter != null) {
+        return filter
+      }
+      Filter.make(arrowSchema, TreeBuilder.makeCondition(prepareList._1))
     }
-    Filter.make(arrowSchema, TreeBuilder.makeCondition(prepareList._1))
-  }
 
-  def createProjector(arrowSchema: Schema, exprTreeList: java.util.List[ExpressionTree]): Projector = synchronized {
+  def createProjector(
+      arrowSchema: Schema,
+      exprTreeList: java.util.List[ExpressionTree]): Projector = synchronized {
     if (projector != null) {
       return projector
     }
@@ -142,7 +155,8 @@ class ColumnarFilter(expr: Expression)
     val numRowsInBatch = columnarBatch.numRows()
     for (i <- 0 until columnarBatch.numCols()) {
       //logInfo(s"createArrowRecordBatch from columnVector: ${columnarBatch.column(i)}")
-      val inputVector = columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
+      val inputVector =
+        columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
       fieldNodes += new ArrowFieldNode(numRowsInBatch, inputVector.getNullCount())
       inputData += inputVector.getValidityBuffer()
       inputData += inputVector.getDataBuffer()
@@ -157,12 +171,12 @@ class ColumnarFilter(expr: Expression)
 
 object ColumnarFilter extends AutoCloseable {
 
-  var columnarFilter:ColumnarFilter = _
+  var columnarFilter: ColumnarFilter = _
 
-  def create(condition: Expression, inputSchema: Seq[Attribute]): ColumnarFilter = synchronized  {
+  def create(condition: Expression, inputSchema: Seq[Attribute]): ColumnarFilter = synchronized {
     // make gandiva projection here.
     //if (columnarFilter == null) {
-      columnarFilter = new ColumnarFilter(BindReferences.bindReference(condition, inputSchema))
+    columnarFilter = new ColumnarFilter(BindReferences.bindReference(condition, inputSchema))
     //}
     columnarFilter
   }

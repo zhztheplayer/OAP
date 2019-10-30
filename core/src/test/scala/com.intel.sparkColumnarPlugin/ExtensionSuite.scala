@@ -13,7 +13,8 @@ class ExtensionSuite extends FunSuite {
   }
 
   test("inject columnar exchange") {
-    val session = SparkSession.builder()
+    val session = SparkSession
+      .builder()
       .master("local[1]")
       .config("org.apache.spark.example.columnar.enabled", value = true)
       .config("spark.sql.extensions", "com.intel.sparkColumnarPlugin.ColumnarPlugin")

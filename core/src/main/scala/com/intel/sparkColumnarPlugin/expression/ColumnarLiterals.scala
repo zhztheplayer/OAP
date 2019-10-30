@@ -11,7 +11,9 @@ import org.apache.spark.sql.types._
 
 import scala.collection.mutable.ListBuffer
 
-class ColumnarLiteral(lit: Literal) extends Literal(lit.value, lit.dataType) with ColumnarExpression {
+class ColumnarLiteral(lit: Literal)
+    extends Literal(lit.value, lit.dataType)
+    with ColumnarExpression {
 
   override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
     val resultType = CodeGeneration.getResultType(dataType)
@@ -23,4 +25,3 @@ class ColumnarLiteral(lit: Literal) extends Literal(lit.value, lit.dataType) wit
     }
   }
 }
-

@@ -13,7 +13,8 @@ import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 import scala.collection.mutable.ListBuffer
 
 class ColumnarBoundReference(ordinal: Int, dataType: DataType, nullable: Boolean)
-  extends BoundReference(ordinal, dataType, nullable) with ColumnarExpression {
+    extends BoundReference(ordinal, dataType, nullable)
+    with ColumnarExpression {
 
   override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
     val resultType = CodeGeneration.getResultType(dataType)

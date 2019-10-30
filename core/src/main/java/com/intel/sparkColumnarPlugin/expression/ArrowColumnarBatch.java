@@ -8,7 +8,7 @@ import org.apache.arrow.vector.ipc.message.ArrowRecordBatch;
 import org.apache.arrow.vector.ipc.message.ArrowFieldNode;
 import org.apache.arrow.vector.ValueVector;
 
-public class ArrowColumnarBatch implements AutoCloseable{
+public class ArrowColumnarBatch implements AutoCloseable {
 
   int fieldsNum;
   int numRowsInBatch;
@@ -21,7 +21,5 @@ public class ArrowColumnarBatch implements AutoCloseable{
   }
 
   @Override
-  public void close() throws IOException {
-  }
-
+  public void close() throws IOException {}
 }

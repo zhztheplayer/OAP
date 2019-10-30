@@ -39,18 +39,21 @@ class ColumnarAggregation(
     originalInputAttributes: Seq[Attribute],
     aggregateExpressions: Seq[AggregateExpression],
     aggregateAttributes: Seq[Attribute],
-    resultExpressions: Seq[NamedExpression]) extends Logging {
+    resultExpressions: Seq[NamedExpression])
+    extends Logging {
   // build gandiva projection here.
   var elapseTime_make: Long = 0
   var rowId: Int = 0
 
-  logInfo(s"groupingExpressions: $groupingExpressions,\noriginalInputAttributes: $originalInputAttributes,\naggregateExpressions: $aggregateExpressions,\naggregateAttributes: $aggregateAttributes,\nresultExpressions: $resultExpressions")
+  logInfo(
+    s"groupingExpressions: $groupingExpressions,\noriginalInputAttributes: $originalInputAttributes,\naggregateExpressions: $aggregateExpressions,\naggregateAttributes: $aggregateAttributes,\nresultExpressions: $resultExpressions")
 
   val aggregateColumnarExpressions: Seq[Expression] =
-    aggregateExpressions.map(expr => ColumnarExpressionConverter.replaceWithColumnarExpression(expr))
+    aggregateExpressions.map(expr =>
+      ColumnarExpressionConverter.replaceWithColumnarExpression(expr))
 
-  val resultSchema = StructType(aggregateAttributes.map(a =>
-      StructField(a.name, a.dataType, a.nullable, a.metadata)))
+  val resultSchema = StructType(
+    aggregateAttributes.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
   var resultTotalRows: Int = 0
   val resultCache = new ArrayList[ColumnarBatch]()
   var aggregator: ExpressionEvaluator = _
@@ -58,22 +61,31 @@ class ColumnarAggregation(
   var resultArrowSchema: Schema = _
 
   def createAggregation(input: ColumnarBatch) {
-    val fieldTypesList = List.range(0, input.numCols()).map(i =>
-      Field.nullable(s"c_$i", CodeGeneration.getResultType(input.column(i).dataType())))
+    val fieldTypesList = List
+      .range(0, input.numCols())
+      .map(i => Field.nullable(s"c_$i", CodeGeneration.getResultType(input.column(i).dataType())))
 
     var col_id = 0
     val gandivaExpressionTree: Seq[(ExpressionTree, Field, ExpressionTree)] =
-      (aggregateColumnarExpressions zip aggregateAttributes).map{ case(expr, attr) => {
-        val (node, result, finalNode) =
-          expr.asInstanceOf[ColumnarAggregateExpression].doColumnarCodeGen_ext(
-            (fieldTypesList(col_id), attr, s"result_${col_id}"))
-        col_id += 1
-        if (node == null) {
-          null
-        } else {
-          (TreeBuilder.makeExpression(node, result), result, TreeBuilder.makeExpression(finalNode, result))
+      (aggregateColumnarExpressions zip aggregateAttributes)
+        .map {
+          case (expr, attr) => {
+            val (node, result, finalNode) =
+              expr
+                .asInstanceOf[ColumnarAggregateExpression]
+                .doColumnarCodeGen_ext((fieldTypesList(col_id), attr, s"result_${col_id}"))
+            col_id += 1
+            if (node == null) {
+              null
+            } else {
+              (
+                TreeBuilder.makeExpression(node, result),
+                result,
+                TreeBuilder.makeExpression(finalNode, result))
+            }
+          }
         }
-      }}.filter(_ != null)
+        .filter(_ != null)
 
     val arrowSchema = new Schema(fieldTypesList.asJava)
     resultArrowSchema = new Schema(gandivaExpressionTree.map(_._2).toList.asJava)
@@ -84,7 +96,6 @@ class ColumnarAggregation(
     finalAggregator = new ExpressionEvaluator()
     finalAggregator.build(resultArrowSchema, gandivaExpressionTree.map(_._3).toList.asJava)
   }
-
 
   def close(): Unit = {
     aggregator.close()
@@ -112,7 +123,10 @@ class ColumnarAggregation(
     resultCache.asScala.map(columnarBatch => {
       // get rows from cached columnarBatch and put into the final one
       for (i <- 0 until columnarBatch.numCols()) {
-        columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].mergeTo(resultColumnVectors(i), rowId)
+        columnarBatch
+          .column(i)
+          .asInstanceOf[ArrowWritableColumnVector]
+          .mergeTo(resultColumnVectors(i), rowId)
       }
       rowId += columnarBatch.numRows()
       columnarBatch.close()
@@ -134,18 +148,18 @@ class ColumnarAggregation(
   def createIterator(cbIterator: Iterator[ColumnarBatch]): Iterator[ColumnarBatch] = {
     new Iterator[ColumnarBatch] {
       var cb: ColumnarBatch = null
-  
+
       TaskContext.get().addTaskCompletionListener[Unit] { _ =>
         if (cb != null) {
           cb.close()
           cb = null
         }
       }
-  
+
       override def hasNext: Boolean = {
         cbIterator.hasNext
       }
-  
+
       override def next(): ColumnarBatch = {
         if (cb != null) {
           cb.close()
@@ -165,7 +179,8 @@ class ColumnarAggregation(
     val inputData = new ListBuffer[ArrowBuf]()
     val numRowsInBatch = columnarBatch.numRows()
     for (i <- 0 until columnarBatch.numCols()) {
-      val inputVector = columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
+      val inputVector =
+        columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
       fieldNodes += new ArrowFieldNode(numRowsInBatch, inputVector.getNullCount())
       inputData += inputVector.getValidityBuffer()
       inputData += inputVector.getDataBuffer()
@@ -188,15 +203,19 @@ class ColumnarAggregation(
 object ColumnarAggregation {
   var columnarAggregation: ColumnarAggregation = _
   def create(
-    partIndex: Int,
-    groupingExpressions: Seq[NamedExpression],
-    originalInputAttributes: Seq[Attribute],
-    aggregateExpressions: Seq[AggregateExpression],
-    aggregateAttributes: Seq[Attribute],
-    resultExpressions: Seq[NamedExpression]): ColumnarAggregation = synchronized  {
+      partIndex: Int,
+      groupingExpressions: Seq[NamedExpression],
+      originalInputAttributes: Seq[Attribute],
+      aggregateExpressions: Seq[AggregateExpression],
+      aggregateAttributes: Seq[Attribute],
+      resultExpressions: Seq[NamedExpression]): ColumnarAggregation = synchronized {
     columnarAggregation = new ColumnarAggregation(
-      partIndex, groupingExpressions, originalInputAttributes, aggregateExpressions,
-      aggregateAttributes, resultExpressions)
+      partIndex,
+      groupingExpressions,
+      originalInputAttributes,
+      aggregateExpressions,
+      aggregateAttributes,
+      resultExpressions)
     columnarAggregation
   }
 

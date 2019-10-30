@@ -13,17 +13,21 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.types._
 
 import scala.collection.mutable.ListBuffer
+
 /**
  * A version of add that supports columnar processing for longs.
  */
 class ColumnarIsNotNull(child: Expression, original: Expression)
-  extends IsNotNull(child: Expression) with ColumnarExpression with Logging {
+    extends IsNotNull(child: Expression)
+    with ColumnarExpression
+    with Logging {
   override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
-    val (child_node, childType): (TreeNode, ArrowType) = child.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    val (child_node, childType): (TreeNode, ArrowType) =
+      child.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val resultType = new ArrowType.Bool()
-    val funcNode = TreeBuilder.makeFunction(
-      "isnotnull", Lists.newArrayList(child_node), resultType)
+    val funcNode =
+      TreeBuilder.makeFunction("isnotnull", Lists.newArrayList(child_node), resultType)
     (funcNode, resultType)
   }
 }
