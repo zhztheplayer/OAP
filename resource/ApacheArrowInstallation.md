@@ -63,6 +63,15 @@ git clone https://github.com/Intel-bigdata/arrow.git
 mkdir -p arrow/cpp/release-build
 cd arrow/cpp/release-build
 cmake -DARROW_GANDIVA_JAVA=ON -DARROW_GANDIVA=ON -DARROW_PARQUET=ON -DARROW_HDFS=ON -DARROW_BOOST_USE_SHARED=ON -DARROW_JNI=ON ..
+
+# in lastest commit: [cf622c5](https://github.com/Intel-bigdata/arrow/commit/cf622c51d918d1ffb8c7ac2d8c5df2520cbdd904) we splitted gandiva jni into two: gandiva_protobuf and gandiva_jni, the first one will also be used by sparkcolumnarplugin jni, so if you don't have libgandiva_protobuf.so in your system library, let's do it now.
+cd path/to/SparkColumnarPlugin
+# libgandiva_protobuf.so is used by both our project and arrow to deserialize a expr_stream back to vector[expr_tree].
+cd cpp/src/gandiva
+make
+cp libgandiva_protobuf.so /usr/lib64/libgandiva_protobuf.so
+
+cd path/to/arrow/cpp/release-build
 make
 make install
 
