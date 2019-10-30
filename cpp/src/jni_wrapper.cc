@@ -6,9 +6,9 @@
 #include <iostream>
 #include <string>
 
+#include "code_generator_factory.h"
 #include "concurrent_map.h"
 #include "gandiva/jni_common.h"
-#include "code_generator_factory.h"
 
 static jclass arrow_record_batch_builder_class;
 static jmethodID arrow_record_batch_builder_constructor;
@@ -122,7 +122,7 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluator_nativeBuild(
       env->ReleaseByteArrayElements(schema_arr, schema_bytes, JNI_ABORT);
       env->ReleaseByteArrayElements(exprs_arr, exprs_bytes, JNI_ABORT);
       std::string error_message =
-        "Unable to construct expression object from expression protobuf";
+          "Unable to construct expression object from expression protobuf";
       env->ThrowNew(io_exception_class, error_message.c_str());
     }
 
@@ -134,7 +134,7 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluator_nativeBuild(
   msg = CreateCodeGenerator(schema, expr_vector, ret_types, &handler);
   if (!msg.ok()) {
     std::string error_message =
-      "nativeBuild: failed to create CodeGenerator, err msg is " + msg.message();
+        "nativeBuild: failed to create CodeGenerator, err msg is " + msg.message();
     env->ThrowNew(io_exception_class, error_message.c_str());
   }
   return (int64_t)handler;
@@ -166,8 +166,8 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluator_nativeEvaluate
   jlong* in_buf_sizes = env->GetLongArrayElements(buf_sizes, 0);
 
   std::shared_ptr<arrow::RecordBatch> in;
-  status = MakeRecordBatch(schema, num_rows, in_buf_addrs, in_buf_sizes, in_bufs_len,
-                           &in);
+  status =
+      MakeRecordBatch(schema, num_rows, in_buf_addrs, in_buf_sizes, in_bufs_len, &in);
 
   std::shared_ptr<arrow::RecordBatch> out;
   status = handler->evaluate(in, &out);
@@ -201,10 +201,17 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluator_nativeEvaluate
 
   for (size_t j = 0; j < buffers.size(); ++j) {
     auto buffer = buffers[j];
+    uint8_t* data = nullptr;
+    int size = 0;
+    int64_t capacity = 0;
+    if (buffer != nullptr) {
+      data = (uint8_t*)buffer->data();
+      size = (int)buffer->size();
+      capacity = buffer->capacity();
+    }
     jobject arrowBufBuilder =
         env->NewObject(arrowbuf_builder_class, arrowbuf_builder_constructor,
-                       buffer_holder_.Insert(buffer), buffer->data(), (int)buffer->size(),
-                       buffer->capacity());
+                       buffer_holder_.Insert(buffer), data, size, capacity);
     env->SetObjectArrayElement(arrowbuf_builder_array, j, arrowBufBuilder);
   }
 

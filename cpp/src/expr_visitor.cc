@@ -8,7 +8,6 @@ arrow::Status ExprVisitor::Visit(const gandiva::FieldNode& node) {
 
 arrow::Status ExprVisitor::Visit(const gandiva::FunctionNode& node) {
   auto desc = node.descriptor();
-  std::cerr << "node is " << node.ToString() << std::endl;
   if (std::find(ac.begin(), ac.end(), desc->name()) != ac.end()) {
     // arrow compute can handle this
     codegen_type = ARROW_COMPUTE;
