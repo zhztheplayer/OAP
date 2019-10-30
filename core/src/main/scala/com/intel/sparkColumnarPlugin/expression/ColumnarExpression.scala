@@ -14,4 +14,3 @@ trait ColumnarExpression {
     throw new UnsupportedOperationException(s"Not support doColumnarCodeGen.")
   }
 }
-

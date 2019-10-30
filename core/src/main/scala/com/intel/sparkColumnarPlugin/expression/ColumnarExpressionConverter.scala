@@ -10,21 +10,30 @@ object ColumnarExpressionConverter extends Logging {
   def replaceWithColumnarExpression(expr: Expression): Expression = expr match {
     case a: Alias =>
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
-      new ColumnarAlias(replaceWithColumnarExpression(a.child), a.name)(a.exprId, a.qualifier, a.explicitMetadata)
+      new ColumnarAlias(replaceWithColumnarExpression(a.child), a.name)(
+        a.exprId,
+        a.qualifier,
+        a.explicitMetadata)
     case lit: Literal =>
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
       new ColumnarLiteral(lit)
     case binArith: BinaryArithmetic =>
       check_if_no_calculation = false
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
-      ColumnarBinaryArithmetic.create(replaceWithColumnarExpression(binArith.left), replaceWithColumnarExpression(binArith.right), expr)
+      ColumnarBinaryArithmetic.create(
+        replaceWithColumnarExpression(binArith.left),
+        replaceWithColumnarExpression(binArith.right),
+        expr)
     case b: BoundReference =>
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
       new ColumnarBoundReference(b.ordinal, b.dataType, b.nullable)
     case b: BinaryOperator =>
       check_if_no_calculation = false
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
-      ColumnarBinaryOperator.create(replaceWithColumnarExpression(b.left), replaceWithColumnarExpression(b.right), expr)
+      ColumnarBinaryOperator.create(
+        replaceWithColumnarExpression(b.left),
+        replaceWithColumnarExpression(b.right),
+        expr)
     case u: UnaryExpression =>
       if (!u.isInstanceOf[Cast]) {
         check_if_no_calculation = false

@@ -9,7 +9,8 @@ import org.apache.spark.TaskContext
  * properly.
  */
 class CloseableColumnBatchIterator(itr: Iterator[ColumnarBatch])
-  extends Iterator[ColumnarBatch] with Logging {
+    extends Iterator[ColumnarBatch]
+    with Logging {
   var cb: ColumnarBatch = null
 
   private def closeCurrentBatch(): Unit = {
@@ -20,9 +21,11 @@ class CloseableColumnBatchIterator(itr: Iterator[ColumnarBatch])
     }
   }
 
-  TaskContext.get().addTaskCompletionListener[Unit]((tc: TaskContext) => {
-    closeCurrentBatch()
-  })
+  TaskContext
+    .get()
+    .addTaskCompletionListener[Unit]((tc: TaskContext) => {
+      closeCurrentBatch()
+    })
 
   override def hasNext: Boolean = {
     closeCurrentBatch()
@@ -35,4 +38,3 @@ class CloseableColumnBatchIterator(itr: Iterator[ColumnarBatch])
     cb
   }
 }
-

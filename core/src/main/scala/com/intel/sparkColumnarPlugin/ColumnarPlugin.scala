@@ -23,32 +23,33 @@ case class ColumnarOverrides() extends Rule[SparkPlan] {
       new ColumnarFilterExec(plan.condition, replaceWithColumnarPlan(plan.child))
     case plan: HashAggregateExec =>
       logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
-      new ColumnarHashAggregateExec(plan.requiredChildDistributionExpressions,
-                                    plan.groupingExpressions,
-                                    plan.aggregateExpressions,
-                                    plan.aggregateAttributes,
-                                    plan.initialInputBufferOffset,
-                                    plan.resultExpressions,
-                                    replaceWithColumnarPlan(plan.child))
+      new ColumnarHashAggregateExec(
+        plan.requiredChildDistributionExpressions,
+        plan.groupingExpressions,
+        plan.aggregateExpressions,
+        plan.aggregateAttributes,
+        plan.initialInputBufferOffset,
+        plan.resultExpressions,
+        replaceWithColumnarPlan(plan.child))
     case plan: ShuffleExchangeExec =>
       logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
-      new ColumnarShuffleExchangeExec(plan.outputPartitioning,
+      new ColumnarShuffleExchangeExec(
+        plan.outputPartitioning,
         plan.child,
-        plan.canChangeNumPartitions
-      )
+        plan.canChangeNumPartitions)
     case p =>
       logWarning(s"Columnar Processing for ${p.getClass} is not currently supported.")
       p.withNewChildren(p.children.map(replaceWithColumnarPlan))
   }
 
-  def apply(plan: SparkPlan) :SparkPlan = {
+  def apply(plan: SparkPlan): SparkPlan = {
     replaceWithColumnarPlan(plan)
   }
 }
 
 case class ColumnarOverrideRules(session: SparkSession) extends ColumnarRule with Logging {
-  def columnarEnabled = session.sqlContext.
-    getConf("org.apache.spark.example.columnar.enabled", "true").trim.toBoolean
+  def columnarEnabled =
+    session.sqlContext.getConf("org.apache.spark.example.columnar.enabled", "true").trim.toBoolean
   val overrides = ColumnarOverrides()
 
   override def preColumnarTransitions: Rule[SparkPlan] = plan => {
@@ -61,14 +62,15 @@ case class ColumnarOverrideRules(session: SparkSession) extends ColumnarRule wit
 }
 
 /**
-  * Extension point to enable columnar processing.
-  *
-  * To run with columnar set spark.sql.extensions to com.intel.sparkColumnarPlugin.ColumnarPlugin
-  */
+ * Extension point to enable columnar processing.
+ *
+ * To run with columnar set spark.sql.extensions to com.intel.sparkColumnarPlugin.ColumnarPlugin
+ */
 class ColumnarPlugin extends Function1[SparkSessionExtensions, Unit] with Logging {
   override def apply(extensions: SparkSessionExtensions): Unit = {
-    logWarning("Installing extensions to enable columnar CPU support." +
-      " To disable this set `org.apache.spark.example.columnar.enabled` to false")
+    logWarning(
+      "Installing extensions to enable columnar CPU support." +
+        " To disable this set `org.apache.spark.example.columnar.enabled` to false")
     extensions.injectColumnar((session) => ColumnarOverrideRules(session))
   }
 }

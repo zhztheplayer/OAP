@@ -1,12 +1,10 @@
 package com.intel.sparkColumnarPlugin.vectorized;
 
+import io.netty.buffer.ArrowBuf;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.lang.RuntimeException;
 import java.nio.channels.Channels;
-import java.util.ArrayList;
 import java.util.List;
-
 import org.apache.arrow.gandiva.exceptions.GandivaException;
 import org.apache.arrow.gandiva.expression.ExpressionTree;
 import org.apache.arrow.gandiva.ipc.GandivaTypes;
@@ -16,44 +14,37 @@ import org.apache.arrow.vector.ipc.message.ArrowRecordBatch;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.pojo.Schema;
 
-import io.netty.buffer.ArrowBuf;
-
 /**
- * This class is implemented in JNI. This provides the Java interface
- * to invoke functions in JNI.
- * This file is used to generated the .h files required for jni. Avoid all
- * external dependencies in this file.
+ * This class is implemented in JNI. This provides the Java interface to invoke functions in JNI.
+ * This file is used to generated the .h files required for jni. Avoid all external dependencies in
+ * this file.
  */
 public class ExpressionEvaluator {
 
   /**
-   * Generates the projector module to evaluate the expressions with
-   * custom configuration.
+   * Generates the projector module to evaluate the expressions with custom configuration.
    *
-   * @param schemaBuf   The schema serialized as a protobuf. See Types.proto
-   *                    to see the protobuf specification
-   * @param exprListBuf The serialized protobuf of the expression vector. Each
-   *                    expression is created using TreeBuilder::MakeExpression.
+   * @param schemaBuf The schema serialized as a protobuf. See Types.proto to see the protobuf
+   *     specification
+   * @param exprListBuf The serialized protobuf of the expression vector. Each expression is created
+   *     using TreeBuilder::MakeExpression.
    * @return A moduleId that is passed to the evaluateProjector() and closeProjector() methods
-   *
    */
   native long nativeBuild(byte[] schemaBuf, byte[] exprListBuf) throws RuntimeException;
 
   /**
-   * Evaluate the expressions represented by the moduleId on a record batch
-   * and store the output in ValueVectors. Throws an exception in case of errors
+   * Evaluate the expressions represented by the moduleId on a record batch and store the output in
+   * ValueVectors. Throws an exception in case of errors
    *
-   * @param moduleId moduleId representing expressions. Created using a call to
-   *                 buildNativeCode
+   * @param moduleId moduleId representing expressions. Created using a call to buildNativeCode
    * @param numRows Number of rows in the record batch
-   * @param bufAddrs An array of memory addresses. Each memory address points to
-   *                 a validity vector or a data vector (will add support for offset
-   *                 vectors later).
-   * @param bufSizes An array of buffer sizes. For each memory address in bufAddrs,
-   *                 the size of the buffer is present in bufSizes
+   * @param bufAddrs An array of memory addresses. Each memory address points to a validity vector
+   *     or a data vector (will add support for offset vectors later).
+   * @param bufSizes An array of buffer sizes. For each memory address in bufAddrs, the size of the
+   *     buffer is present in bufSizes
    */
-  native ArrowRecordBatchBuilder nativeEvaluate(long nativeHandler, int numRows, long[] bufAddrs,
-                                                long[] bufSizes) throws RuntimeException;
+  native ArrowRecordBatchBuilder nativeEvaluate(
+      long nativeHandler, int numRows, long[] bufAddrs, long[] bufSizes) throws RuntimeException;
 
   /**
    * Closes the projector referenced by moduleId.
@@ -64,23 +55,18 @@ public class ExpressionEvaluator {
 
   private long nativeHandler = 0;
 
-  /**
-   * Wrapper for native API.
-   */
+  /** Wrapper for native API. */
   public ExpressionEvaluator() throws IOException {
     JniUtils.getInstance();
   }
 
-  /**
-   * Convert ExpressionTree into native function.
-   */
-  public void build(Schema schema, List<ExpressionTree> exprs) throws RuntimeException, IOException, GandivaException {
+  /** Convert ExpressionTree into native function. */
+  public void build(Schema schema, List<ExpressionTree> exprs)
+      throws RuntimeException, IOException, GandivaException {
     nativeHandler = nativeBuild(getSchemaBytesBuf(schema), getExprListBytesBuf(exprs));
   }
 
-  /**
-   * Evaluate input data using builded native function, and output as recordBatch.
-   */
+  /** Evaluate input data using builded native function, and output as recordBatch. */
   public ArrowRecordBatch evaluate(ArrowRecordBatch recordBatch)
       throws RuntimeException, IOException {
     List<ArrowBuf> buffers = recordBatch.getBuffers();
@@ -98,7 +84,7 @@ public class ExpressionEvaluator {
     }
 
     ArrowRecordBatchBuilder resRecordBatchBuilder =
-      nativeEvaluate(nativeHandler, recordBatch.getLength(), bufAddrs, bufSizes);
+        nativeEvaluate(nativeHandler, recordBatch.getLength(), bufAddrs, bufSizes);
     ArrowRecordBatchBuilderImpl resRecordBatchBuilderImpl =
         new ArrowRecordBatchBuilderImpl(resRecordBatchBuilder);
     if (resRecordBatchBuilder == null) {
@@ -108,13 +94,13 @@ public class ExpressionEvaluator {
   }
 
   public void close() {
-    nativeClose(nativeHandler);  
+    nativeClose(nativeHandler);
   }
 
   byte[] getSchemaBytesBuf(Schema schema) throws IOException {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     MessageSerializer.serialize(new WriteChannel(Channels.newChannel(out)), schema);
-    return out.toByteArray(); 
+    return out.toByteArray();
   }
 
   byte[] getExprListBytesBuf(List<ExpressionTree> exprs) throws GandivaException {
@@ -124,5 +110,4 @@ public class ExpressionEvaluator {
     }
     return builder.build().toByteArray();
   }
-  
 }

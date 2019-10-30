@@ -16,17 +16,19 @@ class ColumnarAggregateExpression(
     mode: AggregateMode,
     isDistinct: Boolean,
     resultId: ExprId)
-  extends AggregateExpression(aggregateFunction, mode, isDistinct, resultId)
-  with ColumnarExpression with Logging {
+    extends AggregateExpression(aggregateFunction, mode, isDistinct, resultId)
+    with ColumnarExpression
+    with Logging {
   def doColumnarCodeGen_ext(args: Object): (TreeNode, Field, TreeNode) = {
     val (inputField, outpurAttr, resultName) = args.asInstanceOf[(Field, Attribute, String)]
 
     val funcName = mode match {
-      case Partial => aggregateFunction.prettyName 
-      case Final => aggregateFunction.prettyName match {
-        case "count" => "sum"
-        case other => aggregateFunction.prettyName
-      }
+      case Partial => aggregateFunction.prettyName
+      case Final =>
+        aggregateFunction.prettyName match {
+          case "count" => "sum"
+          case other => aggregateFunction.prettyName
+        }
     }
 
     val finalFuncName = funcName match {
@@ -36,9 +38,15 @@ class ColumnarAggregateExpression(
     logInfo(s"funcName is $funcName, finalFuncName is $finalFuncName, mode is $mode")
     val resultType = CodeGeneration.getResultType(outpurAttr.dataType)
     val resultFieldNode = Field.nullable(resultName, resultType)
-    (TreeBuilder.makeFunction(funcName, Lists.newArrayList(TreeBuilder.makeField(inputField)), resultType),
-     resultFieldNode,
-     TreeBuilder.makeFunction(
-       finalFuncName, Lists.newArrayList(TreeBuilder.makeField(resultFieldNode)), resultType))
+    (
+      TreeBuilder.makeFunction(
+        funcName,
+        Lists.newArrayList(TreeBuilder.makeField(inputField)),
+        resultType),
+      resultFieldNode,
+      TreeBuilder.makeFunction(
+        finalFuncName,
+        Lists.newArrayList(TreeBuilder.makeField(resultFieldNode)),
+        resultType))
   }
 }

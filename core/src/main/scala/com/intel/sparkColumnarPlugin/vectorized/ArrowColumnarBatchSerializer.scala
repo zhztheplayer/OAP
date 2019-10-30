@@ -10,7 +10,12 @@ import org.apache.arrow.vector.ipc.{ArrowStreamReader, ArrowStreamWriter}
 import org.apache.arrow.vector.types.pojo.{Field, Schema}
 import org.apache.arrow.vector.{FieldVector, VectorSchemaRoot}
 
-import org.apache.spark.serializer.{DeserializationStream, SerializationStream, Serializer, SerializerInstance}
+import org.apache.spark.serializer.{
+  DeserializationStream,
+  SerializationStream,
+  Serializer,
+  SerializerInstance
+}
 import org.apache.spark.sql.execution.vectorized.ArrowWritableColumnVector
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.util.ArrowUtils
@@ -20,15 +25,14 @@ import scala.collection.JavaConverters._
 import scala.collection.immutable.List
 import scala.reflect.ClassTag
 
-class ArrowColumnarBatchSerializer
-  extends Serializer with Serializable {
+class ArrowColumnarBatchSerializer extends Serializer with Serializable {
+
   /** Creates a new [[SerializerInstance]]. */
   override def newInstance(): SerializerInstance =
     new ArrowColumnarBatchSerializerInstance
 }
 
-private class ArrowColumnarBatchSerializerInstance
-  extends SerializerInstance {
+private class ArrowColumnarBatchSerializerInstance extends SerializerInstance {
 
   override def serializeStream(out: OutputStream): SerializationStream = new SerializationStream {
 
@@ -66,12 +70,18 @@ private class ArrowColumnarBatchSerializerInstance
     }
 
     private def createVectorSchemaRoot(cb: ColumnarBatch): VectorSchemaRoot = {
-      val fieldTypesList = List.range(0, cb.numCols()).map(i =>
-        Field.nullable(s"c_$i", CodeGeneration.getResultType(cb.column(i).dataType())))
+      val fieldTypesList = List
+        .range(0, cb.numCols())
+        .map(i => Field.nullable(s"c_$i", CodeGeneration.getResultType(cb.column(i).dataType())))
       val arrowSchema = new Schema(fieldTypesList.asJava)
-      val vectors = List.range(0, cb.numCols()).map(i =>
-        cb.column(i).asInstanceOf[ArrowWritableColumnVector]
-          .getValueVector.asInstanceOf[FieldVector])
+      val vectors = List
+        .range(0, cb.numCols())
+        .map(
+          i =>
+            cb.column(i)
+              .asInstanceOf[ArrowWritableColumnVector]
+              .getValueVector
+              .asInstanceOf[FieldVector])
       val root = new VectorSchemaRoot(arrowSchema, vectors.asJava, cb.numRows)
       root.setRowCount(cb.numRows)
       root
@@ -117,7 +127,8 @@ private class ArrowColumnarBatchSerializerInstance
           numRows += root.getRowCount
         }
 
-        assert(numRows <= columnBatchSize,
+        assert(
+          numRows <= columnBatchSize,
           "the number of loaded rows exceed the maximum columnar batch size")
 
         vectors = ArrowWritableColumnVector.loadColumns(numRows, root.getFieldVectors)

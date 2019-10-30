@@ -36,7 +36,13 @@ public class ColumnarArithmeticWithGandiva implements AutoCloseable {
     allocator.close();
   }
 
-  public static void columnarAdd(Schema schema, List<ExpressionTree> exprs, int numRowsInBatch, List<ValueVector> inputVectors, List<ValueVector> outputVectors) throws GandivaException, Exception {
+  public static void columnarAdd(
+      Schema schema,
+      List<ExpressionTree> exprs,
+      int numRowsInBatch,
+      List<ValueVector> inputVectors,
+      List<ValueVector> outputVectors)
+      throws GandivaException, Exception {
     long start = System.nanoTime();
     Projector projector = Projector.make(schema, exprs);
     make_time += System.nanoTime() - start;
@@ -56,34 +62,54 @@ public class ColumnarArithmeticWithGandiva implements AutoCloseable {
     projector.close();
   }
 
-  /********* For Test *********/
-  public static void columnarBatchAdd(Schema schema, List<ExpressionTree> exprs, List<ArrowColumnarBatch> inputBatchs, List<ArrowColumnarBatch> outputBatchs) throws GandivaException, Exception {
+  /** ******* For Test ******** */
+  public static void columnarBatchAdd(
+      Schema schema,
+      List<ExpressionTree> exprs,
+      List<ArrowColumnarBatch> inputBatchs,
+      List<ArrowColumnarBatch> outputBatchs)
+      throws GandivaException, Exception {
     // start test
     for (int i = 0; i < inputBatchs.size(); i++) {
-      columnarAdd(schema, exprs, inputBatchs.get(i).numRowsInBatch, inputBatchs.get(i).valueVectors, outputBatchs.get(i).valueVectors);
+      columnarAdd(
+          schema,
+          exprs,
+          inputBatchs.get(i).numRowsInBatch,
+          inputBatchs.get(i).valueVectors,
+          outputBatchs.get(i).valueVectors);
     }
     long make_elapsedTime = TimeUnit.NANOSECONDS.toMillis(make_time);
     long evaluate_elapsedTime = TimeUnit.NANOSECONDS.toMillis(evaluate_time);
-    //long elapsedTime = finish - start;
-    System.out.println("ColumnarAdd process time is: " + evaluate_elapsedTime + " ms. And JIT time is " + make_elapsedTime + " ms.");
+    // long elapsedTime = finish - start;
+    System.out.println(
+        "ColumnarAdd process time is: "
+            + evaluate_elapsedTime
+            + " ms. And JIT time is "
+            + make_elapsedTime
+            + " ms.");
   }
 
-  private static ExpressionTree produceAddExpressionTree(List<Field> dataType, List<String> ops, Field result) {
+  private static ExpressionTree produceAddExpressionTree(
+      List<Field> dataType, List<String> ops, Field result) {
     if (dataType.size() < 2) {
       System.out.println("dataType size is less than 2");
       return null;
     }
 
-    TreeNode last_node = TreeBuilder.makeFunction(
-            ops.get(0), Lists.newArrayList(
-              TreeBuilder.makeField(dataType.get(0)),
-              TreeBuilder.makeField(dataType.get(1))),
+    TreeNode last_node =
+        TreeBuilder.makeFunction(
+            ops.get(0),
+            Lists.newArrayList(
+                TreeBuilder.makeField(dataType.get(0)), TreeBuilder.makeField(dataType.get(1))),
             float32);
     TreeNode cur_node = last_node;
 
     for (int i = 2; i < dataType.size(); i++) {
-      cur_node = TreeBuilder.makeFunction(
-            ops.get(i - 1), Lists.newArrayList(last_node, TreeBuilder.makeField(dataType.get(i))), float32);
+      cur_node =
+          TreeBuilder.makeFunction(
+              ops.get(i - 1),
+              Lists.newArrayList(last_node, TreeBuilder.makeField(dataType.get(i))),
+              float32);
       last_node = cur_node;
     }
     return TreeBuilder.makeExpression(cur_node, result);
@@ -111,30 +137,29 @@ public class ColumnarArithmeticWithGandiva implements AutoCloseable {
   }
 
   public static void main(String[] args) {
-    /******* start preparation *******/
+    /** ***** start preparation ****** */
     // prepare expr tree
     List<Field> dataType = new ArrayList<Field>();
     List<String> ops = new ArrayList<String>();
     for (int i = 0; i < 10; i++) {
-      //dataType.add(Field.nullable("n"+i, int32));
-      dataType.add(Field.nullable("n"+i, float32));
+      // dataType.add(Field.nullable("n"+i, int32));
+      dataType.add(Field.nullable("n" + i, float32));
       if (i > 0) {
         ops.add("add");
       }
     }
     Schema schema = new Schema(dataType);
-    //Field result = Field.nullable("result", int32);
+    // Field result = Field.nullable("result", int32);
     Field result = Field.nullable("result", float32);
     ExpressionTree expr = produceAddExpressionTree(dataType, ops, result);
     List<ExpressionTree> exprs = Lists.newArrayList(expr);
 
-
     // set data scale
     int numRows = 200 * 1024 * 1024;
     int maxRowsInBatch = 16 * 1024;
-    //int inputFieldSize = 4;
+    // int inputFieldSize = 4;
     int inputFieldSize = 4;
-    
+
     // prepara data
     List<ArrowColumnarBatch> inputArrowColumnarBatchs = new ArrayList<ArrowColumnarBatch>();
     List<ArrowColumnarBatch> outputArrowColumnarBatchs = new ArrayList<ArrowColumnarBatch>();
@@ -151,18 +176,19 @@ public class ColumnarArithmeticWithGandiva implements AutoCloseable {
       List<ValueVector> outputVectors = new ArrayList<>();
       for (int i = 0; i < dataType.size(); i++) {
         // init input vector
-        //IntVector inputVector = new IntVector("input_"+i, allocator);
-        Float4Vector inputVector = new Float4Vector("input_"+i, allocator);
+        // IntVector inputVector = new IntVector("input_"+i, allocator);
+        Float4Vector inputVector = new Float4Vector("input_" + i, allocator);
         inputVector.allocateNew(numRowsInBatch);
         for (int j = 0; j < numRowsInBatch; j++) {
           inputVector.setSafe(j, rand.nextFloat());
         }
         inputVectors.add(inputVector);
       }
-      inputArrowColumnarBatchs.add(new ArrowColumnarBatch(inputVectors, dataType.size(), numRowsInBatch));
+      inputArrowColumnarBatchs.add(
+          new ArrowColumnarBatch(inputVectors, dataType.size(), numRowsInBatch));
 
       // init output vector
-      //IntVector outputVector = new IntVector("result", allocator);
+      // IntVector outputVector = new IntVector("result", allocator);
       Float4Vector outputVector = new Float4Vector("result", allocator);
       outputVector.allocateNew(numRowsInBatch);
       outputVectors.add(outputVector);
@@ -172,12 +198,11 @@ public class ColumnarArithmeticWithGandiva implements AutoCloseable {
       numRemaining -= numRowsInBatch;
     }
 
-    /******* end preparation *******/
-    try{
+    /** ***** end preparation ****** */
+    try {
       columnarBatchAdd(schema, exprs, inputArrowColumnarBatchs, outputArrowColumnarBatchs);
-    } catch(Exception e) {
-      e.printStackTrace(); 
+    } catch (Exception e) {
+      e.printStackTrace();
     }
-
   }
 }

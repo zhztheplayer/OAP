@@ -12,14 +12,14 @@ import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
  * A version of ProjectExec that adds in columnar support.
  */
 class ColumnarProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
-  extends ProjectExec(projectList, child) {
+    extends ProjectExec(projectList, child) {
 
   override def supportsColumnar = true
 
   // Disable code generation
   override def supportCodegen: Boolean = false
 
-  override def doExecuteColumnar() : RDD[ColumnarBatch] = {
+  override def doExecuteColumnar(): RDD[ColumnarBatch] = {
     child.executeColumnar().mapPartitions { iter =>
       val project = ColumnarProjection.create(projectList, child.output)
       new CloseableColumnBatchIterator(iter.map(project))
@@ -39,14 +39,14 @@ class ColumnarProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
 }
 
 class ColumnarFilterExec(condition: Expression, child: SparkPlan)
-  extends FilterExec(condition, child) {
+    extends FilterExec(condition, child) {
 
   override def supportsColumnar = true
 
   // Disable code generation
   override def supportCodegen: Boolean = false
 
-  override def doExecuteColumnar() : RDD[ColumnarBatch] = {
+  override def doExecuteColumnar(): RDD[ColumnarBatch] = {
     child.executeColumnar().mapPartitions { iter =>
       val filter = ColumnarFilter.create(condition, child.output)
       new CloseableColumnBatchIterator(iter.map(filter))
@@ -64,4 +64,3 @@ class ColumnarFilterExec(condition: Expression, child: SparkPlan)
     return other.isInstanceOf[ColumnarFilterExec]
   }
 }
-

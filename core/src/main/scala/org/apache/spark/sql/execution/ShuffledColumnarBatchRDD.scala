@@ -28,9 +28,10 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
  * (`startPreShufflePartitionIndex` to `endPreShufflePartitionIndex - 1`, inclusive).
  */
 private final class ShuffledRDDPartition(
-  val postShufflePartitionIndex: Int,
-  val startPreShufflePartitionIndex: Int,
-  val endPreShufflePartitionIndex: Int) extends Partition {
+    val postShufflePartitionIndex: Int,
+    val startPreShufflePartitionIndex: Int,
+    val endPreShufflePartitionIndex: Int)
+    extends Partition {
   override val index: Int = postShufflePartitionIndex
 }
 
@@ -41,7 +42,7 @@ class ShuffledColumnarBatchRDD(
     var dependency: ShuffleDependency[Int, ColumnarBatch, ColumnarBatch],
     metrics: Map[String, SQLMetric],
     specifiedPartitionStartIndices: Option[Array[Int]] = None)
-  extends RDD[ColumnarBatch](dependency.rdd.context, Nil) {
+    extends RDD[ColumnarBatch](dependency.rdd.context, Nil) {
 
   private[this] val numPreShufflePartitions = dependency.partitioner.numPartitions
 
@@ -89,12 +90,12 @@ class ShuffledColumnarBatchRDD(
     // The range of pre-shuffle partitions that we are fetching at here is
     // [startPreShufflePartitionIndex, endPreShufflePartitionIndex - 1].
     val reader =
-    SparkEnv.get.shuffleManager.getReader(
-      dependency.shuffleHandle,
-      shuffledColumnarBatchPartition.startPreShufflePartitionIndex,
-      shuffledColumnarBatchPartition.endPreShufflePartitionIndex,
-      context,
-      sqlMetricsReporter)
+      SparkEnv.get.shuffleManager.getReader(
+        dependency.shuffleHandle,
+        shuffledColumnarBatchPartition.startPreShufflePartitionIndex,
+        shuffledColumnarBatchPartition.endPreShufflePartitionIndex,
+        context,
+        sqlMetricsReporter)
     reader.read().asInstanceOf[Iterator[Product2[Int, ColumnarBatch]]].map(_._2)
   }
 
@@ -103,4 +104,3 @@ class ShuffledColumnarBatchRDD(
     dependency = null
   }
 }
-

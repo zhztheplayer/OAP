@@ -40,7 +40,8 @@ class ColumnarHashAggregateExec(
     aggregateAttributes: Seq[Attribute],
     initialInputBufferOffset: Int,
     resultExpressions: Seq[NamedExpression],
-    child: SparkPlan) extends HashAggregateExec(
+    child: SparkPlan)
+    extends HashAggregateExec(
       requiredChildDistributionExpressions,
       groupingExpressions,
       aggregateExpressions,
@@ -54,7 +55,7 @@ class ColumnarHashAggregateExec(
   // Disable code generation
   override def supportCodegen: Boolean = false
 
-  override def doExecuteColumnar() : RDD[ColumnarBatch] = {
+  override def doExecuteColumnar(): RDD[ColumnarBatch] = {
     val numOutputRows = longMetric("numOutputRows")
     val peakMemory = longMetric("peakMemory")
     val spillSize = longMetric("spillSize")
@@ -62,7 +63,6 @@ class ColumnarHashAggregateExec(
     val aggTime = longMetric("aggTime")
 
     child.executeColumnar().mapPartitionsWithIndex { (partIndex, iter) =>
-
       val beforeAgg = System.nanoTime()
       val hasInput = iter.hasNext
       val res = if (!hasInput && groupingExpressions.nonEmpty) {
@@ -71,12 +71,12 @@ class ColumnarHashAggregateExec(
         Iterator.empty
       } else {
         val aggregation = ColumnarAggregation.create(
-            partIndex,
-            groupingExpressions,
-            child.output,
-            aggregateExpressions,
-            aggregateAttributes,
-            resultExpressions)
+          partIndex,
+          groupingExpressions,
+          child.output,
+          aggregateExpressions,
+          aggregateAttributes,
+          resultExpressions)
         if (!hasInput && groupingExpressions.isEmpty) {
           throw new UnsupportedOperationException(s"Not support groupingExpressions.isEmpty")
         } else {
@@ -88,4 +88,3 @@ class ColumnarHashAggregateExec(
     }
   }
 }
-

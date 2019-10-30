@@ -7,9 +7,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 
-/**
- * Helper class for JNI related operations.
- */
+/** Helper class for JNI related operations. */
 class JniUtils {
   private static final String LIBRARY_NAME = "spark_columnar_jni";
   private static boolean isLoaded = false;
@@ -43,8 +41,8 @@ class JniUtils {
     synchronized (JniUtils.class) {
       if (!isLoaded) {
         final String libraryToLoad = System.mapLibraryName(LIBRARY_NAME);
-        final File libraryFile = moveFileFromJarToTemp(
-                System.getProperty("java.io.tmpdir"), libraryToLoad);
+        final File libraryFile =
+            moveFileFromJarToTemp(System.getProperty("java.io.tmpdir"), libraryToLoad);
         System.load(libraryFile.getAbsolutePath());
         isLoaded = true;
       }
@@ -52,10 +50,10 @@ class JniUtils {
   }
 
   private static File moveFileFromJarToTemp(final String tmpDir, String libraryToLoad)
-          throws IOException {
+      throws IOException {
     final File temp = File.createTempFile(tmpDir, libraryToLoad);
-    try (final InputStream is = JniUtils.class.getClassLoader()
-            .getResourceAsStream(libraryToLoad)) {
+    try (final InputStream is =
+        JniUtils.class.getClassLoader().getResourceAsStream(libraryToLoad)) {
       if (is == null) {
         throw new FileNotFoundException(libraryToLoad);
       } else {
