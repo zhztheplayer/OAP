@@ -1,4 +1,5 @@
-#include "expr_visitor.h"
+#include "codegen/expr_visitor.h"
+
 #include <arrow/status.h>
 
 arrow::Status ExprVisitor::Visit(const gandiva::FieldNode& node) {

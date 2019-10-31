@@ -2,7 +2,8 @@
 #define GANDIVA_COMPUTE_CODE_GENERATOR
 
 #include <arrow/type.h>
-#include "code_generator.h"
+
+#include "codegen/code_generator.h"
 
 class GandivaCodeGenerator : public CodeGenerator {
  public:
@@ -13,8 +14,13 @@ class GandivaCodeGenerator : public CodeGenerator {
   arrow::Status getSchema(std::shared_ptr<arrow::Schema>* out) {
     return arrow::Status::OK();
   }
-  arrow::Status evaluate(std::shared_ptr<arrow::RecordBatch>& in,
-                         std::shared_ptr<arrow::RecordBatch>* out) {
+  arrow::Status evaluate(const std::shared_ptr<arrow::RecordBatch>& in,
+                         std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
+    return arrow::Status::OK();
+  }
+  arrow::Status evaluate(const std::shared_ptr<arrow::RecordBatch>& in,
+                         std::vector<arrow::MapArray>* hash_map,
+                         std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
     return arrow::Status::OK();
   }
 };

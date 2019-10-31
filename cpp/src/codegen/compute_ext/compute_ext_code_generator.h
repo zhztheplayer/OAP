@@ -2,7 +2,8 @@
 #define COMPUTE_EXT_CODE_GENERATOR
 
 #include <arrow/type.h>
-#include "code_generator.h"
+
+#include "codegen/code_generator.h"
 
 class ComputeExtCodeGenerator : public CodeGenerator {
  public:
@@ -13,10 +14,17 @@ class ComputeExtCodeGenerator : public CodeGenerator {
   arrow::Status getSchema(std::shared_ptr<arrow::Schema>* out) {
     return arrow::Status::OK();
   }
-  arrow::Status evaluate(std::shared_ptr<arrow::RecordBatch>& in,
-                         std::shared_ptr<arrow::RecordBatch>* out) {
+
+  arrow::Status evaluate(const std::shared_ptr<arrow::RecordBatch>& in,
+                         std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
     arrow::Status status = arrow::Status::OK();
     return status;
+  }
+
+  arrow::Status evaluate(const std::shared_ptr<arrow::RecordBatch>& in,
+                         std::vector<arrow::MapArray>* hash_map,
+                         std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
+    return arrow::Status::OK();
   }
 };
 

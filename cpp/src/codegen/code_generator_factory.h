@@ -1,10 +1,11 @@
 #include <arrow/type.h>
 #include <gandiva/expression.h>
-#include "arrow_compute_code_generator.h"
-#include "code_generator.h"
-#include "compute_ext_code_generator.h"
-#include "expr_visitor.h"
-#include "gandiva_code_generator.h"
+
+#include "codegen/arrow_compute/arrow_compute_code_generator.h"
+#include "codegen/code_generator.h"
+#include "codegen/compute_ext/compute_ext_code_generator.h"
+#include "codegen/expr_visitor.h"
+#include "codegen/gandiva/gandiva_code_generator.h"
 
 arrow::Status CreateCodeGenerator(
     std::shared_ptr<arrow::Schema> schema_ptr,
@@ -21,7 +22,7 @@ arrow::Status CreateCodeGenerator(
       *out = new GandivaCodeGenerator(schema_ptr, exprs_vector, ret_types);
       break;
     case COMPUTE_EXT:
-      *out = new GandivaCodeGenerator(schema_ptr, exprs_vector, ret_types);
+      *out = new ComputeExtCodeGenerator(schema_ptr, exprs_vector, ret_types);
       break;
     default:
       *out = nullptr;
