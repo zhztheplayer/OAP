@@ -15,6 +15,9 @@
   <artifactId>core</artifactId>
   <version>1.0</version>
 
+  <properties>
+    <arrow.version>1.0.0-SNAPSHOT</arrow.version>
+  </properties>
   <dependencies>
     <!-- Prevent our dummy JAR from being included in Spark distributions or uploaded to YARN -->
     <dependency>
@@ -44,19 +47,19 @@
     <dependency>
       <groupId>org.apache.arrow</groupId>
       <artifactId>arrow-memory</artifactId>
-      <version>1.0.0-SNAPSHOT</version>
+      <version>${arrow.version}</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.arrow</groupId>
       <artifactId>arrow-vector</artifactId>
-      <version>1.0.0-SNAPSHOT</version>
+      <version>${arrow.version}</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.arrow.gandiva</groupId>
       <artifactId>arrow-gandiva</artifactId>
-      <version>1.0.0-SNAPSHOT</version>
+      <version>${arrow.version}</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
