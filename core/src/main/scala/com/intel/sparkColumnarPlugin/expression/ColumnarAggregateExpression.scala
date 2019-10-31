@@ -29,6 +29,8 @@ class ColumnarAggregateExpression(
           case "count" => "sum"
           case other => aggregateFunction.prettyName
         }
+      case _ =>
+        throw new UnsupportedOperationException("doesn't support this mode")
     }
 
     val finalFuncName = funcName match {
