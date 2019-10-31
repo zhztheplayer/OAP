@@ -4,7 +4,7 @@
 #include <gandiva/node.h>
 #include <gandiva/node_visitor.h>
 #include <iostream>
-#include "code_generator.h"
+#include "codegen/code_generator.h"
 
 #define ARROW_COMPUTE 0x0001
 #define GANDIVA 0x0002

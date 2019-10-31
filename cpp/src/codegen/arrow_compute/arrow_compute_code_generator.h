@@ -2,8 +2,9 @@
 #define ARROW_COMPUTE_CODE_GENERATOR
 
 #include <arrow/type.h>
-#include "arrow_compute_expr_visitor.h"
-#include "code_generator.h"
+
+#include "codegen/arrow_compute/arrow_compute_expr_visitor.h"
+#include "codegen/code_generator.h"
 
 class ArrowComputeCodeGenerator : public CodeGenerator {
  public:
@@ -25,8 +26,8 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     return arrow::Status::OK();
   }
 
-  arrow::Status evaluate(std::shared_ptr<arrow::RecordBatch>& in,
-                         std::shared_ptr<arrow::RecordBatch>* out) {
+  arrow::Status evaluate(const std::shared_ptr<arrow::RecordBatch>& in,
+                         std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
     arrow::Status status = arrow::Status::OK();
     std::vector<std::shared_ptr<arrow::Array>> result_vector;
     int64_t res_len = 0;
@@ -40,8 +41,14 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
       result_vector.push_back(result_column);
     }
     auto res_schema = arrow::schema(ret_types);
-    *out = arrow::RecordBatch::Make(res_schema, res_len, result_vector);
+    out->push_back(arrow::RecordBatch::Make(res_schema, res_len, result_vector));
     return status;
+  }
+
+  arrow::Status evaluate(const std::shared_ptr<arrow::RecordBatch>& in,
+                         std::vector<arrow::MapArray>* hash_map,
+                         std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
+    return arrow::Status::OK();
   }
 
  private:

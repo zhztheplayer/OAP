@@ -106,7 +106,8 @@ class ColumnarAggregation(
       createAggregation(columnarBatch)
     }
     val inputRecordBatch = createArrowRecordBatch(columnarBatch)
-    val resultRecordBatch = aggregator.evaluate(inputRecordBatch)
+    val resultRecordBatchList = aggregator.evaluate(inputRecordBatch)
+    val resultRecordBatch = resultRecordBatchList(0)
     releaseArrowRecordBatch(inputRecordBatch)
     val resultColumnarBatch = fromArrowRecordBatch(resultArrowSchema, resultRecordBatch)
     releaseArrowRecordBatch(resultRecordBatch)
@@ -134,7 +135,8 @@ class ColumnarAggregation(
     val finalInputColumnarBatch =
       new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), rowId)
     val finalInputRecordBatch = createArrowRecordBatch(finalInputColumnarBatch)
-    val finalResultRecordBatch = finalAggregator.evaluate(finalInputRecordBatch)
+    val finalResultRecordBatchList = finalAggregator.evaluate(finalInputRecordBatch)
+    val finalResultRecordBatch = finalResultRecordBatchList(0)
     releaseArrowRecordBatch(finalInputRecordBatch)
     finalInputColumnarBatch.close()
 

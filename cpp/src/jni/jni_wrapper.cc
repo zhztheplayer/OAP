@@ -6,9 +6,9 @@
 #include <iostream>
 #include <string>
 
-#include "code_generator_factory.h"
-#include "concurrent_map.h"
-#include "gandiva/jni_common.h"
+#include "codegen/code_generator_factory.h"
+#include "jni/concurrent_map.h"
+#include "jni/jni_common.h"
 
 static jclass arrow_record_batch_builder_class;
 static jmethodID arrow_record_batch_builder_constructor;
@@ -26,6 +26,51 @@ static jclass io_exception_class;
 static jclass illegal_argument_exception_class;
 
 static jint JNI_VERSION = JNI_VERSION_1_8;
+
+jobject MakeRecordBatchBuilder(JNIEnv* env, std::shared_ptr<arrow::Schema> schema,
+                               std::shared_ptr<arrow::RecordBatch> record_batch) {
+  jobjectArray field_array =
+      env->NewObjectArray(schema->num_fields(), arrow_field_node_builder_class, nullptr);
+
+  std::vector<std::shared_ptr<arrow::Buffer>> buffers;
+  for (int i = 0; i < schema->num_fields(); ++i) {
+    auto column = record_batch->column(i);
+    auto dataArray = column->data();
+    jobject field = env->NewObject(arrow_field_node_builder_class,
+                                   arrow_field_node_builder_constructor, column->length(),
+                                   column->null_count());
+    env->SetObjectArrayElement(field_array, i, field);
+
+    for (auto& buffer : dataArray->buffers) {
+      buffers.push_back(buffer);
+    }
+  }
+
+  jobjectArray arrowbuf_builder_array =
+      env->NewObjectArray(buffers.size(), arrowbuf_builder_class, nullptr);
+
+  for (size_t j = 0; j < buffers.size(); ++j) {
+    auto buffer = buffers[j];
+    uint8_t* data = nullptr;
+    int size = 0;
+    int64_t capacity = 0;
+    if (buffer != nullptr) {
+      data = (uint8_t*)buffer->data();
+      size = (int)buffer->size();
+      capacity = buffer->capacity();
+    }
+    jobject arrowbuf_builder =
+        env->NewObject(arrowbuf_builder_class, arrowbuf_builder_constructor,
+                       buffer_holder_.Insert(buffer), data, size, capacity);
+    env->SetObjectArrayElement(arrowbuf_builder_array, j, arrowbuf_builder);
+  }
+
+  // create RecordBatch
+  jobject arrow_record_batch_builder = env->NewObject(
+      arrow_record_batch_builder_class, arrow_record_batch_builder_constructor,
+      record_batch->num_rows(), field_array, arrowbuf_builder_array);
+  return arrow_record_batch_builder;
+}
 
 #ifdef __cplusplus
 extern "C" {
@@ -80,7 +125,7 @@ void JNI_OnUnload(JavaVM* vm, void* reserved) {
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluator_nativeBuild(
+Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeBuild(
     JNIEnv* env, jobject obj, jbyteArray schema_arr, jbyteArray exprs_arr) {
   arrow::Status status;
 
@@ -141,13 +186,13 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluator_nativeBuild(
 }
 
 JNIEXPORT void JNICALL
-Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluator_nativeClose(
+Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeClose(
     JNIEnv* env, jobject obj, jlong handler_ptr) {
   delete (CodeGenerator*)handler_ptr;
 }
 
 JNIEXPORT jobject JNICALL
-Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluator_nativeEvaluate(
+Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeEvaluate(
     JNIEnv* env, jobject obj, jlong handler_ptr, jint num_rows, jlongArray buf_addrs,
     jlongArray buf_sizes) {
   arrow::Status status;
@@ -169,7 +214,7 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluator_nativeEvaluate
   status =
       MakeRecordBatch(schema, num_rows, in_buf_addrs, in_buf_sizes, in_bufs_len, &in);
 
-  std::shared_ptr<arrow::RecordBatch> out;
+  std::vector<std::shared_ptr<arrow::RecordBatch>> out;
   status = handler->evaluate(in, &out);
 
   if (!status.ok()) {
@@ -179,51 +224,18 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluator_nativeEvaluate
     return nullptr;
   }
 
-  jobjectArray field_array =
-      env->NewObjectArray(schema->num_fields(), arrow_field_node_builder_class, nullptr);
-
-  std::vector<std::shared_ptr<arrow::Buffer>> buffers;
-  for (int i = 0; i < schema->num_fields(); ++i) {
-    auto column = out->column(i);
-    auto dataArray = column->data();
-    jobject field = env->NewObject(arrow_field_node_builder_class,
-                                   arrow_field_node_builder_constructor, column->length(),
-                                   column->null_count());
-    env->SetObjectArrayElement(field_array, i, field);
-
-    for (auto& buffer : dataArray->buffers) {
-      buffers.push_back(buffer);
-    }
+  jobjectArray record_batch_builder_array =
+      env->NewObjectArray(out.size(), arrow_record_batch_builder_class, nullptr);
+  int i = 0;
+  for (auto record_batch : out) {
+    jobject record_batch_builder = MakeRecordBatchBuilder(env, schema, record_batch);
+    env->SetObjectArrayElement(record_batch_builder_array, i++, record_batch_builder);
   }
-
-  jobjectArray arrowbuf_builder_array =
-      env->NewObjectArray(buffers.size(), arrowbuf_builder_class, nullptr);
-
-  for (size_t j = 0; j < buffers.size(); ++j) {
-    auto buffer = buffers[j];
-    uint8_t* data = nullptr;
-    int size = 0;
-    int64_t capacity = 0;
-    if (buffer != nullptr) {
-      data = (uint8_t*)buffer->data();
-      size = (int)buffer->size();
-      capacity = buffer->capacity();
-    }
-    jobject arrowBufBuilder =
-        env->NewObject(arrowbuf_builder_class, arrowbuf_builder_constructor,
-                       buffer_holder_.Insert(buffer), data, size, capacity);
-    env->SetObjectArrayElement(arrowbuf_builder_array, j, arrowBufBuilder);
-  }
-
-  // create RecordBatch
-  jobject arrowRecordBatchBuilder = env->NewObject(
-      arrow_record_batch_builder_class, arrow_record_batch_builder_constructor,
-      out->num_rows(), field_array, arrowbuf_builder_array);
 
   env->ReleaseLongArrayElements(buf_addrs, in_buf_addrs, JNI_ABORT);
   env->ReleaseLongArrayElements(buf_sizes, in_buf_sizes, JNI_ABORT);
 
-  return arrowRecordBatchBuilder;
+  return record_batch_builder_array;
 }
 
 JNIEXPORT void JNICALL

@@ -5,7 +5,8 @@
 #include <gandiva/node.h>
 #include <gandiva/node_visitor.h>
 #include <iostream>
-#include "code_generator.h"
+
+#include "codegen/code_generator.h"
 
 class ArrowComputeExprVisitor : public gandiva::NodeVisitor {
  public:
@@ -13,7 +14,7 @@ class ArrowComputeExprVisitor : public gandiva::NodeVisitor {
                           std::shared_ptr<gandiva::Expression> expr)
       : schema(schema_ptr), expr(expr) {}
 
-  arrow::Status eval(std::shared_ptr<arrow::RecordBatch>& in,
+  arrow::Status eval(const std::shared_ptr<arrow::RecordBatch>& in,
                      std::shared_ptr<arrow::Array>* out) {
     in_record_batch = in;
     result = out;
@@ -32,14 +33,29 @@ class ArrowComputeExprVisitor : public gandiva::NodeVisitor {
   std::shared_ptr<arrow::Array>* result;
   arrow::compute::FunctionContext ctx;
 
-  arrow::Status Visit(const gandiva::FieldNode& node) override;
   arrow::Status Visit(const gandiva::FunctionNode& node) override;
-  arrow::Status Visit(const gandiva::IfNode& node) override;
-  arrow::Status Visit(const gandiva::LiteralNode& node) override;
-  arrow::Status Visit(const gandiva::BooleanNode& node) override;
-  arrow::Status Visit(const gandiva::InExpressionNode<int32_t>& node) override;
-  arrow::Status Visit(const gandiva::InExpressionNode<int64_t>& node) override;
-  arrow::Status Visit(const gandiva::InExpressionNode<std::string>& node) override;
+
+  arrow::Status Visit(const gandiva::FieldNode& node) override {
+    return arrow::Status::OK();
+  }
+  arrow::Status Visit(const gandiva::IfNode& node) override {
+    return arrow::Status::OK();
+  }
+  arrow::Status Visit(const gandiva::LiteralNode& node) override {
+    return arrow::Status::OK();
+  }
+  arrow::Status Visit(const gandiva::BooleanNode& node) override {
+    return arrow::Status::OK();
+  }
+  arrow::Status Visit(const gandiva::InExpressionNode<int>& node) override {
+    return arrow::Status::OK();
+  }
+  arrow::Status Visit(const gandiva::InExpressionNode<long int>& node) override {
+    return arrow::Status::OK();
+  }
+  arrow::Status Visit(const gandiva::InExpressionNode<std::string>& node) override {
+    return arrow::Status::OK();
+  }
 };
 
 #endif

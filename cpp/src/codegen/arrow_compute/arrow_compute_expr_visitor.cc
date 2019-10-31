@@ -1,4 +1,5 @@
 #include "arrow_compute_expr_visitor.h"
+
 #include <arrow/array.h>
 #include <arrow/compute/kernel.h>
 #include <arrow/compute/kernels/count.h>
@@ -6,11 +7,6 @@
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
-
-arrow::Status ArrowComputeExprVisitor::Visit(const gandiva::FieldNode& node) {
-  arrow::Status status = arrow::Status::OK();
-  return status;
-}
 
 arrow::Status ArrowComputeExprVisitor::Visit(const gandiva::FunctionNode& node) {
   auto desc = node.descriptor();
@@ -47,38 +43,5 @@ arrow::Status ArrowComputeExprVisitor::Visit(const gandiva::FunctionNode& node) 
   // std::cerr << "Datum type is " << output.type()->ToString() << std::endl;
   status = arrow::MakeArrayFromScalar(*(output.scalar()).get(), output.length(), result);
   if (!status.ok()) return status;
-  return status;
-}
-
-arrow::Status ArrowComputeExprVisitor::Visit(const gandiva::IfNode& node) {
-  arrow::Status status = arrow::Status::OK();
-  return status;
-}
-
-arrow::Status ArrowComputeExprVisitor::Visit(const gandiva::LiteralNode& node) {
-  arrow::Status status = arrow::Status::OK();
-  return status;
-}
-
-arrow::Status ArrowComputeExprVisitor::Visit(const gandiva::BooleanNode& node) {
-  arrow::Status status = arrow::Status::OK();
-  return status;
-}
-
-arrow::Status ArrowComputeExprVisitor::Visit(
-    const gandiva::InExpressionNode<int32_t>& node) {
-  arrow::Status status = arrow::Status::OK();
-  return status;
-}
-
-arrow::Status ArrowComputeExprVisitor::Visit(
-    const gandiva::InExpressionNode<int64_t>& node) {
-  arrow::Status status = arrow::Status::OK();
-  return status;
-}
-
-arrow::Status ArrowComputeExprVisitor::Visit(
-    const gandiva::InExpressionNode<std::string>& node) {
-  arrow::Status status = arrow::Status::OK();
   return status;
 }
