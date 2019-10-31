@@ -59,12 +59,8 @@ Please refer this markdown to install Apache Arrow and Gandiva.
 This project has dependencies of Apache Spark and Apache Arrow, so please make sure these two project has been installed under /root/.m2/repository/ before start build this project.
 ``` shell
 cd SparkColumnarPlugin
-# libgandiva_protobuf.so is used by both our project and arrow to deserialize a expr_stream back to vector[expr_tree].
-cd cpp/src/gandiva
-make
-cp libgandiva_protobuf.so /usr/lib64/libgandiva_protobuf.so
 # libspark_columnar_jni.so is used for sparkColumnarPlugin java codes to call native functions.
-cd ../
+cd cpp/src/
 make
 cd ../../core/
 mvn package
