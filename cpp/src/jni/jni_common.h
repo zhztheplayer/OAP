@@ -1,0 +1,104 @@
+#include <google/protobuf/io/coded_stream.h>
+
+#include <map>
+#include <memory>
+#include <mutex>
+#include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include <arrow/builder.h>
+#include <arrow/record_batch.h>
+#include <arrow/type.h>
+
+#include <gandiva/arrow.h>
+#include <gandiva/gandiva_aliases.h>
+#include <gandiva/tree_expr_builder.h>
+
+#include "gandiva/protobuf_utils.h"
+
+static jclass illegal_access_exception_class;
+
+jclass CreateGlobalClassReference(JNIEnv* env, const char* class_name) {
+  jclass local_class = env->FindClass(class_name);
+  jclass global_class = (jclass)env->NewGlobalRef(local_class);
+  env->DeleteLocalRef(local_class);
+  if (global_class == nullptr) {
+    std::string error_message =
+        "Unable to createGlobalClassReference for" + std::string(class_name);
+    env->ThrowNew(illegal_access_exception_class, error_message.c_str());
+  }
+  return global_class;
+}
+
+jmethodID GetMethodID(JNIEnv* env, jclass this_class, const char* name, const char* sig) {
+  jmethodID ret = env->GetMethodID(this_class, name, sig);
+  if (ret == nullptr) {
+    std::string error_message = "Unable to find method " + std::string(name) +
+                                " within signature" + std::string(sig);
+    env->ThrowNew(illegal_access_exception_class, error_message.c_str());
+  }
+
+  return ret;
+}
+
+arrow::Status MakeRecordBatch(const std::shared_ptr<arrow::Schema>& schema, int num_rows,
+                              int64_t* in_buf_addrs, int64_t* in_buf_sizes,
+                              int in_bufs_len,
+                              std::shared_ptr<arrow::RecordBatch>* batch) {
+  std::vector<std::shared_ptr<arrow::ArrayData>> arrays;
+  auto num_fields = schema->num_fields();
+  int buf_idx = 0;
+  int sz_idx = 0;
+
+  for (int i = 0; i < num_fields; i++) {
+    auto field = schema->field(i);
+    std::vector<std::shared_ptr<arrow::Buffer>> buffers;
+
+    if (buf_idx >= in_bufs_len) {
+      return arrow::Status::Invalid("insufficient number of in_buf_addrs");
+    }
+    int64_t validity_addr = in_buf_addrs[buf_idx++];
+    int64_t validity_size = in_buf_sizes[sz_idx++];
+    auto validity = std::shared_ptr<arrow::Buffer>(
+        new arrow::Buffer(reinterpret_cast<uint8_t*>(validity_addr), validity_size));
+    buffers.push_back(validity);
+
+    if (buf_idx >= in_bufs_len) {
+      return arrow::Status::Invalid("insufficient number of in_buf_addrs");
+    }
+    int64_t value_addr = in_buf_addrs[buf_idx++];
+    int64_t value_size = in_buf_sizes[sz_idx++];
+    auto data = std::shared_ptr<arrow::Buffer>(
+        new arrow::Buffer(reinterpret_cast<uint8_t*>(value_addr), value_size));
+    buffers.push_back(data);
+
+    if (arrow::is_binary_like(field->type()->id())) {
+      if (buf_idx >= in_bufs_len) {
+        return arrow::Status::Invalid("insufficient number of in_buf_addrs");
+      }
+
+      // add offsets buffer for variable-len fields.
+      int64_t offsets_addr = in_buf_addrs[buf_idx++];
+      int64_t offsets_size = in_buf_sizes[sz_idx++];
+      auto offsets = std::shared_ptr<arrow::Buffer>(
+          new arrow::Buffer(reinterpret_cast<uint8_t*>(offsets_addr), offsets_size));
+      buffers.push_back(offsets);
+    }
+
+    auto array_data = arrow::ArrayData::Make(field->type(), num_rows, std::move(buffers));
+    arrays.push_back(array_data);
+  }
+  *batch = arrow::RecordBatch::Make(schema, num_rows, arrays);
+  return arrow::Status::OK();
+}
+
+std::string JStringToCString(JNIEnv* env, jstring string) {
+  int32_t jlen, clen;
+  clen = env->GetStringUTFLength(string);
+  jlen = env->GetStringLength(string);
+  std::vector<char> buffer(clen);
+  env->GetStringUTFRegion(string, 0, jlen, buffer.data());
+  return std::string(buffer.data(), clen);
+}
