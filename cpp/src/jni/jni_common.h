@@ -16,8 +16,6 @@
 #include <gandiva/gandiva_aliases.h>
 #include <gandiva/tree_expr_builder.h>
 
-#include "gandiva/protobuf_utils.h"
-
 static jclass illegal_access_exception_class;
 
 jclass CreateGlobalClassReference(JNIEnv* env, const char* class_name) {
