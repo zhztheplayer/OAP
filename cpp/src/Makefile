@@ -14,7 +14,7 @@ all: clean $(MAIN) install
 #		rm -f small_test
 #			$(CC) $(CFLAGS) $(INCLUDE) -o small_test main.c /usr/lib64/libarrow_parquet_jni.so ${LIBS}
 
-ARROW_COMPUTE_CODEGEN_SRC=codegen/arrow_compute/arrow_compute_expr_visitor.cc
+ARROW_COMPUTE_CODEGEN_SRC=codegen/arrow_compute/arrow_compute_expr_visitor.cc codegen/arrow_compute/ext/kernels_ext.cc
 COMPUTE_EXT_CODEGEN_SRC=
 GANDIVA_CODEGEN_SRC=
 

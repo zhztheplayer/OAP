@@ -2,6 +2,7 @@
 #include <arrow/io/memory.h>
 #include <arrow/ipc/api.h>
 #include <arrow/ipc/dictionary.h>
+#include <gandiva/jni/protobuf_utils.h>
 #include <jni.h>
 #include <iostream>
 #include <string>
@@ -9,6 +10,10 @@
 #include "codegen/code_generator_factory.h"
 #include "jni/concurrent_map.h"
 #include "jni/jni_common.h"
+
+namespace types {
+class ExpressionList;
+}  // namespace types
 
 static jclass arrow_record_batch_builder_class;
 static jmethodID arrow_record_batch_builder_constructor;
@@ -26,6 +31,17 @@ static jclass io_exception_class;
 static jclass illegal_argument_exception_class;
 
 static jint JNI_VERSION = JNI_VERSION_1_8;
+
+static arrow::jni::ConcurrentMap<std::shared_ptr<CodeGenerator>> handler_holder_;
+
+std::shared_ptr<CodeGenerator> GetCodeGenerator(JNIEnv* env, jlong id) {
+  auto handler = handler_holder_.Lookup(id);
+  if (!handler) {
+    std::string error_message = "invalid handler id " + std::to_string(id);
+    env->ThrowNew(illegal_argument_exception_class, error_message.c_str());
+  }
+  return handler;
+}
 
 jobject MakeRecordBatchBuilder(JNIEnv* env, std::shared_ptr<arrow::Schema> schema,
                                std::shared_ptr<arrow::RecordBatch> record_batch) {
@@ -146,8 +162,8 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
     env->ThrowNew(io_exception_class, error_message.c_str());
   }
 
-  ExpressionVector expr_vector;
-  FieldVector ret_types;
+  gandiva::ExpressionVector expr_vector;
+  gandiva::FieldVector ret_types;
   types::ExpressionList exprs;
   jsize exprs_len = env->GetArrayLength(exprs_arr);
   jbyte* exprs_bytes = env->GetByteArrayElements(exprs_arr, 0);
@@ -161,7 +177,7 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
 
   // create Expression out of the list of exprs
   for (int i = 0; i < exprs.exprs_size(); i++) {
-    ExpressionPtr root = ProtoTypeToExpression(exprs.exprs(i));
+    gandiva::ExpressionPtr root = ProtoTypeToExpression(exprs.exprs(i));
 
     if (root == nullptr) {
       env->ReleaseByteArrayElements(schema_arr, schema_bytes, JNI_ABORT);
@@ -175,28 +191,28 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
     ret_types.push_back(root->result());
   }
 
-  CodeGenerator* handler;
+  std::shared_ptr<CodeGenerator> handler;
   msg = CreateCodeGenerator(schema, expr_vector, ret_types, &handler);
   if (!msg.ok()) {
     std::string error_message =
         "nativeBuild: failed to create CodeGenerator, err msg is " + msg.message();
     env->ThrowNew(io_exception_class, error_message.c_str());
   }
-  return (int64_t)handler;
+  return handler_holder_.Insert(std::shared_ptr<CodeGenerator>(handler));
 }
 
 JNIEXPORT void JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeClose(
-    JNIEnv* env, jobject obj, jlong handler_ptr) {
-  delete (CodeGenerator*)handler_ptr;
+    JNIEnv* env, jobject obj, jlong id) {
+  handler_holder_.Erase(id);
 }
 
 JNIEXPORT jobject JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeEvaluate(
-    JNIEnv* env, jobject obj, jlong handler_ptr, jint num_rows, jlongArray buf_addrs,
+    JNIEnv* env, jobject obj, jlong id, jint num_rows, jlongArray buf_addrs,
     jlongArray buf_sizes) {
   arrow::Status status;
-  CodeGenerator* handler = (CodeGenerator*)handler_ptr;
+  std::shared_ptr<CodeGenerator> handler = GetCodeGenerator(env, id);
   std::shared_ptr<arrow::Schema> schema;
   status = handler->getSchema(&schema);
 
