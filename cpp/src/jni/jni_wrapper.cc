@@ -32,6 +32,7 @@ static jclass illegal_argument_exception_class;
 
 static jint JNI_VERSION = JNI_VERSION_1_8;
 
+using CodeGenerator = sparkcolumnarplugin::codegen::CodeGenerator;
 static arrow::jni::ConcurrentMap<std::shared_ptr<CodeGenerator>> handler_holder_;
 
 std::shared_ptr<CodeGenerator> GetCodeGenerator(JNIEnv* env, jlong id) {
@@ -192,7 +193,8 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
   }
 
   std::shared_ptr<CodeGenerator> handler;
-  msg = CreateCodeGenerator(schema, expr_vector, ret_types, &handler);
+  msg = sparkcolumnarplugin::codegen::CreateCodeGenerator(schema, expr_vector, ret_types,
+                                                          &handler);
   if (!msg.ok()) {
     std::string error_message =
         "nativeBuild: failed to create CodeGenerator, err msg is " + msg.message();

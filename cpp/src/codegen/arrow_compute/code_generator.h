@@ -1,0 +1,139 @@
+#pragma once
+
+#include <arrow/pretty_print.h>
+#include <arrow/type.h>
+
+#include "codegen/arrow_compute/expr_visitor.h"
+#include "codegen/code_generator.h"
+
+namespace sparkcolumnarplugin {
+namespace codegen {
+namespace arrowcompute {
+
+class ArrowComputeCodeGenerator : public CodeGenerator {
+ public:
+  ArrowComputeCodeGenerator(std::shared_ptr<arrow::Schema> schema_ptr,
+                            std::vector<std::shared_ptr<gandiva::Expression>> expr_vector,
+                            std::vector<std::shared_ptr<arrow::Field>> ret_types)
+      : schema_(schema_ptr), ret_types_(ret_types) {
+    for (auto expr : expr_vector) {
+      std::shared_ptr<ExprVisitor> root_visitor;
+      auto visitor =
+          MakeExprVisitor(schema_ptr, expr, &expr_visitor_cache_, &root_visitor);
+      visitor_list_.push_back(root_visitor);
+    }
+  }
+
+  ~ArrowComputeCodeGenerator() {
+    expr_visitor_cache_.clear();
+    visitor_list_.clear();
+  }
+
+  arrow::Status getSchema(std::shared_ptr<arrow::Schema>* out) {
+    *out = schema_;
+    return arrow::Status::OK();
+  }
+
+  arrow::Status evaluate(const std::shared_ptr<arrow::RecordBatch>& in,
+                         std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
+    arrow::Status status = arrow::Status::OK();
+    std::vector<ArrayList> batch_array;
+    std::vector<int> batch_size_array;
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+
+    for (auto visitor : visitor_list_) {
+      RETURN_NOT_OK(visitor->Eval(in));
+
+      std::vector<std::shared_ptr<arrow::Field>> return_fields;
+      switch (visitor->GetResultType()) {
+        case ArrowComputeResultType::BatchList: {
+          RETURN_NOT_OK(
+              visitor->GetResult(&batch_array, &batch_size_array, &return_fields));
+        } break;
+        case ArrowComputeResultType::Batch: {
+          ArrayList result_batch;
+          RETURN_NOT_OK(visitor->GetResult(&result_batch, &return_fields));
+          RETURN_NOT_OK(
+              MakeBatchFromBatch(result_batch, &batch_array, &batch_size_array));
+        } break;
+        case ArrowComputeResultType::ArrayList: {
+          ArrayList result_column_list;
+          RETURN_NOT_OK(visitor->GetResult(&result_column_list, &return_fields));
+          RETURN_NOT_OK(MakeBatchFromArrayList(result_column_list, &batch_array,
+                                               &batch_size_array));
+        } break;
+        case ArrowComputeResultType::Array: {
+          std::shared_ptr<arrow::Array> result_column;
+          RETURN_NOT_OK(visitor->GetResult(&result_column, &return_fields));
+          RETURN_NOT_OK(
+              MakeBatchFromArray(result_column, 0, &batch_array, &batch_size_array));
+        } break;
+        default:
+          return arrow::Status::Invalid("ArrowComputeResultType is invalid.");
+      }
+      fields.insert(fields.end(), return_fields.begin(), return_fields.end());
+    }
+
+    auto res_schema = arrow::schema(fields);
+    for (int i = 0; i < batch_array.size(); i++) {
+      out->push_back(
+          arrow::RecordBatch::Make(res_schema, batch_size_array[i], batch_array[i]));
+    }
+
+    // we need to clean up this visitor chain result for next record_batch.
+    for (auto visitor : visitor_list_) {
+      RETURN_NOT_OK(visitor->Reset());
+    }
+    return status;
+  }
+
+ private:
+  std::vector<std::shared_ptr<ExprVisitor>> visitor_list_;
+  std::shared_ptr<arrow::Schema> schema_;
+  std::vector<std::shared_ptr<arrow::Field>> ret_types_;
+  // ExprVisitor Cache, used when multiple node depends on same node.
+  ExprVisitorMap expr_visitor_cache_;
+
+  arrow::Status MakeBatchFromArray(std::shared_ptr<arrow::Array> column, int batch_index,
+                                   std::vector<ArrayList>* batch_array,
+                                   std::vector<int>* batch_size_array) {
+    int res_len = 0;
+    RETURN_NOT_OK(GetOrInsert(batch_index, batch_size_array, &res_len));
+    batch_size_array->at(batch_index) =
+        (res_len < column->length()) ? column->length() : res_len;
+    ArrayList batch_array_item;
+    RETURN_NOT_OK(GetOrInsert(batch_index, batch_array, &batch_array_item));
+    batch_array->at(batch_index).push_back(column);
+    return arrow::Status::OK();
+  }
+  arrow::Status MakeBatchFromArrayList(ArrayList column_list,
+                                       std::vector<ArrayList>* batch_array,
+                                       std::vector<int>* batch_size_array) {
+    for (int i = 0; i < column_list.size(); i++) {
+      RETURN_NOT_OK(MakeBatchFromArray(column_list[i], i, batch_array, batch_size_array));
+    }
+    return arrow::Status::OK();
+  }
+  arrow::Status MakeBatchFromBatch(ArrayList batch, std::vector<ArrayList>* batch_array,
+                                   std::vector<int>* batch_size_array) {
+    batch_array->push_back(batch);
+    return arrow::Status::OK();
+  }
+
+  template <typename T>
+  arrow::Status GetOrInsert(int i, std::vector<T>* input, T* out) {
+    if (i > input->size()) {
+      return arrow::Status::Invalid("GetOrInser index: ", i, "  is out of range.");
+    }
+    if (i == input->size()) {
+      T new_data;
+
+      input->push_back(new_data);
+    }
+    *out = input->at(i);
+    return arrow::Status::OK();
+  }
+};
+}  // namespace arrowcompute
+}  // namespace codegen
+}  // namespace sparkcolumnarplugin

@@ -3,17 +3,21 @@
 #include <arrow/ipc/json_simple.h>
 #include <arrow/memory_pool.h>
 #include <arrow/pretty_print.h>
+#include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
 #include <gandiva/node.h>
 #include <gandiva/tree_expr_builder.h>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include "code_generator_factory.h"
+#include "codegen/code_generator.h"
 using namespace arrow;
 
 using TreeExprBuilder = gandiva::TreeExprBuilder;
 using FunctionNode = gandiva::FunctionNode;
+using CodeGenerator = sparkcolumnarplugin::codegen::CodeGenerator;
 
 template <typename T>
 arrow::Status GetOrInsert(int i, std::vector<T>* input, T* out) {
@@ -27,6 +31,27 @@ arrow::Status GetOrInsert(int i, std::vector<T>* input, T* out) {
   }
   *out = input->at(i);
   return arrow::Status::OK();
+}
+
+void test(std::shared_ptr<CodeGenerator> codegen,
+          std::shared_ptr<arrow::RecordBatch> input_batch) {
+  std::cout << "/////////////Test////////////" << std::endl;
+  std::vector<std::shared_ptr<arrow::RecordBatch>> output_batch_list;
+  auto status = codegen->evaluate(input_batch, &output_batch_list);
+  if (!status.ok()) {
+    std::cerr << "Evaluate failed: " << status.message() << std::endl;
+    return;
+  }
+  std::cout << "output_batch is " << std::endl;
+  int i = 0;
+  for (auto output_batch : output_batch_list) {
+    std::cout << "batch " << i++ << std::endl;
+    status = arrow::PrettyPrint(*output_batch.get(), 2, &std::cout);
+    if (!status.ok()) {
+      return;
+    }
+  }
+  std::cout << std::endl;
 }
 
 int main() {
@@ -43,33 +68,31 @@ int main() {
   // prepare expr_vector
   auto arg_pre = TreeExprBuilder::MakeField(f0);
   auto n_pre = TreeExprBuilder::MakeFunction("encodeArray", {arg_pre}, uint8());
-  auto n_pre_root = TreeExprBuilder::MakeFunction("getPrepareFunc", {n_pre}, uint8());
-  auto pre_expr = TreeExprBuilder::MakeExpression(n_pre_root, field("res", uint8()));
 
   auto arg0 = TreeExprBuilder::MakeField(f0);
   auto arg1 = TreeExprBuilder::MakeField(f1);
   auto arg2 = TreeExprBuilder::MakeField(f2);
   auto arg3 = TreeExprBuilder::MakeField(f3);
   auto arg4 = TreeExprBuilder::MakeField(f4);
-  auto n_split = TreeExprBuilder::MakeFunction("splitArrayList", {arg0, arg1}, uint8());
-  auto split_expr = TreeExprBuilder::MakeExpression(n_split, field("res", uint8()));
+  auto n_split = TreeExprBuilder::MakeFunction(
+      "splitArrayList", {n_pre, arg0, arg1, arg2, arg3, arg4}, uint8());
+  auto n_sum = TreeExprBuilder::MakeFunction("sum", {n_split, arg1}, uint8());
+  auto sum_expr = TreeExprBuilder::MakeExpression(n_sum, field("res", uint8()));
+  auto n_count = TreeExprBuilder::MakeFunction("count", {n_split, arg1}, uint8());
+  auto count_expr = TreeExprBuilder::MakeExpression(n_count, field("res", uint8()));
 
-  std::vector<std::shared_ptr<gandiva::Expression>> expr_vector = {pre_expr, split_expr};
+  std::vector<std::shared_ptr<gandiva::Expression>> expr_vector = {sum_expr, count_expr};
+  // std::vector<std::shared_ptr<gandiva::Expression>> expr_vector = {sum_expr};
 
   // prepare return types
-  std::vector<std::shared_ptr<Field>> ret_types = {f0, f1};
+  std::vector<std::shared_ptr<Field>> ret_types = {f0};
 
   // prepare input record Batch
   std::string input_data = "[1, 2, 3, 4, 5, 5, 4, 1, 2, 2, 1, 1, 1, 4, 4, 3, 5, 5, 5, 5]";
   std::shared_ptr<arrow::Array> a0;
   arrow::ipc::internal::json::ArrayFromJSON(uint8(), input_data, &a0);
-  input_data = "[1, 2, null, 4, 5, 5, null, 1, 2, 2, null, 1, 1, 4, 4, 3, 5, 5, 5, 5]";
   std::shared_ptr<arrow::Array> a1;
   arrow::ipc::internal::json::ArrayFromJSON(uint32(), input_data, &a1);
-  /*arrow::ipc::internal::json::ArrayFromJSON(
-      binary(),
-      R"(["sh", "sz", "bj", "bj", "wh", "sh", "nj", "hz", "hz", "nb", "sh", "bj", "bj",
-     "nj", "sz", "sz", "nj", "wh", "bj", "sh"]")", &a1);*/
   std::shared_ptr<arrow::Array> a2;
   arrow::ipc::internal::json::ArrayFromJSON(uint8(), input_data, &a2);
   std::shared_ptr<arrow::Array> a3;
@@ -79,9 +102,9 @@ int main() {
 
   auto input_batch = RecordBatch::Make(sch, input_data.size(), {a0, a1, a2, a3, a4});
 
-  std::cout << "input_batch is " << std::endl;
+  /*std::cout << "input_batch is " << std::endl;
   arrow::PrettyPrint(*input_batch.get(), 2, &std::cout);
-  std::cout << std::endl;
+  std::cout << std::endl;*/
 
   std::shared_ptr<CodeGenerator> codegen;
   status = CreateCodeGenerator(sch, expr_vector, ret_types, &codegen);
@@ -90,15 +113,11 @@ int main() {
     return 0;
   }
 
-  std::vector<std::shared_ptr<arrow::RecordBatch>> output_batch_list;
-  status = codegen->evaluate(input_batch, &output_batch_list);
-  if (!status.ok()) {
-    std::cerr << "Evaluate failed: " << status.message() << std::endl;
-    return 0;
-  }
-  std::cout << "output_batch is " << std::endl;
-  for (auto output_batch : output_batch_list) {
-    arrow::PrettyPrint(*output_batch.get(), 2, &std::cout);
-  }
-  std::cout << std::endl;
+  test(codegen, input_batch);
+  test(codegen, input_batch);
+  test(codegen, input_batch);
+  test(codegen, input_batch);
+  test(codegen, input_batch);
+
+  std::cout << "Test Completed!" << std::endl;
 }
