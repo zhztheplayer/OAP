@@ -48,6 +48,28 @@ arrow::Status ArrowComputeExprVisitor::Visit(const gandiva::FunctionNode& node) 
 
   auto status = arrow::Status::OK();
 
+  if (desc->name().compare("splitArrayList") == 0) {
+    ArrayList col_list;
+    for (auto arg_node : node.children()) {
+      auto col_name =
+          std::dynamic_pointer_cast<gandiva::FieldNode>(arg_node)->field()->name();
+      auto col = in_record_batch_->GetColumnByName(col_name);
+      if (col == nullptr) {
+        return arrow::Status::UnknownError("[ArrowComputeExprVisitor] get ", col_name,
+                                           " from input failed.");
+      }
+      col_list.push_back(col);
+    }
+    if (!prepare_visitor_) {
+      return arrow::Status::Invalid("This function requires input, but there is none.");
+    }
+    std::shared_ptr<arrow::extra::DictionaryExtArray> dict_ext_array;
+    RETURN_NOT_OK(prepare_visitor_->GetResult(&dict_ext_array));
+    RETURN_NOT_OK(arrow::compute::extra::SplitArrayList(
+        &ctx_, col_list, dict_ext_array->dict_indices(), dict_ext_array->value_counts(),
+        &result_batch_list_, &result_batch_size_list_));
+    goto generateBatchList;
+  }
   if (node.children().size() == 1) {
     auto col_name = (std::dynamic_pointer_cast<gandiva::FieldNode>(node.children()[0]))
                         ->field()
@@ -88,30 +110,6 @@ arrow::Status ArrowComputeExprVisitor::Visit(const gandiva::FunctionNode& node) 
       goto generateExtArray;
     }
     goto unrecognizedFail;
-  } else if (node.children().size() > 1) {
-    ArrayList col_list;
-    for (auto arg_node : node.children()) {
-      auto col_name =
-          std::dynamic_pointer_cast<gandiva::FieldNode>(arg_node)->field()->name();
-      auto col = in_record_batch_->GetColumnByName(col_name);
-      if (col == nullptr) {
-        return arrow::Status::UnknownError("[ArrowComputeExprVisitor] get ", col_name,
-                                           " from input failed.");
-      }
-      col_list.push_back(col);
-    }
-    if (desc->name().compare("splitArrayList") == 0) {
-      if (!prepare_visitor_) {
-        return arrow::Status::Invalid("This function requires input, but there is none.");
-      }
-      std::shared_ptr<arrow::extra::DictionaryExtArray> dict_ext_array;
-      RETURN_NOT_OK(prepare_visitor_->GetResult(&dict_ext_array));
-      RETURN_NOT_OK(arrow::compute::extra::SplitArrayList(
-          &ctx_, col_list, dict_ext_array->dict_indices(), dict_ext_array->value_counts(),
-          &result_batch_list_, &result_batch_size_list_));
-      goto generateBatchList;
-    }
-    goto unrecognizedFail;
   }
 
 generateArray:
@@ -134,5 +132,6 @@ finish:
   return arrow::Status::OK();
 
 unrecognizedFail:
-  return arrow::Status::NotImplemented("Function name is not impelmented yet.");
+  return arrow::Status::NotImplemented("Function name ", desc->name(),
+                                       " is not impelmented yet.");
 }

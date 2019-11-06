@@ -28,9 +28,10 @@ class ExprVisitor : public gandiva::NodeVisitor {
   }
 
  private:
-  std::vector<std::string> ac{
-      "sum", "max", "min", "count", "getPrepareFunc", "splitArrayList", "encodeArray"};
+  // std::vector<std::string> ac{
+  //    "sum", "max", "min", "count", "getPrepareFunc", "splitArrayList", "encodeArray"};
   std::vector<std::string> gdv{"add", "substract", "multiply", "divide"};
+  std::vector<std::string> ce{};
   int codegen_type;
   arrow::Status Visit(const gandiva::FieldNode& node) override;
   arrow::Status Visit(const gandiva::FunctionNode& node) override;
