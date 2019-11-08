@@ -1,16 +1,16 @@
-#ifndef EXPR_VISITOR_H
-#define EXPR_VISITOR_H
+#pragma once
 
-#include <gandiva/node.h>
-#include <gandiva/node_visitor.h>
 #include <iostream>
 #include "codegen/code_generator.h"
+#include "codegen/common/visitor_base.h"
 
 #define ARROW_COMPUTE 0x0001
 #define GANDIVA 0x0002
 #define COMPUTE_EXT 0x0003
 
-class ExprVisitor : public gandiva::NodeVisitor {
+namespace sparkcolumnarplugin {
+namespace codegen {
+class ExprVisitor : public VisitorBase {
  public:
   ExprVisitor() {}
 
@@ -33,14 +33,7 @@ class ExprVisitor : public gandiva::NodeVisitor {
   std::vector<std::string> gdv{"add", "substract", "multiply", "divide"};
   std::vector<std::string> ce{};
   int codegen_type;
-  arrow::Status Visit(const gandiva::FieldNode& node) override;
-  arrow::Status Visit(const gandiva::FunctionNode& node) override;
-  arrow::Status Visit(const gandiva::IfNode& node) override;
-  arrow::Status Visit(const gandiva::LiteralNode& node) override;
-  arrow::Status Visit(const gandiva::BooleanNode& node) override;
-  arrow::Status Visit(const gandiva::InExpressionNode<int32_t>& node) override;
-  arrow::Status Visit(const gandiva::InExpressionNode<int64_t>& node) override;
-  arrow::Status Visit(const gandiva::InExpressionNode<std::string>& node) override;
+  arrow::Status Visit(const gandiva::FunctionNode& node);
 };
-
-#endif
+}  // namespace codegen
+}  // namespace sparkcolumnarplugin

@@ -1,9 +1,10 @@
-#ifndef CODE_GENERATOR_H
-#define CODE_GENERATOR_H
+#pragma once
 
 #include <arrow/type.h>
 #include <gandiva/expression.h>
 #include <gandiva/node.h>
+namespace sparkcolumnarplugin {
+namespace codegen {
 
 class CodeGenerator {
  public:
@@ -12,10 +13,6 @@ class CodeGenerator {
   virtual arrow::Status evaluate(
       const std::shared_ptr<arrow::RecordBatch>& in,
       std::vector<std::shared_ptr<arrow::RecordBatch>>* out) = 0;
-  virtual arrow::Status evaluate(
-      const std::shared_ptr<arrow::RecordBatch>& in,
-      std::vector<arrow::MapArray>* hash_map,
-      std::vector<std::shared_ptr<arrow::RecordBatch>>* out) = 0;
 };
-
-#endif
+}  // namespace codegen
+}  // namespace sparkcolumnarplugin

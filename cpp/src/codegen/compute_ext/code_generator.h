@@ -1,9 +1,11 @@
-#ifndef COMPUTE_EXT_CODE_GENERATOR
-#define COMPUTE_EXT_CODE_GENERATOR
+#pragma once
 
 #include <arrow/type.h>
-
 #include "codegen/code_generator.h"
+
+namespace sparkcolumnarplugin {
+namespace codegen {
+namespace computeext {
 
 class ComputeExtCodeGenerator : public CodeGenerator {
  public:
@@ -20,12 +22,8 @@ class ComputeExtCodeGenerator : public CodeGenerator {
     arrow::Status status = arrow::Status::OK();
     return status;
   }
-
-  arrow::Status evaluate(const std::shared_ptr<arrow::RecordBatch>& in,
-                         std::vector<arrow::MapArray>* hash_map,
-                         std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
-    return arrow::Status::OK();
-  }
 };
 
-#endif
+}  // namespace computeext
+}  // namespace codegen
+}  // namespace sparkcolumnarplugin

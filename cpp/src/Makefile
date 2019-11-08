@@ -3,7 +3,7 @@ CC=g++
 
 INCLUDE=-I${JAVA_HOME} -I${JAVA_HOME}/include/linux -I${JAVA_HOME}/include
 INCLUDE+=-I$(shell pwd)
-CFLAGS=-std=c++11 -fPIC -g
+CFLAGS=-std=c++14 -fPIC -g
 LFLAGS=-L/usr/local/lib64
 LIBS=-lgandiva -larrow -lgandiva_protobuf
 MAIN=libspark_columnar_jni.so
@@ -14,7 +14,7 @@ all: clean $(MAIN) install
 #		rm -f small_test
 #			$(CC) $(CFLAGS) $(INCLUDE) -o small_test main.c /usr/lib64/libarrow_parquet_jni.so ${LIBS}
 
-ARROW_COMPUTE_CODEGEN_SRC=codegen/arrow_compute/arrow_compute_expr_visitor.cc codegen/arrow_compute/ext/kernels_ext.cc
+ARROW_COMPUTE_CODEGEN_SRC=codegen/arrow_compute/expr_visitor.cc codegen/arrow_compute/ext/kernels_ext.cc
 COMPUTE_EXT_CODEGEN_SRC=
 GANDIVA_CODEGEN_SRC=
 
