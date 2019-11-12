@@ -61,15 +61,11 @@ arrow::Status BuilderVisitor::Visit(const gandiva::FunctionNode& node) {
 
   auto search = expr_visitor_cache_->find(node_id);
   if (search == expr_visitor_cache_->end()) {
-    auto node_ptr = std::make_shared<gandiva::FunctionNode>(desc->name(), node.children(),
-                                                            desc->return_type());
     if (dependency) {
-      expr_visitor_ = std::make_shared<ExprVisitor>(
-          schema_, std::dynamic_pointer_cast<gandiva::Node>(node_ptr), param_names,
-          dependency);
+      expr_visitor_ =
+          std::make_shared<ExprVisitor>(schema_, &node, param_names, dependency);
     } else {
-      expr_visitor_ = std::make_shared<ExprVisitor>(
-          schema_, std::dynamic_pointer_cast<gandiva::Node>(node_ptr), param_names);
+      expr_visitor_ = std::make_shared<ExprVisitor>(schema_, &node, param_names);
     }
     expr_visitor_cache_->emplace(node_id, expr_visitor_);
     return arrow::Status::OK();
@@ -95,7 +91,6 @@ arrow::Status ExprVisitor::Eval(const std::shared_ptr<arrow::RecordBatch>& in) {
   // leaf dependency should be process firstly, or we should visit expr cache for
   // previous result.
   in_record_batch_ = in;
-  RETURN_NOT_OK(Reset());
   if (dependency_) {
     RETURN_NOT_OK(dependency_->Eval(in));
     dependency_result_type_ = dependency_->GetResultType();
@@ -123,7 +118,7 @@ arrow::Status ExprVisitor::Eval(const std::shared_ptr<arrow::RecordBatch>& in) {
   if (return_type_ != ArrowComputeResultType::None) {
     return arrow::Status::OK();
   }
-  RETURN_NOT_OK(func_->Accept(*this));
+  RETURN_NOT_OK(Execute());
   return arrow::Status::OK();
 }
 
@@ -217,8 +212,8 @@ arrow::Status ExprVisitor::GetColumnAndFieldByName(
   return arrow::Status::OK();
 }
 
-arrow::Status ExprVisitor::Visit(const gandiva::FunctionNode& node) {
-  auto desc = node.descriptor();
+arrow::Status ExprVisitor::Execute() {
+  auto desc = func_->descriptor();
   auto status = arrow::Status::OK();
 
   if (desc->name().compare("splitArrayList") == 0) {
