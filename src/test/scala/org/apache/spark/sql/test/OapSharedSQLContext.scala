@@ -44,6 +44,9 @@ trait OapSharedSparkSession
       .set(SQLConf.CODEGEN_FALLBACK.key, "false")
       .set("spark.sql.testkey", "true")
       .set(SQLConf.SHUFFLE_PARTITIONS.key, "5")
+      .set("spark.memory.offHeap.enabled", "true")
+      .set("oap.memory.offheap.check", "false")
+      .set("spark.oap.cache.strategy", "guava")
       .set("spark.memory.offHeap.size", "100m")
   }
 

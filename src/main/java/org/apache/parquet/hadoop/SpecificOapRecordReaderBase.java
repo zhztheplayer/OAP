@@ -28,8 +28,6 @@ import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 import org.apache.parquet.hadoop.utils.Collections3;
 import org.apache.parquet.schema.MessageType;
 
-import static org.apache.parquet.hadoop.ParquetInputFormat.getFilter;
-
 import org.apache.spark.sql.execution.datasources.RecordReader;
 import org.apache.spark.sql.execution.datasources.parquet.ParquetReadSupportWrapper;
 import org.apache.spark.sql.types.StructType;
@@ -73,9 +71,6 @@ public abstract class SpecificOapRecordReaderBase<T> implements RecordReader<T> 
         configuration.get(ParquetReadSupportWrapper.SPARK_ROW_REQUESTED_SCHEMA());
       this.sparkSchema = StructType$.MODULE$.fromString(sparkRequestedSchemaString);
       this.reader = OapParquetFileReader.open(configuration, file, footer);
-      if (isFilterRowGroups) {
-        this.reader.filterRowGroups(getFilter(configuration));
-      }
       this.reader.setRequestedSchema(requestedSchema);
       for (BlockMetaData block : this.reader.getRowGroups()) {
         this.totalRowCount += block.getRowCount();

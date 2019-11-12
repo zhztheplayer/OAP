@@ -25,8 +25,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.parquet.hadoop.api.ReadSupport;
 import org.apache.parquet.hadoop.metadata.ParquetFooter;
 
-import static org.apache.parquet.hadoop.ParquetInputFormat.getFilter;
-
 import org.apache.spark.sql.execution.datasources.RecordReader;
 
 public class MrOapRecordReader<T> implements RecordReader<T> {
@@ -67,7 +65,6 @@ public class MrOapRecordReader<T> implements RecordReader<T> {
       try {
         parquetFileReader =
                 ParquetFileReader.open(configuration, file, footer.toParquetMetadata());
-        parquetFileReader.filterRowGroups(getFilter(configuration));
         this.internalReader = new InternalParquetRecordReader<>(readSupport);
         this.internalReader.initialize(parquetFileReader, configuration);
       } catch (IOException e) {

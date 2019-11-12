@@ -63,6 +63,7 @@ trait SharedOapContextBase extends OapSharedSQLContext {
   val oapSparkConf = sparkConf
   // avoid the overflow of offHeap memory
   oapSparkConf.set("spark.memory.offHeap.size", "100m")
+  oapSparkConf.set("spark.memory.offHeap.enabled", "true")
   oapSparkConf.set("spark.sql.extensions", classOf[OapExtensions].getCanonicalName)
 
   protected override def beforeAll(): Unit = {

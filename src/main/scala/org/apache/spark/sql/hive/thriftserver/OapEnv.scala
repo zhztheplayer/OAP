@@ -58,8 +58,9 @@ private[spark] object OapEnv extends Logging {
         sqlContext = sparkSession.sqlContext
 
         val metadataHive = sparkSession
-          .sharedState.externalCatalog.asInstanceOf[HiveExternalCatalog]
-          .client.newSession()
+          .sharedState.externalCatalog.unwrapped.asInstanceOf[HiveExternalCatalog]
+          .client
+          // .newSession()
         metadataHive.setOut(new PrintStream(System.out, true, "UTF-8"))
         metadataHive.setInfo(new PrintStream(System.err, true, "UTF-8"))
         metadataHive.setError(new PrintStream(System.err, true, "UTF-8"))
@@ -67,7 +68,7 @@ private[spark] object OapEnv extends Logging {
       }
 
       sparkContext.addSparkListener(new OapListener)
-
+      logInfo("add OapListener")
       SparkSQLEnv.sparkContext = sparkContext
       SparkSQLEnv.sqlContext = sqlContext
       this.sparkSession = sqlContext.sparkSession

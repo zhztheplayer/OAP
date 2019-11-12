@@ -19,12 +19,20 @@ package org.apache.spark.sql.execution.datasources.oap.filecache
 
 import org.apache.spark.sql.execution.datasources.oap.io.DataFile
 
-private[oap] abstract class FiberId {}
+private[oap] abstract class FiberId {
+  def toFiberKey(): String = {
+    throw new UnsupportedOperationException("Unsupported operation")
+  }
+}
 
 private[oap] case class DataFiberId(file: DataFile, columnIndex: Int, rowGroupId: Int) extends
     FiberId {
 
   override def hashCode(): Int = (file.path + columnIndex + rowGroupId).hashCode
+
+  val fiberKey = s"${file.path}_${rowGroupId}_${columnIndex})"
+
+  override def toFiberKey(): String = fiberKey
 
   override def equals(obj: Any): Boolean = obj match {
     case another: DataFiberId =>

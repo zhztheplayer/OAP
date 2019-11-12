@@ -24,6 +24,9 @@ object TestOap extends TestOapContext(
     (new SparkConf).set("spark.master", "local[2]")
       .set("spark.app.name", "test-oap-context")
       .set("spark.sql.testkey", "true")
+      .set("spark.memory.offHeap.enabled", "true")
+      .set("oap.memory.offheap.check", "false")
+      .set("spark.oap.cache.strategy", "guava")
       .set("spark.memory.offHeap.size", "100m")
       .set("spark.sql.extensions", classOf[OapExtensions].getCanonicalName)
   ).enableHiveSupport().getOrCreate()) {

@@ -22,6 +22,7 @@ import scala.util.Random
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FSDataInputStream, Path}
 
+import org.apache.spark.SparkEnv
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.oap.utils.NonNullKeyWriter
 import org.apache.spark.sql.oap.OapRuntime
@@ -83,7 +84,7 @@ class MemoryManagerSuite extends SharedOapContext {
       val nnkw = new NonNullKeyWriter(schema)
       nnkw.writeKey(buf, InternalRow.fromSeq(values))
       val fiberId = TestDataFiberId(null, "Test fiber for MemoryManagerSuite#0")
-      val cache = memoryManager.toDataFiberCache(buf.toByteArray)
+      val cache = FiberCache.toDataFiberCache(buf.toByteArray)
       cache.fiberId = fiberId
       cache
     }
@@ -112,7 +113,7 @@ class MemoryManagerSuite extends SharedOapContext {
     val bytes = new Array[Byte](10240)
     random.nextBytes(bytes)
     val is = createInputStreamFromBytes(bytes)
-    val indexFiberCache = memoryManager.toIndexFiberCache(is, 0, 10240)
+    val indexFiberCache = FiberCache.toIndexFiberCache(is, 0, 10240)
     val fiberId = TestDataFiberId(null, "Test fiber for MemoryManagerSuite#1")
     indexFiberCache.fiberId = fiberId
     assert(bytes === indexFiberCache.toArray)
@@ -122,7 +123,7 @@ class MemoryManagerSuite extends SharedOapContext {
   test("test data in DataFiberCache") {
     val bytes = new Array[Byte](10240)
     random.nextBytes(bytes)
-    val dataFiberCache = memoryManager.toDataFiberCache(bytes)
+    val dataFiberCache = FiberCache.toDataFiberCache(bytes)
     val fiberId = TestDataFiberId(null, "Test fiber for MemoryManagerSuite#2")
     dataFiberCache.fiberId = fiberId
     assert(bytes === dataFiberCache.toArray)
@@ -167,4 +168,5 @@ class MemoryManagerSuite extends SharedOapContext {
         offset += length
     }
   }
+
 }

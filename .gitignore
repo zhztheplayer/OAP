@@ -26,3 +26,7 @@ metastore_db/
 null/
 src/main/native/build
 conf/persistent-memory.xml
+*.so
+patched_file/
+src/main/spark2.4.4/scala/org/apache/spark/deploy/
+src/main/spark2.4.4/scala/org/apache/spark/executor/

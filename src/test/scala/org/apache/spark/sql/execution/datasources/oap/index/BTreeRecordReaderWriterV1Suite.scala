@@ -19,6 +19,7 @@ package org.apache.spark.sql.execution.datasources.oap.index
 
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream, InputStream}
+import java.util.Properties
 
 import scala.util.Random
 
@@ -68,7 +69,7 @@ class BTreeRecordReaderWriterV1Suite extends SharedOapContext {
     override def readFiberCache(position: Long, length: Int): FiberCache = {
       // Note: Use DataFiberCache instead of IndexFiberCache to reuse current interface
       // DataFiberCache and IndexFiberCache are identical actually.
-      OapRuntime.getOrCreate.memoryManager.toDataFiberCache(read(position, length))
+      FiberCache.toDataFiberCache(read(position, length))
     }
 
     override def read(position: Long, length: Int): Array[Byte] = {
@@ -107,7 +108,7 @@ class BTreeRecordReaderWriterV1Suite extends SharedOapContext {
         0,
         0,
         new TaskMemoryManager(new TestMemoryManager(conf), 0),
-        null,
+        new Properties,
         MetricsSystem.createMetricsSystem(
           "BTreeRecordReaderWriterSuiteV1",
           conf,
