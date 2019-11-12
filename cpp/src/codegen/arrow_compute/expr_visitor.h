@@ -61,15 +61,15 @@ class BuilderVisitor : public VisitorBase {
   ExprVisitorMap* expr_visitor_cache_;
 };
 
-class ExprVisitor : public VisitorBase {
+class ExprVisitor {
  public:
   ExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
-              std::shared_ptr<gandiva::Node> func,
+              const gandiva::FunctionNode* func,
               std::vector<std::string> param_field_names)
       : schema_(schema_ptr), func_(func), param_field_names_(param_field_names) {}
 
   ExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
-              std::shared_ptr<gandiva::Node> func,
+              const gandiva::FunctionNode* func,
               std::vector<std::string> param_field_names,
               std::shared_ptr<ExprVisitor> dependency)
       : schema_(schema_ptr),
@@ -79,6 +79,7 @@ class ExprVisitor : public VisitorBase {
   ~ExprVisitor() {}
 
   arrow::Status Eval(const std::shared_ptr<arrow::RecordBatch>& in);
+  arrow::Status Execute();
   arrow::Status Reset();
 
   ArrowComputeResultType GetResultType() { return return_type_; }
@@ -94,7 +95,7 @@ class ExprVisitor : public VisitorBase {
  private:
   // Input data holder.
   std::shared_ptr<arrow::Schema> schema_;
-  std::shared_ptr<gandiva::Node> func_;
+  const gandiva::FunctionNode* func_;
   std::shared_ptr<ExprVisitor> dependency_;
   std::shared_ptr<arrow::RecordBatch> in_record_batch_;
   std::vector<std::string> param_field_names_;
@@ -125,7 +126,6 @@ class ExprVisitor : public VisitorBase {
 
   arrow::compute::FunctionContext ctx_;
 
-  arrow::Status Visit(const gandiva::FunctionNode& node) override;
   arrow::Status GetColumnAndFieldByName(std::shared_ptr<arrow::RecordBatch> in,
                                         std::shared_ptr<arrow::Schema> schema,
                                         std::string col_name,

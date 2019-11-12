@@ -1,5 +1,4 @@
 #include "codegen/arrow_compute/ext/kernels_ext.h"
-
 #include <arrow/builder.h>
 #include <arrow/compute/context.h>
 #include <arrow/compute/kernel.h>
@@ -19,92 +18,121 @@ namespace arrowcompute {
 namespace extra {
 namespace splitter {
 
-class ArrayVisitorBase;
-
 class ArrayVisitorImpl : public arrow::ArrayVisitor {
  public:
   arrow::Status GetResult(ArrayList* out) {
     *out = out_;
     return arrow::Status::OK();
   }
-
   ArrayVisitorImpl(arrow::compute::FunctionContext* ctx,
-                   const std::shared_ptr<arrow::Array>& dict,
                    const std::shared_ptr<arrow::Array>& counts)
       : ctx_(ctx) {
-    dict_ = dict;
     counts_ = counts;
   }
   ~ArrayVisitorImpl(){};
 
+  arrow::Status Eval(int row_id, int group_id) {
+    return builder_->Process(row_id, group_id);
+  }
+
+  arrow::Status Finish() { return builder_->Finish(); }
+
  private:
+  class ArrayBuilderImplBase;
   arrow::compute::FunctionContext* ctx_;
-  std::shared_ptr<arrow::Array> dict_;
   std::shared_ptr<arrow::Array> counts_;
   ArrayList out_;
+  std::shared_ptr<ArrayBuilderImplBase> builder_;
+
+  class ArrayBuilderImplBase {
+   public:
+    virtual arrow::Status Process(int row_id, int group_id) = 0;
+    virtual arrow::Status Finish() = 0;
+  };
+
+  template <typename ArrayType, typename T>
+  class ArrayBuilderImpl : public ArrayBuilderImplBase {
+   public:
+    static arrow::Status Make(const ArrayType* in, const T& t, const ArrayVisitorImpl* e,
+                              std::shared_ptr<ArrayBuilderImplBase>* builder) {
+      auto builder_ptr = std::make_shared<ArrayBuilderImpl<ArrayType, T>>(in, e);
+      RETURN_NOT_OK(builder_ptr->Init());
+      *builder = std::dynamic_pointer_cast<ArrayBuilderImplBase>(builder_ptr);
+      return arrow::Status::OK();
+    }
+
+    ArrayBuilderImpl(const ArrayType* in, const ArrayVisitorImpl* e) {
+      in_ = const_cast<ArrayType*>(in);
+      e_ = const_cast<ArrayVisitorImpl*>(e);
+    }
+
+    arrow::Status Init() {
+      // prepare builder, should be size of key number
+      auto counts = e_->counts_;
+      for (int i = 0; i < counts->length(); i++) {
+        std::unique_ptr<arrow::ArrayBuilder> builder;
+        RETURN_NOT_OK(arrow::MakeBuilder(e_->ctx_->memory_pool(), in_->type(), &builder));
+        auto count =
+            arrow::internal::checked_cast<const arrow::Int64Array&>(*counts.get())
+                .GetView(i);
+        RETURN_NOT_OK(builder->Reserve(count));
+        std::shared_ptr<BuilderType> builder_ptr;
+        builder_ptr.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
+        builder_list_.push_back(builder_ptr);
+      }
+      return arrow::Status::OK();
+    }
+
+    arrow::Status Process(int row_id, int group_id) {
+      if (in_->IsNull(row_id)) {
+        builder_list_[group_id]->UnsafeAppendNull();
+        return arrow::Status::OK();
+      }
+      auto value = in_->GetView(row_id);
+      UnsafeAppend(builder_list_[group_id], value);
+      return arrow::Status::OK();
+    }
+
+    arrow::Status Finish() {
+      for (int i = 0; i < builder_list_.size(); i++) {
+        std::shared_ptr<arrow::Array> out_arr;
+        builder_list_[i]->Finish(&out_arr);
+        e_->out_.push_back(out_arr);
+      }
+      return arrow::Status::OK();
+    }
+
+   private:
+    using BuilderType = typename arrow::TypeTraits<T>::BuilderType;
+    std::vector<std::shared_ptr<BuilderType>> builder_list_;
+    ArrayType* in_;
+    ArrayVisitorImpl* e_;
+
+    // For non-binary builders, use regular value append
+    template <typename Builder, typename Scalar>
+    static typename std::enable_if<
+        !std::is_base_of<arrow::BaseBinaryType, typename Builder::TypeClass>::value,
+        arrow::Status>::type
+    UnsafeAppend(std::shared_ptr<Builder> builder, Scalar&& value) {
+      builder->UnsafeAppend(std::forward<Scalar>(value));
+      return arrow::Status::OK();
+    }
+
+    // For binary builders, need to reserve byte storage first
+    template <typename Builder>
+    static arrow::enable_if_base_binary<typename Builder::TypeClass, arrow::Status>
+    UnsafeAppend(std::shared_ptr<Builder> builder, arrow::util::string_view value) {
+      RETURN_NOT_OK(builder->ReserveData(static_cast<int64_t>(value.size())));
+      builder->UnsafeAppend(value);
+      return arrow::Status::OK();
+    }
+  };
 
   template <typename ArrayType, typename T>
   arrow::Status VisitImpl(const ArrayType& in, const T& t) {
-    using BuilderType = typename arrow::TypeTraits<T>::BuilderType;
-    auto type = in.type();
-
-    std::vector<std::shared_ptr<BuilderType>> builder_list;
-
-    // prepare builder, should be size of key number
-    for (int i = 0; i < counts_->length(); i++) {
-      std::unique_ptr<arrow::ArrayBuilder> builder;
-      RETURN_NOT_OK(arrow::MakeBuilder(ctx_->memory_pool(), type, &builder));
-      auto count = arrow::internal::checked_cast<const arrow::Int64Array&>(*counts_.get())
-                       .GetView(i);
-      RETURN_NOT_OK(builder->Reserve(count));
-      std::shared_ptr<BuilderType> builder_ptr;
-      builder_ptr.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
-      builder_list.push_back(builder_ptr);
-    }
-
-    if (in.length() != dict_->length()) {
-      return arrow::Status::Invalid(
-          "ArrayVisitorImpl: input array size does not match dict_indices size.");
-    }
-    for (int i = 0; i < dict_->length(); i++) {
-      auto group_id =
-          arrow::internal::checked_cast<const arrow::Int32Array&>(*dict_.get())
-              .GetView(i);
-      if (in.IsNull(i)) {
-        builder_list[group_id]->UnsafeAppendNull();
-        continue;
-      }
-      auto value = arrow::internal::checked_cast<const ArrayType&>(in).GetView(i);
-      UnsafeAppend(builder_list[group_id], value);
-    }
-
-    for (int i = 0; i < builder_list.size(); i++) {
-      std::shared_ptr<arrow::Array> out_arr;
-      builder_list[i]->Finish(&out_arr);
-      out_.push_back(out_arr);
-    }
+    ArrayBuilderImpl<ArrayType, T>::Make(&in, t, this, &builder_);
     return arrow::Status::OK();
   }
-
-  // For non-binary builders, use regular value append
-  template <typename Builder, typename Scalar>
-  static typename std::enable_if<
-      !std::is_base_of<arrow::BaseBinaryType, typename Builder::TypeClass>::value,
-      arrow::Status>::type
-  UnsafeAppend(std::shared_ptr<Builder> builder, Scalar&& value) {
-    builder->UnsafeAppend(std::forward<Scalar>(value));
-    return arrow::Status::OK();
-  }
-
-  // For binary builders, need to reserve byte storage first
-  template <typename Builder>
-  static arrow::enable_if_base_binary<typename Builder::TypeClass, arrow::Status>
-  UnsafeAppend(std::shared_ptr<Builder> builder, arrow::util::string_view value) {
-    RETURN_NOT_OK(builder->ReserveData(static_cast<int64_t>(value.size())));
-    builder->UnsafeAppend(value);
-    return arrow::Status::OK();
-  }
-
   arrow::Status Visit(const arrow::NullArray& array) {
     return arrow::Status::NotImplemented("SplitArray: NullArray is not supported.");
   }
@@ -173,7 +201,6 @@ class ArrayVisitorImpl : public arrow::ArrayVisitor {
     return VisitImpl(array, t);
   }
 };
-
 }  // namespace splitter
 
 arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayList& in,
@@ -185,16 +212,31 @@ arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayLi
   }
   out->resize(counts->length());
   out_sizes->resize(counts->length());
+  std::vector<std::shared_ptr<splitter::ArrayVisitorImpl>> array_visitor_list;
   for (auto col : in) {
-    splitter::ArrayVisitorImpl visitor(ctx, dict, counts);
-    RETURN_NOT_OK(col->Accept(&visitor));
+    auto visitor = std::make_shared<splitter::ArrayVisitorImpl>(ctx, counts);
+    RETURN_NOT_OK(col->Accept(&(*visitor.get())));
+    array_visitor_list.push_back(visitor);
+  }
+
+  for (int i = 0; i < dict->length(); i++) {
+    auto group_id =
+        arrow::internal::checked_cast<const arrow::Int32Array&>(*dict.get()).GetView(i);
+    for (auto array_visitor : array_visitor_list) {
+      array_visitor->Eval(i, group_id);
+    }
+  }
+
+  for (auto array_visitor : array_visitor_list) {
     ArrayList res;
-    visitor.GetResult(&res);
+    array_visitor->Finish();
+    array_visitor->GetResult(&res);
     if (res.size() != out->size()) {
       return arrow::Status::Invalid(
           "ArrayVicitorImpl failed: result array number does not match expectation.");
     }
     for (int i = 0; i < out->size(); i++) {
+      // move array from single array batch to output multiple array batch.
       out->at(i).push_back(res[i]);
       out_sizes->at(i) = res[i]->length();
     }
