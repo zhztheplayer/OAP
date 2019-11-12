@@ -216,6 +216,7 @@ object SparkEnv extends Logging {
   /**
    * Helper method to create a SparkEnv for a driver or an executor.
    */
+  // scalastyle:off
   private def create(
       conf: SparkConf,
       executorId: String,

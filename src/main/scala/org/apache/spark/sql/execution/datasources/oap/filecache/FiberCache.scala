@@ -21,10 +21,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 import com.google.common.primitives.Ints
+import org.apache.hadoop.fs.FSDataInputStream
 import scala.collection.mutable
 
+import org.apache.spark.SparkEnv
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.execution.datasources.OapException
+import org.apache.spark.sql.internal.oap.OapConf
 import org.apache.spark.sql.oap.OapRuntime
 import org.apache.spark.unsafe.Platform
 import org.apache.spark.unsafe.types.UTF8String
@@ -35,7 +38,11 @@ case class FiberCache(fiberData: MemoryBlockHolder) extends Logging {
   // TODO: make it immutable
   var fiberId: FiberId = _
 
-  val DISPOSE_TIMEOUT = 3000
+  val DISPOSE_TIMEOUT = if (SparkEnv.get != null) {
+    SparkEnv.get.conf.get(OapConf.OAP_FIBER_CACHE_DISPOSE_TIMEOUT)
+  } else {
+    OapConf.OAP_FIBER_CACHE_DISPOSE_TIMEOUT.defaultValue.get
+  }
 
   // record every batch startAddress, endAddress and the boolean of whether compressed
   // and the child column vector length in CompressedBatchFiberInfo
@@ -73,9 +80,9 @@ case class FiberCache(fiberData: MemoryBlockHolder) extends Logging {
             // reader, so it needs to sleep some time to see if the reader done.
             // Otherwise, it becomes a polling loop.
             // TODO: use lock/sync-obj to leverage the concurrency APIs instead of explicit sleep.
-            Thread.sleep(100)
+            Thread.sleep(5)
           } else {
-            if (writeLock.tryLock(200, TimeUnit.MILLISECONDS)) {
+            if (writeLock.tryLock(20, TimeUnit.MILLISECONDS)) {
               try {
                 if (refCount == 0) {
                   realDispose()
@@ -88,7 +95,7 @@ case class FiberCache(fiberData: MemoryBlockHolder) extends Logging {
           }
         }
     }
-    logWarning(s"Fiber Cache Dispose waiting detected for $fiberId")
+    logDebug(s"Fiber Cache Dispose waiting detected for $fiberId")
     false
   }
 
@@ -174,6 +181,7 @@ case class CompressedBatchedFiberInfo(
     compressed: Boolean, length: Long)
 
 object FiberCache {
+  val memoryManager = OapRuntime.getOrCreate.memoryManager
   //  For test purpose :convert Array[Byte] to FiberCache
   private[oap] def apply(data: Array[Byte]): FiberCache = {
     val memoryBlockHolder =
@@ -182,7 +190,62 @@ object FiberCache {
         data,
         Platform.BYTE_ARRAY_OFFSET,
         data.length,
-        data.length)
+        data.length,
+        "DRAM")
     FiberCache(memoryBlockHolder)
+  }
+
+  private def allocateDataMemory(size : Long): MemoryBlockHolder = {
+    var block : MemoryBlockHolder = null.asInstanceOf[MemoryBlockHolder]
+    if ( memoryManager.isInstanceOf[MixMemoryManager] ) {
+      block = memoryManager.asInstanceOf[MixMemoryManager].allocateData( size )
+    } else {
+      block = memoryManager.allocate( size )
+    }
+    block.cacheType = CacheEnum.DATA
+    block
+  }
+
+  private def allocateIndexMemory(size : Long): MemoryBlockHolder = {
+    var block : MemoryBlockHolder = null.asInstanceOf[MemoryBlockHolder]
+    if ( memoryManager.isInstanceOf[MixMemoryManager] ) {
+      block = memoryManager.asInstanceOf[MixMemoryManager].allocateIndex( size )
+    } else {
+      block = memoryManager.allocate( size )
+    }
+    block.cacheType = CacheEnum.INDEX
+    block
+  }
+
+  def toDataFiberCache(bytes: Array[Byte]): FiberCache = {
+    val block = allocateDataMemory(bytes.length)
+    Platform.copyMemory(
+      bytes,
+      Platform.BYTE_ARRAY_OFFSET,
+      block.baseObject,
+      block.baseOffset,
+      bytes.length)
+    FiberCache(block)
+  }
+
+  def toIndexFiberCache(bytes: Array[Byte]): FiberCache = {
+    val block = allocateIndexMemory(bytes.length)
+    Platform.copyMemory(
+      bytes,
+      Platform.BYTE_ARRAY_OFFSET,
+      block.baseObject,
+      block.baseOffset,
+      bytes.length)
+    FiberCache(block)
+  }
+
+  def toIndexFiberCache(in: FSDataInputStream, position: Long, length: Int): FiberCache = {
+    val bytes = new Array[Byte](length)
+    in.readFully(position, bytes)
+    toIndexFiberCache(bytes)
+  }
+
+  def getEmptyDataFiberCache(length: Long): FiberCache = {
+    FiberCache(allocateDataMemory(length))
   }
 }

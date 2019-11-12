@@ -4,30 +4,19 @@
 OAP - Optimized Analytics Package (previously known as Spinach) is designed to accelerate Ad-hoc query. OAP defines a new parquet-like columnar storage data format and offering a fine-grained hierarchical cache mechanism in the unit of “Fiber” in memory. What’s more, OAP has extended the Spark SQL DDL to allow user to define the customized indices based on relation.
 ## Building
 
+for vmemcache cache strategy, please build with command:
+```
+mvn clean -q -Pvmemcache -DskipTests package
+```
+for non-evictable cache strategy, use:
 ```
 mvn clean -q -Ppersistent-memory -DskipTests package
 ```
-Profile `persistent-memory` is Optional.
 ## Prerequisites
-You should have [Apache Spark](http://spark.apache.org/) of version 2.3.2 installed in your cluster
+You should have [Apache Spark](http://spark.apache.org/) of version 2.3.2/2.4.4 installed in your cluster
 . Refer to Apache Spark's [documents](http://spark.apache.org/docs/2.3.2/) for details.
 ## Use OAP with Spark
-1. Build OAP find `oap-<version>-with-<spark-version>.jar` in `target/`
-2. Deploy `oap-<version>-with-<spark-version>.jar` to master machine.
-3. Put below configurations to _$SPARK_HOME/conf/spark-defaults.conf_
-```
-spark.files                         file:///path/to/oap-dir/oap-<version>-with-<spark-version>.jar
-spark.executor.extraClassPath       ./oap-<version>-with-<spark-version>.jar
-spark.driver.extraClassPath         /path/to/oap-dir/oap-<version>-with-<spark-version>.jar
-spark.memory.offHeap.enabled        true
-spark.memory.offHeap.size           20g
-```
-4. Run spark by `bin/spark-sql`, `bin/spark-shell`, `sbin/start-thriftserver` or `bin/pyspark` and try our examples
-
-**NOTE**: 1. For spark standalone mode, you have to put `oap-<version>-with-<spark-version>.jar` to both driver and executor since `spark.files` is not working. Also don't forget to update `extraClassPath`.
-          2. For yarn mode, we need to config all spark.driver.memory, spark.memory.offHeap.size and spark.yarn.executor.memoryOverhead (should be close to offHeap.size) to enable fiber cache.
-          3. The comprehensive guidance and example of OAP configuration can be referred @https://github.com/Intel-bigdata/OAP/wiki/OAP-User-guide. Briefly speaking, the recommended configuration is one executor per one node with fully memory/computation capability.
-
+Please refer details in doc/DCPMM-Cache-Support-in-OAP.pdf
 ## Example
 ```
 ./bin/spark-shell
@@ -71,6 +60,23 @@ Parquet is the most popular and recommended data format in Spark open-source com
 * Orc Data Adaptor
 Orc is another popular data format. We also designed the compatible layer to allow user to create index directly on top of Orc data. With the Orc reader we implemented, query over indexed Orc data is also accelerated.
 * Compatible with multiple versions of spark
+
+## Numa Support
+* Numa binding when launch the yarn container
+Considering the performance bring by numa binding, a patch in spark yarn side is suggested for apply. Currently we target to spark 2.3.2.
+Patch to upstream spark source code is supported. You can find the built spark under spark_source which is located at same directory with OAP
+If numa binding is enabled, spark.yarn.numa.num is required and should set it to the number of numa nodes in each hosts.
+```
+cd scripts
+./apply_patch_to_spark.sh -v SPARK_VERSION
+mvn clean package -Ppersistent-memory,numa-binding -DskipTests
+```
+Patch to the local customized spark. Notice that some conflicts need resolve and copy the patched file to patched_file directory manually for this usage.
+```
+cd scripts
+./apply_patch_to_spark.sh -v SPARK_VERSION -c YOUR_SPARK_DIR
+mvn clean package -Ppersistent-memory,numa-binding -DskipTests
+```
 
 ## Configurations and Performance Tuning
 

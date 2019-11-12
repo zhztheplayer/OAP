@@ -52,13 +52,9 @@ object ParquetDataFiberCompressedWriter extends Logging {
   val codecName = OapRuntime.getOrCreate.fiberCacheManager.dataCacheCompressionCodec
   val compressionCodec = SparkCompressionCodec.createCodec(new SparkConf(), codecName)
 
-  def dumpToCache(reader: VectorizedColumnReader,
-      total: Int, dataType: DataType): FiberCache = {
-    // For the dictionary case, the column vector occurs some batch has dictionary
-    // and some no dictionary. Therefore we still read the total value to cv instead of batch.
-    // TODO: Next can split the read to column vector from total to batch?
-    val column: OnHeapColumnVector = new OnHeapColumnVector(total, dataType)
-    reader.readBatch(total, column)
+
+  def dumpToCache(column: OnHeapColumnVector,
+                  total: Int, dataType: DataType): FiberCache = {
     val dicLength = column.dictionaryLength()
     if (dicLength != 0) {
       dumpDataAndDicToFiber(column, total, dataType)
@@ -239,13 +235,13 @@ object ParquetDataFiberCompressedWriter extends Logging {
       val nativeAddress = if (header.noNulls) {
         val fiberLength = ParquetDataFiberCompressedHeader.defaultSize + compressedSize
         logDebug(s"will apply $fiberLength bytes off heap memory for data fiber.")
-        fiber = emptyDataFiber(fiberLength)
+        fiber = FiberCache.getEmptyDataFiberCache(fiberLength)
         header.writeToCache(fiber.getBaseOffset)
       } else {
         val fiberLength = ParquetDataFiberCompressedHeader.defaultSize +
           compressedSize + total
         logDebug(s"will apply $fiberLength bytes off heap memory for data fiber.")
-        fiber = emptyDataFiber(fiberLength)
+        fiber = FiberCache.getEmptyDataFiberCache(fiberLength)
         dumpNullsToFiber(header.writeToCache(fiber.getBaseOffset), column, total)
       }
 
@@ -278,7 +274,7 @@ object ParquetDataFiberCompressedWriter extends Logging {
       // if the column vector is nulls, we only dump the header info to data fiber
       val fiberLength = ParquetDataFiberCompressedHeader.defaultSize
       logDebug(s"will apply $fiberLength bytes off heap memory for data fiber.")
-      fiber = emptyDataFiber(fiberLength)
+      fiber = FiberCache.getEmptyDataFiberCache(fiberLength)
       header.writeToCache(fiber.getBaseOffset)
     }
     fiber
@@ -415,13 +411,13 @@ object ParquetDataFiberCompressedWriter extends Logging {
         val fiberLength = ParquetDataFiberCompressedHeader.defaultSize +
           compressedSize + dictionaryBytes.length
         logDebug(s"will apply $fiberLength bytes off heap memory for data fiber.")
-        fiber = emptyDataFiber(fiberLength)
+        fiber = FiberCache.getEmptyDataFiberCache(fiberLength)
         header.writeToCache(fiber.getBaseOffset)
       } else {
         val fiberLength = ParquetDataFiberCompressedHeader.defaultSize +
           compressedSize + dictionaryBytes.length + total
         logDebug(s"will apply $fiberLength bytes off heap memory for data fiber.")
-        fiber = emptyDataFiber(fiberLength)
+        fiber = FiberCache.getEmptyDataFiberCache(fiberLength)
         dumpNullsToFiber(header.writeToCache(fiber.getBaseOffset), column, total)
       }
 
@@ -447,14 +443,12 @@ object ParquetDataFiberCompressedWriter extends Logging {
       // if the column vector is nulls, we only dump the header info to data fiber
       val fiberLength = ParquetDataFiberCompressedHeader.defaultSize
       logDebug(s"will apply $fiberLength bytes off heap memory for data fiber.")
-      fiber = emptyDataFiber(fiberLength)
+      fiber = FiberCache.getEmptyDataFiberCache(fiberLength)
       header.writeToCache(fiber.getBaseOffset)
     }
     fiber
   }
 
-  private def emptyDataFiber(fiberLength: Long): FiberCache =
-    OapRuntime.getOrCreate.memoryManager.getEmptyDataFiberCache(fiberLength)
 }
 
 /**
@@ -758,7 +752,7 @@ class ParquetDataFiberCompressedReader (
       val memoryBlockHolder = new MemoryBlockHolder(
         CacheEnum.GENERAL,
         decompressedBytes, Platform.BYTE_ARRAY_OFFSET,
-        decompressedBytes.length, decompressedBytes.length)
+        decompressedBytes.length, decompressedBytes.length, "DRAM")
 
       val fiberCacheReturned = if (num < defaultCapacity) {
         new DecompressBatchedFiberCache(memoryBlockHolder, fiberBatchedInfo.compressed, fiberCache)

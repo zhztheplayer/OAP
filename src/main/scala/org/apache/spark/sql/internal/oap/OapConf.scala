@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.internal.oap
 
+import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.sql.oap.adapter.SqlConfAdapter
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -146,11 +147,9 @@ object OapConf {
     SqlConfAdapter.buildConf("spark.sql.oap.fiberCache.memory.manager")
       .internal()
       .doc("Sets the implement of memory manager, it currently supports offheap(DRAM OFF_HEAP), " +
-        "pm(Intel Optane DC persistent memory) and mix(A combination of offheap and pm)." +
-        "To enable mix mode, you need to set " +
-        "spark.sql.oap.index.data.cache.separation.enable to true")
+        "vmemcache and hybrid(A combination of offheap and pm).")
       .stringConf
-      .createWithDefault("offheap")
+      .createWithDefault("vmemcache")
 
   val OAP_MIX_INDEX_MEMORY_MANAGER =
     SqlConfAdapter.buildConf("spark.sql.oap.mix.index.memory.manager")
@@ -196,6 +195,13 @@ object OapConf {
         "can't full use the total initial size memory. The reserved size should smaller than" +
         " initial size. Too small reserved size could result in OOM, too big size could reduce" +
         " the memory utilization rate.")
+      .stringConf
+      .createWithDefault("0b")
+
+  val OAP_FIBERCACHE_DRAM_INITIAL_SIZE =
+    SqlConfAdapter.buildConf("spark.sql.oap.fiberCache.dram.initial.size")
+      .internal()
+      .doc("Initial size for DRAM cache.")
       .stringConf
       .createWithDefault("0b")
 
@@ -370,6 +376,27 @@ object OapConf {
       .stringConf
       .createWithDefault("")
 
+  val OAP_CACHE_GUARDIAN_FREE_THREAD_NUM =
+    SqlConfAdapter.buildConf("spark.sql.oap.cache.guardian.free.thread.nums")
+      .internal()
+      .doc("Use multithread to free CacheGuardian memory ")
+      .intConf
+      .createWithDefault(2)
+
+  val OAP_CACHE_GUARDIAN_MEMORY_SIZE =
+    SqlConfAdapter.buildConf("spark.sql.oap.cache.guardian.memory.size")
+      .internal()
+      .doc("total cache guardian memory size")
+      .stringConf
+      .createWithDefault("10g")
+
+  val OAP_FIBER_CACHE_DISPOSE_TIMEOUT =
+    SqlConfAdapter.buildConf("spark.sql.oap.cache.dispose.timeout.ms")
+      .internal()
+      .doc("fiber cache dispose timeout")
+      .intConf
+      .createWithDefault(5)
+
   val OAP_INDEX_STATISTIC_EXTERNALSORTER_ENABLE =
     SqlConfAdapter.buildConf("spark.sql.oap.index.statistic.externalsorter.enable")
       .internal()
@@ -400,4 +427,38 @@ object OapConf {
       .doc("The oap data fiber compression unit length")
       .intConf
       .createWithDefault(4096)
+  val OAP_AEP_INITIAL_PATHS =
+    SqlConfAdapter.buildConf("spark.oap.memory.aep.initial.paths")
+      .internal()
+      .doc("To indicate the initial paths for aep cache")
+      .stringConf
+      .createWithDefault("/mnt/pmem0/spark/,/mnt/pmem1/spark/")
+
+/*  val OAP_AEP_INITIAL_SIZE =
+    SqlConfAdapter.buildConf("spark.oap.memory.aep.initial.size")
+      .internal()
+      .doc("AEP initial size, default is 128G")
+      .stringConf
+      .createWithDefault("128g")
+
+  val DCPM_CACHE_BACKEND =
+    SqlConfAdapter.buildConf("spark.oap.dcpm.cache.backend")
+      .internal()
+      .doc("Use Memkind/Vmemcache as backend for Intel Optane DC persistent memory.")
+      .stringConf
+      .createWithDefault("memkind") */
+
+  val SIZE_OF_NUMA_NODES =
+    SqlConfAdapter.buildConf("spark.sql.numa.nodes.size")
+      .doc("To indicate the total NUMA nodes of the hardware.")
+      .intConf
+      .createWithDefault(2)
+
+  val OAP_AEP_USEFUL_RATION =
+    SqlConfAdapter.buildConf("spark.oap.memory.aep.useful.ration")
+      .internal()
+      .doc("The useful size of AEP for OAP cache")
+      .doubleConf
+      .createWithDefault(1.0)
+
 }

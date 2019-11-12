@@ -18,19 +18,20 @@
 package org.apache.spark.sql.execution.datasources.oap.filecache
 
 import java.io.File
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
-import org.apache.hadoop.fs.FSDataInputStream
-
-import org.apache.spark.SparkEnv
+import org.apache.spark.{SparkEnv, SparkException}
+import org.apache.spark.internal
 import org.apache.spark.internal.Logging
 import org.apache.spark.memory.MemoryMode
 import org.apache.spark.sql.execution.datasources.OapException
 import org.apache.spark.sql.execution.datasources.oap.utils.PersistentMemoryConfigUtils
 import org.apache.spark.sql.internal.oap.OapConf
-import org.apache.spark.storage.{BlockManager, TestBlockId}
-import org.apache.spark.unsafe.{PersistentMemoryPlatform, Platform}
+import org.apache.spark.storage.TestBlockId
+import org.apache.spark.unsafe.{PersistentMemoryPlatform, Platform, VMEMCacheJNI}
 import org.apache.spark.util.Utils
+
 
 object CacheEnum extends Enumeration {
   type CacheEnum = Value
@@ -51,7 +52,8 @@ case class MemoryBlockHolder(
     baseObject: AnyRef,
     baseOffset: Long,
     length: Long,
-    occupiedSize: Long)
+    occupiedSize: Long,
+    source: String)
 
 private[sql] abstract class MemoryManager {
   /**
@@ -79,56 +81,14 @@ private[sql] abstract class MemoryManager {
    */
   def cacheGuardianMemory: Long
 
-  /**
-   * Allocate a block of memory with given size. The actual occupied size of memory maybe different
-   * with the requested size, that's depends on the underlying implementation.
-   * @param size requested size of memory block
-   */
   private[filecache] def allocate(size: Long): MemoryBlockHolder
+
   private[filecache] def free(block: MemoryBlockHolder): Unit
 
-  @inline protected def toFiberCache(bytes: Array[Byte]): FiberCache = {
-    val block = allocate(bytes.length)
-    Platform.copyMemory(
-      bytes,
-      Platform.BYTE_ARRAY_OFFSET,
-      block.baseObject,
-      block.baseOffset,
-      bytes.length)
-    FiberCache(block)
-  }
-
-  /**
-   * Used by IndexFile
-   */
-  def toIndexFiberCache(in: FSDataInputStream, position: Long, length: Int): FiberCache = {
-    val bytes = new Array[Byte](length)
-    in.readFully(position, bytes)
-    toFiberCache(bytes)
-  }
-
-  /**
-   * Used by IndexFile. For decompressed data
-   */
-  def toIndexFiberCache(bytes: Array[Byte]): FiberCache = {
-    toFiberCache(bytes)
-  }
-
-  /**
-   * Used by OapDataFile since we need to parse the raw data in on-heap memory before put it into
-   * off-heap memory
-   */
-  def toDataFiberCache(bytes: Array[Byte]): FiberCache = {
-    toFiberCache(bytes)
-  }
-
-  def getEmptyDataFiberCache(length: Long): FiberCache = {
-    FiberCache(allocate(length))
-  }
   def stop(): Unit = {}
 }
 
-private[sql] object MemoryManager {
+private[sql] object MemoryManager extends Logging {
   /**
    * Dummy block id to acquire memory from [[org.apache.spark.memory.MemoryManager]]
    *
@@ -151,6 +111,8 @@ private[sql] object MemoryManager {
     memoryManagerOpt match {
       case "offheap" => new OffHeapMemoryManager(sparkEnv)
       case "pm" => new PersistentMemoryManager(sparkEnv)
+      case "hybrid" => new HybridMemoryManager(sparkEnv)
+      case "self" => new SelfManagedMemoryManager(sparkEnv)
       case "mix" => if (indexDataSeparationEnable) {
         new MixMemoryManager(sparkEnv)
       } else {
@@ -171,8 +133,11 @@ private[filecache] class OffHeapMemoryManager(sparkEnv: SparkEnv)
   extends MemoryManager with Logging {
 
   private lazy val memoryManager = sparkEnv.memoryManager
+  private val offheapExceedCheckEnabled = sparkEnv.conf.getBoolean("oap.memory.offheap.check", true)
+  private val offHeapEnabled = sparkEnv.conf.get(internal.config.MEMORY_OFFHEAP_ENABLED)
 
-  private lazy val oapMemory = {
+  private val oapMemory = {
+    assert(offHeapEnabled, "should enable Spark Offheap Memory")
     assert(memoryManager.maxOffHeapStorageMemory > 0, "Oap can't run without offHeap memory")
     val useOffHeapRatio = sparkEnv.conf.getDouble(
       OapConf.OAP_FIBERCACHE_USE_OFFHEAP_RATIO.key,
@@ -202,7 +167,7 @@ private[filecache] class OffHeapMemoryManager(sparkEnv: SparkEnv)
   }
 
   // TODO: Atomic is really needed?
-  private val _memoryUsed = new AtomicLong(0)
+  protected val _memoryUsed = new AtomicLong(0)
 
   override def memoryUsed: Long = _memoryUsed.get()
 
@@ -213,12 +178,15 @@ private[filecache] class OffHeapMemoryManager(sparkEnv: SparkEnv)
   override def cacheGuardianMemory: Long = _cacheGuardianMemory
 
   override private[filecache] def allocate(size: Long): MemoryBlockHolder = {
+    if (memoryUsed + size > oapMemory && offheapExceedCheckEnabled) {
+      throw new OapException("Offheap memory is full")
+    }
     val address = Platform.allocateMemory(size)
     _memoryUsed.getAndAdd(size)
     logDebug(s"request allocate $size memory, actual occupied size: " +
       s"${size}, used: $memoryUsed")
     // For OFF_HEAP, occupied size also equal to the size.
-    MemoryBlockHolder(CacheEnum.GENERAL, null, address, size, size)
+    MemoryBlockHolder(CacheEnum.GENERAL, null, address, size, size, "DRAM")
   }
 
   override private[filecache] def free(block: MemoryBlockHolder): Unit = {
@@ -230,6 +198,51 @@ private[filecache] class OffHeapMemoryManager(sparkEnv: SparkEnv)
 
   override def stop(): Unit = {
     memoryManager.releaseStorageMemory(oapMemory, MemoryMode.OFF_HEAP)
+  }
+}
+
+/**
+ * An memory manager which support allocate OFF_HEAP memory. It will not acquire memory from
+ * spark storage memory, and cacheGuardian is consumer of this class.
+ */
+private[filecache] class SelfManagedMemoryManager(sparkEnv: SparkEnv)
+  extends MemoryManager with Logging {
+
+  val cacheGuardianMemorySizeStr =
+    sparkEnv.conf.get(OapConf.OAP_CACHE_GUARDIAN_MEMORY_SIZE)
+  val cacheGuardianMemory = Utils.byteStringAsBytes(cacheGuardianMemorySizeStr)
+  logInfo(s"cacheGuardian total use $cacheGuardianMemory bytes memory")
+
+  override def indexCacheMemory: Long = 0L
+  override def dataCacheMemory: Long = 0L
+  private val _memoryUsed = new AtomicLong(0)
+  override def memoryUsed: Long = _memoryUsed.get()
+
+  override private[filecache] def allocate(size: Long): MemoryBlockHolder = {
+    if (memoryUsed + size > cacheGuardianMemory) {
+      throw new OapException("cache guardian use too much memory")
+    }
+    val startTime = System.currentTimeMillis()
+    val occupiedSize = size
+    val address = Platform.allocateMemory(occupiedSize)
+    _memoryUsed.getAndAdd(occupiedSize)
+    logDebug(s"memory manager allocate takes" +
+      s" ${System.currentTimeMillis() - startTime} ms, " +
+      s"request allocate $size memory, actual occupied size: " +
+      s"${occupiedSize}, used: $memoryUsed")
+
+    MemoryBlockHolder(CacheEnum.GENERAL, null, address, size,
+      occupiedSize, "DRAM")
+  }
+
+  override private[filecache] def free(block: MemoryBlockHolder): Unit = {
+    val startTime = System.currentTimeMillis()
+    assert(block.baseObject == null)
+    Platform.freeMemory(block.baseOffset )
+    _memoryUsed.getAndAdd(-block.occupiedSize)
+    logDebug(s"memory manager free takes" +
+      s" ${System.currentTimeMillis() - startTime} ms" +
+      s"freed ${block.occupiedSize} memory, used: $memoryUsed")
   }
 }
 
@@ -298,7 +311,7 @@ private[filecache] class PersistentMemoryManager(sparkEnv: SparkEnv)
     _memoryUsed.getAndAdd(occupiedSize)
     logDebug(s"request allocate $size memory, actual occupied size: " +
       s"${occupiedSize}, used: $memoryUsed")
-    MemoryBlockHolder(CacheEnum.GENERAL, null, address, size, occupiedSize)
+    MemoryBlockHolder(CacheEnum.GENERAL, null, address, size, occupiedSize, "PM")
   }
 
   override private[filecache] def free(block: MemoryBlockHolder): Unit = {
@@ -306,6 +319,86 @@ private[filecache] class PersistentMemoryManager(sparkEnv: SparkEnv)
     PersistentMemoryPlatform.freeMemory(block.baseOffset)
     _memoryUsed.getAndAdd(-block.occupiedSize)
     logDebug(s"freed ${block.occupiedSize} memory, used: $memoryUsed")
+  }
+}
+
+private[filecache] class HybridMemoryManager(sparkEnv: SparkEnv)
+  extends MemoryManager with Logging {
+  private val (persistentMemoryManager, dramMemoryManager) =
+    (new PersistentMemoryManager(sparkEnv), new SelfManagedMemoryManager(sparkEnv))
+
+  private val _memoryUsed = new AtomicLong(0)
+
+  private var memBlockInPM = scala.collection.mutable.Set[MemoryBlockHolder]()
+
+  private val (_dataDRAMCacheSize, _dataPMCacheSize, _dramGuardianSize, _pmGuardianSize) = init()
+
+  private def init(): (Long, Long, Long, Long) = {
+    val conf = sparkEnv.conf
+    // The NUMA id should be set when the executor process start up. However, Spark don't
+    // support NUMA binding currently.
+    var numaId = conf.getInt("spark.executor.numa.id", -1)
+    val executorId = sparkEnv.executorId.toInt
+    val map = PersistentMemoryConfigUtils.parseConfig(conf)
+    if (numaId == -1) {
+      logWarning(s"Executor ${executorId} is not bind with NUMA. It would be better to bind " +
+        s"executor with NUMA when cache data to Intel Optane DC persistent memory.")
+      // Just round the executorId to the total NUMA number.
+      // TODO: improve here
+      numaId = executorId % PersistentMemoryConfigUtils.totalNumaNode(conf)
+    }
+
+    val initialPath = map.get(numaId).get
+    val initialSizeStr = conf.get(OapConf.OAP_FIBERCACHE_PERSISTENT_MEMORY_INITIAL_SIZE).trim
+    val initialPMSize = Utils.byteStringAsBytes(initialSizeStr)
+    val reservedSizeStr = conf.get(OapConf.OAP_FIBERCACHE_PERSISTENT_MEMORY_RESERVED_SIZE).trim
+    val reservedPMSize = Utils.byteStringAsBytes(reservedSizeStr)
+    val fullPath = Utils.createTempDir(initialPath + File.separator + executorId)
+    PersistentMemoryPlatform.initialize(fullPath.getCanonicalPath, initialPMSize)
+    logInfo(s"Initialize Intel Optane DC persistent memory successfully, numaId: " +
+      s"${numaId}, initial path: ${fullPath.getCanonicalPath}, initial size: " +
+      s"${initialPMSize}, reserved size: ${reservedPMSize}")
+    require(reservedPMSize >= 0 && reservedPMSize < initialPMSize,
+      s"Reserved size(${reservedPMSize}) should be larger than zero and smaller than initial " +
+        s"size(${initialPMSize})")
+    val totalPMUsableSize = initialPMSize - reservedPMSize
+    val initialDRAMSizeSize = Utils.byteStringAsBytes(
+      conf.get(OapConf.OAP_FIBERCACHE_PERSISTENT_MEMORY_INITIAL_SIZE).trim)
+    ((totalPMUsableSize * 0.9).toLong,
+      (totalPMUsableSize * 0.9).toLong,
+      (initialDRAMSizeSize * 0.9).toLong,
+      (initialDRAMSizeSize * 0.1).toLong)
+  }
+
+  override def memoryUsed: Long = _memoryUsed.get()
+
+  override def indexCacheMemory: Long = 0
+
+  override def dataCacheMemory: Long = _dataPMCacheSize
+
+  override def cacheGuardianMemory: Long = _dataPMCacheSize
+
+  override private[filecache] def allocate(size: Long) = {
+    try {
+      val memBlock = persistentMemoryManager.allocate(size)
+      _memoryUsed.addAndGet(memBlock.occupiedSize)
+      memBlockInPM += memBlock
+      memBlock
+    } catch {
+      case oom : OutOfMemoryError => dramMemoryManager.allocate(size)
+      case ex : Throwable => throw ex
+    }
+
+  }
+
+  override private[filecache] def free(block: MemoryBlockHolder): Unit = {
+    if (memBlockInPM.contains(block)) {
+      memBlockInPM.remove(block)
+      persistentMemoryManager.free(block)
+      _memoryUsed.addAndGet(-1 * block.occupiedSize)
+    } else {
+      dramMemoryManager.free(block)
+    }
   }
 }
 
@@ -352,24 +445,16 @@ private[filecache] class MixMemoryManager(sparkEnv: SparkEnv)
     (indexManager, dataManager)
   }
 
-  override private[filecache] def allocate(size: Long): MemoryBlockHolder = {
-    throw new UnsupportedOperationException("Can't do direct allocate for MixedMemoryManager")
+  override private[filecache] def allocate(size: Long) = {
+    throw new UnsupportedOperationException("Unsupported")
   }
 
-  override def toIndexFiberCache(in: FSDataInputStream, position: Long, length: Int): FiberCache = {
-    indexMemoryManager.toIndexFiberCache(in, position, length).setMemBlockCacheType(CacheEnum.INDEX)
+  def allocateIndex(size: Long): MemoryBlockHolder = {
+    indexMemoryManager.allocate(size)
   }
 
-  override def toIndexFiberCache(bytes: Array[Byte]): FiberCache = {
-    indexMemoryManager.toIndexFiberCache(bytes).setMemBlockCacheType(CacheEnum.INDEX)
-  }
-
-  override def toDataFiberCache(bytes: Array[Byte]): FiberCache = {
-    dataMemoryManager.toDataFiberCache(bytes).setMemBlockCacheType(CacheEnum.DATA)
-  }
-
-  override def getEmptyDataFiberCache(length: Long): FiberCache = {
-    dataMemoryManager.getEmptyDataFiberCache(length).setMemBlockCacheType(CacheEnum.DATA)
+  def allocateData(size: Long): MemoryBlockHolder = {
+    dataMemoryManager.allocate(size)
   }
 
   override private[filecache] def free(block: MemoryBlockHolder): Unit = {
@@ -391,4 +476,11 @@ private[filecache] class MixMemoryManager(sparkEnv: SparkEnv)
 
   override def cacheGuardianMemory: Long =
     indexMemoryManager.cacheGuardianMemory + dataMemoryManager.cacheGuardianMemory
+
 }
+
+abstract class AllocationStrategy
+
+case class CapacityAllocation() extends AllocationStrategy
+
+case class LatencyAllocation() extends AllocationStrategy
