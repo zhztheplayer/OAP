@@ -124,6 +124,7 @@ class ExprVisitor {
   // Return fields
   std::vector<std::shared_ptr<arrow::Field>> result_fields_;
 
+  // Long live variables
   arrow::compute::FunctionContext ctx_;
 
   arrow::Status GetColumnAndFieldByName(std::shared_ptr<arrow::RecordBatch> in,

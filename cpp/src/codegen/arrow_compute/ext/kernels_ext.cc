@@ -266,22 +266,66 @@ arrow::Status CountArray(arrow::compute::FunctionContext* ctx,
   return arrow::Status::OK();
 }
 
-arrow::Status EncodeArray(arrow::compute::FunctionContext* ctx,
-                          const std::shared_ptr<arrow::Array>& in,
-                          std::shared_ptr<DictionaryExtArray>* out) {
+template <typename InType, typename MemoTableType>
+arrow::Status EncodeArrayImpl(arrow::compute::FunctionContext* ctx,
+                              const std::shared_ptr<arrow::Array>& in,
+                              std::shared_ptr<DictionaryExtArray>* out) {
   arrow::compute::Datum input_datum(in);
-  arrow::compute::Datum out_dict;
-
-  RETURN_NOT_OK(arrow::compute::DictionaryEncode(ctx, input_datum, &out_dict));
-  auto dict = std::dynamic_pointer_cast<arrow::DictionaryArray>(out_dict.make_array());
+  static auto hash_table = std::make_shared<MemoTableType>(ctx->memory_pool());
 
   std::shared_ptr<arrow::Array> out_counts;
-  RETURN_NOT_OK(arrow::compute::ValueCounts(ctx, input_datum, &out_counts));
+  RETURN_NOT_OK(
+      arrow::compute::ValueCounts<InType>(ctx, input_datum, hash_table, &out_counts));
   auto value_counts = std::dynamic_pointer_cast<arrow::StructArray>(out_counts);
+
+  arrow::compute::Datum out_dict;
+  RETURN_NOT_OK(
+      arrow::compute::DictionaryEncode<InType>(ctx, input_datum, hash_table, &out_dict));
+  auto dict = std::dynamic_pointer_cast<arrow::DictionaryArray>(out_dict.make_array());
 
   *out = std::make_shared<DictionaryExtArray>(dict->indices(), value_counts->field(1));
   return arrow::Status::OK();
 }
+
+#define PROCESS_SUPPORTED_TYPES(PROCESS) \
+  PROCESS(arrow::BooleanType)            \
+  PROCESS(arrow::UInt8Type)              \
+  PROCESS(arrow::Int8Type)               \
+  PROCESS(arrow::UInt16Type)             \
+  PROCESS(arrow::Int16Type)              \
+  PROCESS(arrow::UInt32Type)             \
+  PROCESS(arrow::Int32Type)              \
+  PROCESS(arrow::UInt64Type)             \
+  PROCESS(arrow::Int64Type)              \
+  PROCESS(arrow::FloatType)              \
+  PROCESS(arrow::DoubleType)             \
+  PROCESS(arrow::Date32Type)             \
+  PROCESS(arrow::Date64Type)             \
+  PROCESS(arrow::Time32Type)             \
+  PROCESS(arrow::Time64Type)             \
+  PROCESS(arrow::TimestampType)          \
+  PROCESS(arrow::BinaryType)             \
+  PROCESS(arrow::StringType)             \
+  PROCESS(arrow::FixedSizeBinaryType)    \
+  PROCESS(arrow::Decimal128Type)
+arrow::Status EncodeArray(arrow::compute::FunctionContext* ctx,
+                          const std::shared_ptr<arrow::Array>& in,
+                          std::shared_ptr<DictionaryExtArray>* out) {
+  switch (in->type_id()) {
+#define PROCESS(InType)                                                                \
+  case InType::type_id: {                                                              \
+    using MemoTableType = typename arrow::internal::HashTraits<InType>::MemoTableType; \
+    return EncodeArrayImpl<InType, MemoTableType>(ctx, in, out);                       \
+  } break;
+    PROCESS_SUPPORTED_TYPES(PROCESS)
+#undef PROCESS
+    default:
+      break;
+  }
+  return arrow::Status::OK();
+}
+#undef PROCESS_SUPPORTED_TYPES
+
 }  // namespace extra
 }  // namespace arrowcompute
 }  // namespace codegen

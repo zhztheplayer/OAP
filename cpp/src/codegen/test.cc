@@ -54,6 +54,24 @@ void test(std::shared_ptr<CodeGenerator> codegen,
   std::cout << std::endl;
 }
 
+void MakeInputBatch(const std::string& input_data, std::shared_ptr<arrow::Schema> sch,
+                    std::shared_ptr<arrow::RecordBatch>* input_batch) {
+  // prepare input record Batch
+  std::shared_ptr<arrow::Array> a0;
+  arrow::ipc::internal::json::ArrayFromJSON(uint8(), input_data, &a0);
+  std::shared_ptr<arrow::Array> a1;
+  arrow::ipc::internal::json::ArrayFromJSON(uint32(), input_data, &a1);
+  std::shared_ptr<arrow::Array> a2;
+  arrow::ipc::internal::json::ArrayFromJSON(uint8(), input_data, &a2);
+  std::shared_ptr<arrow::Array> a3;
+  arrow::ipc::internal::json::ArrayFromJSON(uint8(), input_data, &a3);
+  std::shared_ptr<arrow::Array> a4;
+  arrow::ipc::internal::json::ArrayFromJSON(uint8(), input_data, &a4);
+
+  *input_batch = RecordBatch::Make(sch, input_data.size(), {a0, a1, a2, a3, a4});
+  return;
+}
+
 int main() {
   arrow::Status status;
 
@@ -87,21 +105,6 @@ int main() {
   // prepare return types
   std::vector<std::shared_ptr<Field>> ret_types = {f0};
 
-  // prepare input record Batch
-  std::string input_data = "[1, 2, 3, 4, 5, 5, 4, 1, 2, 2, 1, 1, 1, 4, 4, 3, 5, 5, 5, 5]";
-  std::shared_ptr<arrow::Array> a0;
-  arrow::ipc::internal::json::ArrayFromJSON(uint8(), input_data, &a0);
-  std::shared_ptr<arrow::Array> a1;
-  arrow::ipc::internal::json::ArrayFromJSON(uint32(), input_data, &a1);
-  std::shared_ptr<arrow::Array> a2;
-  arrow::ipc::internal::json::ArrayFromJSON(uint8(), input_data, &a2);
-  std::shared_ptr<arrow::Array> a3;
-  arrow::ipc::internal::json::ArrayFromJSON(uint8(), input_data, &a3);
-  std::shared_ptr<arrow::Array> a4;
-  arrow::ipc::internal::json::ArrayFromJSON(uint8(), input_data, &a4);
-
-  auto input_batch = RecordBatch::Make(sch, input_data.size(), {a0, a1, a2, a3, a4});
-
   /*std::cout << "input_batch is " << std::endl;
   arrow::PrettyPrint(*input_batch.get(), 2, &std::cout);
   std::cout << std::endl;*/
@@ -113,11 +116,26 @@ int main() {
     return 0;
   }
 
-  test(codegen, input_batch);
-  test(codegen, input_batch);
-  test(codegen, input_batch);
-  test(codegen, input_batch);
+  std::shared_ptr<arrow::RecordBatch> input_batch;
+  std::string input_data = "[1, 2, 3, 4, 5, 5, 4, 1, 2, 2, 1, 1, 1, 4, 4, 3, 5, 5, 5, 5]";
+  MakeInputBatch(input_data, sch, &input_batch);
   test(codegen, input_batch);
 
+  input_data = "[6, 7, 8, 9, 10, 10, 9, 6, 7, 7, 6, 6, 6, 9, 9, 8, 10, 10, 10, 10]";
+  MakeInputBatch(input_data, sch, &input_batch);
+  test(codegen, input_batch);
+
+  input_data = "[1, 2, 3, 8, 5, 5, 10, 1, 2, 7, 6, 6, 1, 9, 4, 9, 5, 8, 5, 5]";
+  MakeInputBatch(input_data, sch, &input_batch);
+  test(codegen, input_batch);
+
+  /*input_data = "[1, 2, 3, 4, 5, 5, 4, 1, 2, 2, 1, 1, 1, 4, 4, 3, 5, 5, 5, 5]";
+  MakeInputBatch(input_data, sch, &input_batch);
+  test(codegen, input_batch);
+
+  input_data = "[1, 2, 3, 4, 5, 5, 4, 1, 2, 2, 1, 1, 1, 4, 4, 3, 5, 5, 5, 5]";
+  MakeInputBatch(input_data, sch, &input_batch);
+  test(codegen, input_batch);
+  */
   std::cout << "Test Completed!" << std::endl;
 }
