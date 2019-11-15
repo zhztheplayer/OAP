@@ -14,8 +14,11 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
  public:
   ArrowComputeCodeGenerator(std::shared_ptr<arrow::Schema> schema_ptr,
                             std::vector<std::shared_ptr<gandiva::Expression>> expr_vector,
-                            std::vector<std::shared_ptr<arrow::Field>> ret_types)
-      : schema_(schema_ptr), ret_types_(ret_types) {
+                            std::vector<std::shared_ptr<arrow::Field>> ret_types,
+                            bool return_when_finish = false)
+      : schema_(schema_ptr),
+        ret_types_(ret_types),
+        return_when_finish_(return_when_finish) {
     for (auto expr : expr_vector) {
       std::shared_ptr<ExprVisitor> root_visitor;
       auto visitor =
@@ -43,35 +46,34 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
 
     for (auto visitor : visitor_list_) {
       RETURN_NOT_OK(visitor->Eval(in));
-
-      std::vector<std::shared_ptr<arrow::Field>> return_fields;
-      switch (visitor->GetResultType()) {
-        case ArrowComputeResultType::BatchList: {
-          RETURN_NOT_OK(
-              visitor->GetResult(&batch_array, &batch_size_array, &return_fields));
-        } break;
-        case ArrowComputeResultType::Batch: {
-          ArrayList result_batch;
-          RETURN_NOT_OK(visitor->GetResult(&result_batch, &return_fields));
-          RETURN_NOT_OK(
-              MakeBatchFromBatch(result_batch, &batch_array, &batch_size_array));
-        } break;
-        case ArrowComputeResultType::ArrayList: {
-          ArrayList result_column_list;
-          RETURN_NOT_OK(visitor->GetResult(&result_column_list, &return_fields));
-          RETURN_NOT_OK(MakeBatchFromArrayList(result_column_list, &batch_array,
-                                               &batch_size_array));
-        } break;
-        case ArrowComputeResultType::Array: {
-          std::shared_ptr<arrow::Array> result_column;
-          RETURN_NOT_OK(visitor->GetResult(&result_column, &return_fields));
-          RETURN_NOT_OK(
-              MakeBatchFromArray(result_column, 0, &batch_array, &batch_size_array));
-        } break;
-        default:
-          return arrow::Status::Invalid("ArrowComputeResultType is invalid.");
+      if (!return_when_finish_) {
+        RETURN_NOT_OK(GetResult(visitor, &batch_array, &batch_size_array, &fields));
       }
-      fields.insert(fields.end(), return_fields.begin(), return_fields.end());
+    }
+
+    if (!return_when_finish_) {
+      auto res_schema = arrow::schema(fields);
+      for (int i = 0; i < batch_array.size(); i++) {
+        out->push_back(
+            arrow::RecordBatch::Make(res_schema, batch_size_array[i], batch_array[i]));
+      }
+
+      // we need to clean up this visitor chain result for next record_batch.
+      for (auto visitor : visitor_list_) {
+        RETURN_NOT_OK(visitor->Reset());
+      }
+    }
+    return status;
+  }
+
+  arrow::Status finish(std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
+    arrow::Status status = arrow::Status::OK();
+    std::vector<ArrayList> batch_array;
+    std::vector<int> batch_size_array;
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+
+    for (auto visitor : visitor_list_) {
+      RETURN_NOT_OK(GetResult(visitor, &batch_array, &batch_size_array, &fields));
     }
 
     auto res_schema = arrow::schema(fields);
@@ -91,6 +93,7 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
   std::vector<std::shared_ptr<ExprVisitor>> visitor_list_;
   std::shared_ptr<arrow::Schema> schema_;
   std::vector<std::shared_ptr<arrow::Field>> ret_types_;
+  bool return_when_finish_;
   // ExprVisitor Cache, used when multiple node depends on same node.
   ExprVisitorMap expr_visitor_cache_;
 
@@ -132,6 +135,40 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     }
     *out = input->at(i);
     return arrow::Status::OK();
+  }
+
+  arrow::Status GetResult(std::shared_ptr<ExprVisitor> visitor,
+                          std::vector<ArrayList>* batch_array,
+                          std::vector<int>* batch_size_array,
+                          std::vector<std::shared_ptr<arrow::Field>>* fields) {
+    auto status = arrow::Status::OK();
+    std::vector<std::shared_ptr<arrow::Field>> return_fields;
+    switch (visitor->GetResultType()) {
+      case ArrowComputeResultType::BatchList: {
+        RETURN_NOT_OK(visitor->GetResult(batch_array, batch_size_array, &return_fields));
+      } break;
+      case ArrowComputeResultType::Batch: {
+        ArrayList result_batch;
+        RETURN_NOT_OK(visitor->GetResult(&result_batch, &return_fields));
+        RETURN_NOT_OK(MakeBatchFromBatch(result_batch, batch_array, batch_size_array));
+      } break;
+      case ArrowComputeResultType::ArrayList: {
+        ArrayList result_column_list;
+        RETURN_NOT_OK(visitor->GetResult(&result_column_list, &return_fields));
+        RETURN_NOT_OK(
+            MakeBatchFromArrayList(result_column_list, batch_array, batch_size_array));
+      } break;
+      case ArrowComputeResultType::Array: {
+        std::shared_ptr<arrow::Array> result_column;
+        RETURN_NOT_OK(visitor->GetResult(&result_column, &return_fields));
+        RETURN_NOT_OK(
+            MakeBatchFromArray(result_column, 0, batch_array, batch_size_array));
+      } break;
+      default:
+        return arrow::Status::Invalid("ArrowComputeResultType is invalid.");
+    }
+    fields->insert(fields->end(), return_fields.begin(), return_fields.end());
+    return status;
   }
 };
 }  // namespace arrowcompute

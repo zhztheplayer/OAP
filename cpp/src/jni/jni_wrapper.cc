@@ -143,7 +143,8 @@ void JNI_OnUnload(JavaVM* vm, void* reserved) {
 
 JNIEXPORT jlong JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeBuild(
-    JNIEnv* env, jobject obj, jbyteArray schema_arr, jbyteArray exprs_arr) {
+    JNIEnv* env, jobject obj, jbyteArray schema_arr, jbyteArray exprs_arr,
+    jboolean return_when_finish = false) {
   arrow::Status status;
 
   jsize schema_len = env->GetArrayLength(schema_arr);
@@ -194,7 +195,7 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
 
   std::shared_ptr<CodeGenerator> handler;
   msg = sparkcolumnarplugin::codegen::CreateCodeGenerator(schema, expr_vector, ret_types,
-                                                          &handler);
+                                                          &handler, return_when_finish);
   if (!msg.ok()) {
     std::string error_message =
         "nativeBuild: failed to create CodeGenerator, err msg is " + msg.message();
@@ -234,6 +235,9 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
 
   std::vector<std::shared_ptr<arrow::RecordBatch>> out;
   status = handler->evaluate(in, &out);
+  if (out.empty()) {
+    return nullptr;
+  }
 
   if (!status.ok()) {
     std::string error_message =
@@ -252,6 +256,38 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
 
   env->ReleaseLongArrayElements(buf_addrs, in_buf_addrs, JNI_ABORT);
   env->ReleaseLongArrayElements(buf_sizes, in_buf_sizes, JNI_ABORT);
+
+  return record_batch_builder_array;
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeFinish(
+    JNIEnv* env, jobject obj, jlong id) {
+  arrow::Status status;
+  std::shared_ptr<CodeGenerator> handler = GetCodeGenerator(env, id);
+  std::vector<std::shared_ptr<arrow::RecordBatch>> out;
+  status = handler->finish(&out);
+  if (out.empty()) {
+    return nullptr;
+  }
+
+  if (!status.ok()) {
+    std::string error_message =
+        "nativeFinish: finish failed with error msg " + status.ToString();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+    return nullptr;
+  }
+
+  std::shared_ptr<arrow::Schema> schema;
+  status = handler->getSchema(&schema);
+
+  jobjectArray record_batch_builder_array =
+      env->NewObjectArray(out.size(), arrow_record_batch_builder_class, nullptr);
+  int i = 0;
+  for (auto record_batch : out) {
+    jobject record_batch_builder = MakeRecordBatchBuilder(env, schema, record_batch);
+    env->SetObjectArrayElement(record_batch_builder_array, i++, record_batch_builder);
+  }
 
   return record_batch_builder_array;
 }

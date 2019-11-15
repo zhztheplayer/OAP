@@ -42,6 +42,13 @@ void test(std::shared_ptr<CodeGenerator> codegen,
     std::cerr << "Evaluate failed: " << status.message() << std::endl;
     return;
   }
+  if (output_batch_list.empty()) {
+    status = codegen->finish(&output_batch_list);
+    if (!status.ok()) {
+      std::cerr << "Finish failed: " << status.message() << std::endl;
+      return;
+    }
+  }
   std::cout << "output_batch is " << std::endl;
   int i = 0;
   for (auto output_batch : output_batch_list) {
@@ -110,7 +117,7 @@ int main() {
   std::cout << std::endl;*/
 
   std::shared_ptr<CodeGenerator> codegen;
-  status = CreateCodeGenerator(sch, expr_vector, ret_types, &codegen);
+  status = CreateCodeGenerator(sch, expr_vector, ret_types, &codegen, true);
   if (!status.ok()) {
     std::cerr << "CreateCodeGenerator failed: " << status.message() << std::endl;
     return 0;
