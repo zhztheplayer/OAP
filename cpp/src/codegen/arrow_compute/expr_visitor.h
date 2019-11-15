@@ -9,6 +9,7 @@
 #include <memory>
 #include <unordered_map>
 #include "codegen/arrow_compute/ext/array_ext.h"
+#include "codegen/arrow_compute/ext/kernels_ext.h"
 #include "codegen/code_generator.h"
 #include "codegen/common/visitor_base.h"
 
@@ -65,24 +66,19 @@ class ExprVisitor {
  public:
   ExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
               const gandiva::FunctionNode* func,
-              std::vector<std::string> param_field_names)
-      : schema_(schema_ptr), func_(func), param_field_names_(param_field_names) {}
+              std::vector<std::string> param_field_names);
 
   ExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
               const gandiva::FunctionNode* func,
               std::vector<std::string> param_field_names,
-              std::shared_ptr<ExprVisitor> dependency)
-      : schema_(schema_ptr),
-        func_(func),
-        param_field_names_(param_field_names),
-        dependency_(dependency) {}
-  ~ExprVisitor() {}
+              std::shared_ptr<ExprVisitor> dependency);
+  ~ExprVisitor() = default;
 
   arrow::Status Eval(const std::shared_ptr<arrow::RecordBatch>& in);
   arrow::Status Execute();
   arrow::Status Reset();
 
-  ArrowComputeResultType GetResultType() { return return_type_; }
+  ArrowComputeResultType GetResultType();
   arrow::Status GetResult(std::shared_ptr<arrow::Array>* out,
                           std::vector<std::shared_ptr<arrow::Field>>* out_fields);
   arrow::Status GetResult(std::shared_ptr<DictionaryExtArray>* out,
@@ -126,17 +122,8 @@ class ExprVisitor {
 
   // Long live variables
   arrow::compute::FunctionContext ctx_;
-
-  arrow::Status GetColumnAndFieldByName(std::shared_ptr<arrow::RecordBatch> in,
-                                        std::shared_ptr<arrow::Schema> schema,
-                                        std::string col_name,
-                                        std::shared_ptr<arrow::Array>* out,
-                                        std::shared_ptr<arrow::Field>* out_field);
-
-  arrow::Status GetColumnAndFieldByName(
-      ArrayList in, std::vector<std::shared_ptr<arrow::Field>> field_list,
-      std::string col_name, std::shared_ptr<arrow::Array>* out,
-      std::shared_ptr<arrow::Field>* out_field);
+  class Impl;
+  std::unique_ptr<Impl> impl_;
 };
 
 arrow::Status MakeExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr,

@@ -86,7 +86,252 @@ arrow::Status BuilderVisitor::GetResult(std::shared_ptr<ExprVisitor>* out) {
   return arrow::Status::OK();
 }
 
+//////////////////////// ExprVisitor::Impl //////////////////////
+class ExprVisitor::Impl {
+ public:
+  Impl(ExprVisitor* p) : p_(p) {
+    func_name_ = p_->func_->descriptor()->name();
+    if (func_name_.compare("appendToCachedBatch") == 0) {
+      auto s = extra::AppendToCacheArrayListKernel::Make(&p_->ctx_, &kernel_);
+    }
+  }
+  ~Impl() {}
+  arrow::Status SplitArrayList() {
+    switch (p_->dependency_result_type_) {
+      case ArrowComputeResultType::ExtraArray: {
+        ArrayList col_list;
+        for (auto col_name : p_->param_field_names_) {
+          std::shared_ptr<arrow::Array> col;
+          std::shared_ptr<arrow::Field> field;
+          RETURN_NOT_OK(GetColumnAndFieldByName(p_->in_record_batch_, p_->schema_,
+                                                col_name, &col, &field));
+          col_list.push_back(col);
+          p_->result_fields_.push_back(field);
+        }
+        if (!p_->in_ext_array_) {
+          return arrow::Status::Invalid("ExprVisitor splitArrayList: lacks of a dict.");
+        }
+        RETURN_NOT_OK(
+            extra::SplitArrayList(&p_->ctx_, col_list, p_->in_ext_array_->dict_indices(),
+                                  p_->in_ext_array_->value_counts(),
+                                  &p_->result_batch_list_, &p_->result_batch_size_list_));
+        p_->return_type_ = ArrowComputeResultType::BatchList;
+      } break;
+      default:
+        return arrow::Status::NotImplemented(
+            "ExprVisitor aggregate: Does not support this type of input.");
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Aggregate(std::string func_name) {
+    if (p_->param_field_names_.size() != 1) {
+      return arrow::Status::Invalid(
+          "ExprVisitor aggregate: expects parameter size as 1.");
+    }
+    auto col_name = p_->param_field_names_[0];
+    std::shared_ptr<arrow::Array> col;
+    std::shared_ptr<arrow::Field> field;
+    switch (p_->dependency_result_type_) {
+      case ArrowComputeResultType::None: {
+        RETURN_NOT_OK(GetColumnAndFieldByName(p_->in_record_batch_, p_->schema_, col_name,
+                                              &col, &field));
+        p_->result_fields_.push_back(field);
+
+        if (func_name.compare("sum") == 0) {
+          RETURN_NOT_OK(extra::SumArray(&p_->ctx_, col, &(p_->result_array_)));
+        } else if (func_name.compare("count") == 0) {
+          RETURN_NOT_OK(extra::CountArray(&p_->ctx_, col, &(p_->result_array_)));
+        }
+        p_->return_type_ = ArrowComputeResultType::Array;
+      } break;
+      case ArrowComputeResultType::BatchList: {
+        bool first_batch = true;
+        for (auto batch : p_->in_batch_array_) {
+          if (p_->in_fields_.size() != batch.size()) {
+            return arrow::Status::Invalid(
+                "ExprVisitor aggregate: dependency returned batch doesn't match "
+                "returned "
+                "fields.");
+          }
+          RETURN_NOT_OK(
+              GetColumnAndFieldByName(batch, p_->in_fields_, col_name, &col, &field));
+          if (first_batch) {
+            p_->result_fields_.push_back(field);
+          }
+          std::shared_ptr<arrow::Array> result_array;
+          if (func_name.compare("sum") == 0) {
+            RETURN_NOT_OK(extra::SumArray(&p_->ctx_, col, &result_array));
+          } else if (func_name.compare("count") == 0) {
+            RETURN_NOT_OK(extra::CountArray(&p_->ctx_, col, &result_array));
+          }
+          p_->result_array_list_.push_back(result_array);
+          first_batch = false;
+        }
+        p_->return_type_ = ArrowComputeResultType::ArrayList;
+      } break;
+      default:
+        return arrow::Status::NotImplemented(
+            "ExprVisitor aggregate: Does not support this type of input.");
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status EncodeArray() {
+    if (p_->param_field_names_.size() != 1) {
+      return arrow::Status::Invalid(
+          "ExprVisitor encodeArray: expects parameter size as 1.");
+    }
+    auto col_name = p_->param_field_names_[0];
+    std::shared_ptr<arrow::Array> col;
+    switch (p_->dependency_result_type_) {
+      case ArrowComputeResultType::None: {
+        col = p_->in_record_batch_->GetColumnByName(col_name);
+        p_->result_fields_.push_back(p_->schema_->GetFieldByName(col_name));
+        RETURN_NOT_OK(extra::EncodeArray(&p_->ctx_, col, &p_->dict_ext_array_));
+        p_->return_type_ = ArrowComputeResultType::ExtraArray;
+      } break;
+      default:
+        return arrow::Status::NotImplemented(
+            "ExprVisitor encodeArray: Does not support this type of input.");
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status AppendToCachedArrayList() {
+    switch (p_->dependency_result_type_) {
+      case ArrowComputeResultType::None: {
+        ArrayList col_list;
+        for (auto col_name : p_->param_field_names_) {
+          std::shared_ptr<arrow::Array> col;
+          std::shared_ptr<arrow::Field> field;
+          RETURN_NOT_OK(GetColumnAndFieldByName(p_->in_record_batch_, p_->schema_,
+                                                col_name, &col, &field));
+          col_list.push_back(col);
+          p_->result_fields_.push_back(field);
+          if (col->length() == 0) {
+            return arrow::Status::OK();
+          }
+        }
+        if (!kernel_) {
+          return arrow::Status::NotImplemented(
+              "AppendToCachedArrayList kernel is not implemented.");
+        }
+        RETURN_NOT_OK(kernel_->Evaluate(col_list));
+      } break;
+      default:
+        return arrow::Status::NotImplemented(
+            "ExprVisitor aggregate: Does not support this type of input.");
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish() {
+    if (kernel_) {
+      if (p_->return_type_ == ArrowComputeResultType::None) {
+        RETURN_NOT_OK(kernel_->Finish(&p_->result_batch_));
+        p_->return_type_ = ArrowComputeResultType::Batch;
+      }
+    }
+    return arrow::Status::OK();
+  }
+
+ private:
+  ExprVisitor* p_;
+  std::string func_name_;
+  std::shared_ptr<extra::KernalBase> kernel_;
+  arrow::Status GetColumnAndFieldByName(std::shared_ptr<arrow::RecordBatch> in,
+                                        std::shared_ptr<arrow::Schema> schema,
+                                        std::string col_name,
+                                        std::shared_ptr<arrow::Array>* out,
+                                        std::shared_ptr<arrow::Field>* out_field) {
+    auto col = in->GetColumnByName(col_name);
+    auto field = schema->GetFieldByName(col_name);
+    if (!col) {
+      return arrow::Status::Invalid("ExprVisitor: ", col_name,
+                                    " doesn't exist in batch.");
+    }
+    if (!field) {
+      return arrow::Status::Invalid("ExprVisitor: ", col_name,
+                                    " doesn't exist in schema.");
+    }
+    *out = col;
+    *out_field = field;
+    return arrow::Status::OK();
+  }
+
+  arrow::Status GetColumnAndFieldByName(
+      ArrayList in, std::vector<std::shared_ptr<arrow::Field>> field_list,
+      std::string col_name, std::shared_ptr<arrow::Array>* out,
+      std::shared_ptr<arrow::Field>* out_field) {
+    std::shared_ptr<arrow::Array> col;
+    std::shared_ptr<arrow::Field> field;
+    for (int i = 0; i < field_list.size(); i++) {
+      if (field_list[i]->name().compare(col_name) == 0) {
+        col = in[i];
+        field = field_list[i];
+        break;
+      }
+    }
+    if (!col) {
+      return arrow::Status::Invalid(
+          "ExprVisitor: dependency returned batch doesn't contain expected column.");
+    }
+    *out = col;
+    *out_field = field;
+    return arrow::Status::OK();
+  }
+};
+
 //////////////////////// ExprVisitor ////////////////////////
+ExprVisitor::ExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
+                         const gandiva::FunctionNode* func,
+                         std::vector<std::string> param_field_names)
+    : schema_(schema_ptr), func_(func), param_field_names_(param_field_names) {
+  impl_.reset(new Impl(this));
+}
+
+ExprVisitor::ExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
+                         const gandiva::FunctionNode* func,
+                         std::vector<std::string> param_field_names,
+                         std::shared_ptr<ExprVisitor> dependency)
+    : schema_(schema_ptr),
+      func_(func),
+      param_field_names_(param_field_names),
+      dependency_(dependency) {
+  impl_.reset(new Impl(this));
+}
+
+arrow::Status ExprVisitor::Execute() {
+  auto desc = func_->descriptor();
+  auto status = arrow::Status::OK();
+
+  if (desc->name().compare("splitArrayList") == 0) {
+    RETURN_NOT_OK(impl_->SplitArrayList());
+    goto finish;
+  }
+  if (desc->name().compare("sum") == 0 || desc->name().compare("count") == 0) {
+    RETURN_NOT_OK(impl_->Aggregate(desc->name()));
+    goto finish;
+  }
+  if (desc->name().compare("encodeArray") == 0) {
+    RETURN_NOT_OK(impl_->EncodeArray());
+    goto finish;
+  }
+  if (desc->name().compare("appendToCachedBatch") == 0) {
+    RETURN_NOT_OK(impl_->AppendToCachedArrayList());
+    goto finish;
+  }
+  goto unrecognizedFail;
+
+finish:
+  return arrow::Status::OK();
+
+unrecognizedFail:
+  return arrow::Status::NotImplemented("Function name ", desc->name(),
+                                       " is not implemented yet.");
+}
+
 arrow::Status ExprVisitor::Eval(const std::shared_ptr<arrow::RecordBatch>& in) {
   // leaf dependency should be process firstly, or we should visit expr cache for
   // previous result.
@@ -173,173 +418,13 @@ arrow::Status ExprVisitor::Reset() {
   return arrow::Status::OK();
 }
 
-arrow::Status ExprVisitor::GetColumnAndFieldByName(
-    std::shared_ptr<arrow::RecordBatch> in, std::shared_ptr<arrow::Schema> schema,
-    std::string col_name, std::shared_ptr<arrow::Array>* out,
-    std::shared_ptr<arrow::Field>* out_field) {
-  auto col = in->GetColumnByName(col_name);
-  auto field = schema->GetFieldByName(col_name);
-  if (!col) {
-    return arrow::Status::Invalid("ExprVisitor: ", col_name, " doesn't exist in batch.");
+ArrowComputeResultType ExprVisitor::GetResultType() {
+  auto status = impl_->Finish();
+  if (!status.ok()) {
+    return ArrowComputeResultType::None;
   }
-  if (!field) {
-    return arrow::Status::Invalid("ExprVisitor: ", col_name, " doesn't exist in schema.");
-  }
-  *out = col;
-  *out_field = field;
-  return arrow::Status::OK();
+  return return_type_;
 }
-
-arrow::Status ExprVisitor::GetColumnAndFieldByName(
-    ArrayList in, std::vector<std::shared_ptr<arrow::Field>> field_list,
-    std::string col_name, std::shared_ptr<arrow::Array>* out,
-    std::shared_ptr<arrow::Field>* out_field) {
-  std::shared_ptr<arrow::Array> col;
-  std::shared_ptr<arrow::Field> field;
-  for (int i = 0; i < field_list.size(); i++) {
-    if (field_list[i]->name().compare(col_name) == 0) {
-      col = in[i];
-      field = field_list[i];
-      break;
-    }
-  }
-  if (!col) {
-    return arrow::Status::Invalid(
-        "ExprVisitor: dependency returned batch doesn't contain expected column.");
-  }
-  *out = col;
-  *out_field = field;
-  return arrow::Status::OK();
-}
-
-arrow::Status ExprVisitor::Execute() {
-  auto desc = func_->descriptor();
-  auto status = arrow::Status::OK();
-
-  if (desc->name().compare("splitArrayList") == 0) {
-    switch (dependency_result_type_) {
-      case ArrowComputeResultType::ExtraArray: {
-        ArrayList col_list;
-        for (auto col_name : param_field_names_) {
-          std::shared_ptr<arrow::Array> col;
-          std::shared_ptr<arrow::Field> field;
-          RETURN_NOT_OK(
-              GetColumnAndFieldByName(in_record_batch_, schema_, col_name, &col, &field));
-          col_list.push_back(col);
-          result_fields_.push_back(field);
-        }
-        if (!in_ext_array_) {
-          return arrow::Status::Invalid("ExprVisitor splitArrayList: lacks of a dict.");
-        }
-        RETURN_NOT_OK(extra::SplitArrayList(
-            &ctx_, col_list, in_ext_array_->dict_indices(), in_ext_array_->value_counts(),
-            &result_batch_list_, &result_batch_size_list_));
-        goto generateBatchList;
-      } break;
-      default:
-        return arrow::Status::NotImplemented(
-            "ExprVisitor aggregate: Does not support this type of input.");
-    }
-  }
-  if (desc->name().compare("sum") == 0 || desc->name().compare("count") == 0) {
-    if (param_field_names_.size() != 1) {
-      return arrow::Status::Invalid(
-          "ExprVisitor aggregate: expects parameter size as 1.");
-    }
-    auto col_name = param_field_names_[0];
-    std::shared_ptr<arrow::Array> col;
-    std::shared_ptr<arrow::Field> field;
-    switch (dependency_result_type_) {
-      case ArrowComputeResultType::None: {
-        RETURN_NOT_OK(
-            GetColumnAndFieldByName(in_record_batch_, schema_, col_name, &col, &field));
-        result_fields_.push_back(field);
-
-        if (desc->name().compare("sum") == 0) {
-          RETURN_NOT_OK(extra::SumArray(&ctx_, col, &result_array_));
-        } else if (desc->name().compare("count") == 0) {
-          RETURN_NOT_OK(extra::CountArray(&ctx_, col, &result_array_));
-        }
-        goto generateArray;
-      } break;
-      case ArrowComputeResultType::BatchList: {
-        bool first_batch = true;
-        for (auto batch : in_batch_array_) {
-          if (in_fields_.size() != batch.size()) {
-            return arrow::Status::Invalid(
-                "ExprVisitor aggregate: dependency returned batch doesn't match "
-                "returned "
-                "fields.");
-          }
-          RETURN_NOT_OK(
-              GetColumnAndFieldByName(batch, in_fields_, col_name, &col, &field));
-          if (first_batch) {
-            result_fields_.push_back(field);
-          }
-          std::shared_ptr<arrow::Array> result_array;
-          if (desc->name().compare("sum") == 0) {
-            RETURN_NOT_OK(extra::SumArray(&ctx_, col, &result_array));
-          } else if (desc->name().compare("count") == 0) {
-            RETURN_NOT_OK(extra::CountArray(&ctx_, col, &result_array));
-          }
-          result_array_list_.push_back(result_array);
-          first_batch = false;
-        }
-        goto generateArrayList;
-      } break;
-      default:
-        return arrow::Status::NotImplemented(
-            "ExprVisitor aggregate: Does not support this type of input.");
-    }
-  }
-  if (desc->name().compare("encodeArray") == 0) {
-    if (param_field_names_.size() != 1) {
-      return arrow::Status::Invalid(
-          "ExprVisitor encodeArray: expects parameter size as 1.");
-    }
-    auto col_name = param_field_names_[0];
-    std::shared_ptr<arrow::Array> col;
-    switch (dependency_result_type_) {
-      case ArrowComputeResultType::None: {
-        col = in_record_batch_->GetColumnByName(col_name);
-        result_fields_.push_back(schema_->GetFieldByName(col_name));
-        RETURN_NOT_OK(extra::EncodeArray(&ctx_, col, &dict_ext_array_));
-        goto generateExtArray;
-      } break;
-      default:
-        return arrow::Status::NotImplemented(
-            "ExprVisitor encodeArray: Does not support this type of input.");
-    }
-  }
-  goto unrecognizedFail;
-generateArray:
-  return_type_ = ArrowComputeResultType::Array;
-  goto finish;
-
-generateExtArray:
-  return_type_ = ArrowComputeResultType::ExtraArray;
-  goto finish;
-
-generateArrayList:
-  return_type_ = ArrowComputeResultType::ArrayList;
-  goto finish;
-
-generateBatch:
-  return_type_ = ArrowComputeResultType::Batch;
-  goto finish;
-
-generateBatchList:
-  return_type_ = ArrowComputeResultType::BatchList;
-  goto finish;
-
-finish:
-  return arrow::Status::OK();
-
-unrecognizedFail:
-  return arrow::Status::NotImplemented("Function name ", desc->name(),
-                                       " is not implemented yet.");
-}
-
 arrow::Status ExprVisitor::GetResult(
     std::shared_ptr<arrow::Array>* out,
     std::vector<std::shared_ptr<arrow::Field>>* out_fields) {

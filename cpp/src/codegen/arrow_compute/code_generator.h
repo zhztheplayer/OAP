@@ -52,7 +52,7 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     }
 
     if (!return_when_finish_) {
-      auto res_schema = arrow::schema(fields);
+      auto res_schema = arrow::schema(ret_types_);
       for (int i = 0; i < batch_array.size(); i++) {
         out->push_back(
             arrow::RecordBatch::Make(res_schema, batch_size_array[i], batch_array[i]));
@@ -76,7 +76,7 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
       RETURN_NOT_OK(GetResult(visitor, &batch_array, &batch_size_array, &fields));
     }
 
-    auto res_schema = arrow::schema(fields);
+    auto res_schema = arrow::schema(ret_types_);
     for (int i = 0; i < batch_array.size(); i++) {
       out->push_back(
           arrow::RecordBatch::Make(res_schema, batch_size_array[i], batch_array[i]));
@@ -119,7 +119,12 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
   }
   arrow::Status MakeBatchFromBatch(ArrayList batch, std::vector<ArrayList>* batch_array,
                                    std::vector<int>* batch_size_array) {
+    int length = 0;
+    for (auto column : batch) {
+      length = length < column->length() ? column->length() : length;
+    }
     batch_array->push_back(batch);
+    batch_size_array->push_back(length);
     return arrow::Status::OK();
   }
 
