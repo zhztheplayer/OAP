@@ -8,7 +8,7 @@
 
 #include <memory>
 #include <unordered_map>
-#include "codegen/arrow_compute/ext/array_ext.h"
+#include "codegen/arrow_compute/ext/kernels_ext.h"
 #include "codegen/code_generator.h"
 #include "codegen/common/visitor_base.h"
 
@@ -19,18 +19,9 @@ namespace arrowcompute {
 class ExprVisitor;
 class BuilderVisitor;
 
-using DictionaryExtArray =
-    sparkcolumnarplugin::codegen::arrowcompute::extra::DictionaryExtArray;
 using ExprVisitorMap = std::unordered_map<std::string, std::shared_ptr<ExprVisitor>>;
 using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
-enum class ArrowComputeResultType {
-  Array,
-  ExtraArray,
-  ArrayList,
-  Batch,
-  BatchList,
-  None
-};
+enum class ArrowComputeResultType { Array, ArrayList, Batch, BatchList, None };
 enum class BuilderVisitorNodeType { FunctionNode, FieldNode };
 
 class BuilderVisitor : public VisitorBase {
@@ -65,27 +56,20 @@ class ExprVisitor {
  public:
   ExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
               const gandiva::FunctionNode* func,
-              std::vector<std::string> param_field_names)
-      : schema_(schema_ptr), func_(func), param_field_names_(param_field_names) {}
+              std::vector<std::string> param_field_names);
 
   ExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
               const gandiva::FunctionNode* func,
               std::vector<std::string> param_field_names,
-              std::shared_ptr<ExprVisitor> dependency)
-      : schema_(schema_ptr),
-        func_(func),
-        param_field_names_(param_field_names),
-        dependency_(dependency) {}
-  ~ExprVisitor() {}
+              std::shared_ptr<ExprVisitor> dependency);
+  ~ExprVisitor() = default;
 
   arrow::Status Eval(const std::shared_ptr<arrow::RecordBatch>& in);
   arrow::Status Execute();
   arrow::Status Reset();
 
-  ArrowComputeResultType GetResultType() { return return_type_; }
+  ArrowComputeResultType GetResultType();
   arrow::Status GetResult(std::shared_ptr<arrow::Array>* out,
-                          std::vector<std::shared_ptr<arrow::Field>>* out_fields);
-  arrow::Status GetResult(std::shared_ptr<DictionaryExtArray>* out,
                           std::vector<std::shared_ptr<arrow::Field>>* out_fields);
   arrow::Status GetResult(ArrayList* out,
                           std::vector<std::shared_ptr<arrow::Field>>* out_fields);
@@ -108,13 +92,11 @@ class ExprVisitor {
   ArrayList in_batch_;
   ArrayList in_array_list_;
   std::shared_ptr<arrow::Array> in_array_;
-  std::shared_ptr<DictionaryExtArray> in_ext_array_;
 
   // Output data types.
   ArrowComputeResultType return_type_ = ArrowComputeResultType::None;
   // This is used when we want to output an Array after evaluate.
   std::shared_ptr<arrow::Array> result_array_;
-  std::shared_ptr<DictionaryExtArray> dict_ext_array_;
   // This is used when we want to output an ArrayList after evaluation.
   ArrayList result_array_list_;
   ArrayList result_batch_;
@@ -126,17 +108,8 @@ class ExprVisitor {
 
   // Long live variables
   arrow::compute::FunctionContext ctx_;
-
-  arrow::Status GetColumnAndFieldByName(std::shared_ptr<arrow::RecordBatch> in,
-                                        std::shared_ptr<arrow::Schema> schema,
-                                        std::string col_name,
-                                        std::shared_ptr<arrow::Array>* out,
-                                        std::shared_ptr<arrow::Field>* out_field);
-
-  arrow::Status GetColumnAndFieldByName(
-      ArrayList in, std::vector<std::shared_ptr<arrow::Field>> field_list,
-      std::string col_name, std::shared_ptr<arrow::Array>* out,
-      std::shared_ptr<arrow::Field>* out_field);
+  class Impl;
+  std::unique_ptr<Impl> impl_;
 };
 
 arrow::Status MakeExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
