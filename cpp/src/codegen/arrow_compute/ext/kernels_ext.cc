@@ -93,21 +93,16 @@ arrow::Status CountArray(arrow::compute::FunctionContext* ctx,
 template <typename InType, typename MemoTableType>
 arrow::Status EncodeArrayImpl(arrow::compute::FunctionContext* ctx,
                               const std::shared_ptr<arrow::Array>& in,
-                              std::shared_ptr<DictionaryExtArray>* out) {
+                              std::shared_ptr<arrow::Array>* out) {
   arrow::compute::Datum input_datum(in);
   static auto hash_table = std::make_shared<MemoTableType>(ctx->memory_pool());
-
-  std::shared_ptr<arrow::Array> out_counts;
-  RETURN_NOT_OK(
-      arrow::compute::ValueCounts<InType>(ctx, input_datum, hash_table, &out_counts));
-  auto value_counts = std::dynamic_pointer_cast<arrow::StructArray>(out_counts);
 
   arrow::compute::Datum out_dict;
   RETURN_NOT_OK(
       arrow::compute::DictionaryEncode<InType>(ctx, input_datum, hash_table, &out_dict));
   auto dict = std::dynamic_pointer_cast<arrow::DictionaryArray>(out_dict.make_array());
 
-  *out = std::make_shared<DictionaryExtArray>(dict->indices(), value_counts->field(1));
+  *out = dict->indices();
   return arrow::Status::OK();
 }
 
@@ -134,7 +129,7 @@ arrow::Status EncodeArrayImpl(arrow::compute::FunctionContext* ctx,
   PROCESS(arrow::Decimal128Type)
 arrow::Status EncodeArray(arrow::compute::FunctionContext* ctx,
                           const std::shared_ptr<arrow::Array>& in,
-                          std::shared_ptr<DictionaryExtArray>* out) {
+                          std::shared_ptr<arrow::Array>* out) {
   switch (in->type_id()) {
 #define PROCESS(InType)                                                                \
   case InType::type_id: {                                                              \

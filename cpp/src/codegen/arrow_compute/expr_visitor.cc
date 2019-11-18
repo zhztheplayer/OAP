@@ -98,7 +98,7 @@ class ExprVisitor::Impl {
   ~Impl() {}
   arrow::Status SplitArrayList() {
     switch (p_->dependency_result_type_) {
-      case ArrowComputeResultType::ExtraArray: {
+      case ArrowComputeResultType::Array: {
         ArrayList col_list;
         for (auto col_name : p_->param_field_names_) {
           std::shared_ptr<arrow::Array> col;
@@ -108,12 +108,9 @@ class ExprVisitor::Impl {
           col_list.push_back(col);
           p_->result_fields_.push_back(field);
         }
-        if (!p_->in_ext_array_) {
-          return arrow::Status::Invalid("ExprVisitor splitArrayList: lacks of a dict.");
-        }
-        RETURN_NOT_OK(
-            extra::SplitArrayList(&p_->ctx_, col_list, p_->in_ext_array_->dict_indices(),
-                                  &p_->result_batch_list_, &p_->result_batch_size_list_));
+        RETURN_NOT_OK(extra::SplitArrayList(&p_->ctx_, col_list, p_->in_array_,
+                                            &p_->result_batch_list_,
+                                            &p_->result_batch_size_list_));
         p_->return_type_ = ArrowComputeResultType::BatchList;
       } break;
       default:
@@ -187,8 +184,8 @@ class ExprVisitor::Impl {
       case ArrowComputeResultType::None: {
         col = p_->in_record_batch_->GetColumnByName(col_name);
         p_->result_fields_.push_back(p_->schema_->GetFieldByName(col_name));
-        RETURN_NOT_OK(extra::EncodeArray(&p_->ctx_, col, &p_->dict_ext_array_));
-        p_->return_type_ = ArrowComputeResultType::ExtraArray;
+        RETURN_NOT_OK(extra::EncodeArray(&p_->ctx_, col, &p_->result_array_));
+        p_->return_type_ = ArrowComputeResultType::Array;
       } break;
       default:
         return arrow::Status::NotImplemented(
@@ -352,9 +349,6 @@ arrow::Status ExprVisitor::Eval(const std::shared_ptr<arrow::RecordBatch>& in) {
       case ArrowComputeResultType::Array: {
         RETURN_NOT_OK(dependency_->GetResult(&in_array_, &in_fields_));
       } break;
-      case ArrowComputeResultType::ExtraArray: {
-        RETURN_NOT_OK(dependency_->GetResult(&in_ext_array_, &in_fields_));
-      } break;
       default:
         return arrow::Status::Invalid("ArrowComputeResultType is invalid.");
     }
@@ -374,9 +368,6 @@ arrow::Status ExprVisitor::Reset() {
     case ArrowComputeResultType::Array: {
       // in_array_.reset();
     } break;
-    case ArrowComputeResultType::ExtraArray: {
-      // in_ext_array_.reset();
-    } break;
     case ArrowComputeResultType::ArrayList: {
       in_array_list_.clear();
     } break;
@@ -394,9 +385,6 @@ arrow::Status ExprVisitor::Reset() {
   switch (return_type_) {
     case ArrowComputeResultType::Array: {
       // result_array_.reset();
-    } break;
-    case ArrowComputeResultType::ExtraArray: {
-      // dict_ext_array_.reset();
     } break;
     case ArrowComputeResultType::ArrayList: {
       result_array_list_.clear();
@@ -467,18 +455,6 @@ arrow::Status ExprVisitor::GetResult(
   }
   *out_fields = result_fields_;
 
-  return arrow::Status::OK();
-}
-
-arrow::Status ExprVisitor::GetResult(
-    std::shared_ptr<DictionaryExtArray>* out,
-    std::vector<std::shared_ptr<arrow::Field>>* out_fields) {
-  if (!dict_ext_array_) {
-    return arrow::Status::Invalid(
-        "ArrowComputeExprVisitor::GetResult result_ext_array does not generated.");
-  }
-  *out = dict_ext_array_;
-  *out_fields = result_fields_;
   return arrow::Status::OK();
 }
 

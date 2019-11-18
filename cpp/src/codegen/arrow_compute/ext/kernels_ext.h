@@ -3,11 +3,8 @@
 #include <arrow/array.h>
 #include <arrow/compute/context.h>
 #include <arrow/status.h>
-#include "codegen/arrow_compute/ext/array_ext.h"
 
 using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
-using DictionaryExtArray =
-    sparkcolumnarplugin::codegen::arrowcompute::extra::DictionaryExtArray;
 
 namespace sparkcolumnarplugin {
 namespace codegen {
@@ -35,7 +32,7 @@ arrow::Status CountArray(arrow::compute::FunctionContext* ctx,
 
 arrow::Status EncodeArray(arrow::compute::FunctionContext* ctx,
                           const std::shared_ptr<arrow::Array>& in,
-                          std::shared_ptr<DictionaryExtArray>* out);
+                          std::shared_ptr<arrow::Array>* out);
 
 class AppendToCacheArrayListKernel : public KernalBase {
  public:

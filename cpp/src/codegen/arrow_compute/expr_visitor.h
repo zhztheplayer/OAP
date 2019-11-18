@@ -8,7 +8,6 @@
 
 #include <memory>
 #include <unordered_map>
-#include "codegen/arrow_compute/ext/array_ext.h"
 #include "codegen/arrow_compute/ext/kernels_ext.h"
 #include "codegen/code_generator.h"
 #include "codegen/common/visitor_base.h"
@@ -20,18 +19,9 @@ namespace arrowcompute {
 class ExprVisitor;
 class BuilderVisitor;
 
-using DictionaryExtArray =
-    sparkcolumnarplugin::codegen::arrowcompute::extra::DictionaryExtArray;
 using ExprVisitorMap = std::unordered_map<std::string, std::shared_ptr<ExprVisitor>>;
 using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
-enum class ArrowComputeResultType {
-  Array,
-  ExtraArray,
-  ArrayList,
-  Batch,
-  BatchList,
-  None
-};
+enum class ArrowComputeResultType { Array, ArrayList, Batch, BatchList, None };
 enum class BuilderVisitorNodeType { FunctionNode, FieldNode };
 
 class BuilderVisitor : public VisitorBase {
@@ -81,8 +71,6 @@ class ExprVisitor {
   ArrowComputeResultType GetResultType();
   arrow::Status GetResult(std::shared_ptr<arrow::Array>* out,
                           std::vector<std::shared_ptr<arrow::Field>>* out_fields);
-  arrow::Status GetResult(std::shared_ptr<DictionaryExtArray>* out,
-                          std::vector<std::shared_ptr<arrow::Field>>* out_fields);
   arrow::Status GetResult(ArrayList* out,
                           std::vector<std::shared_ptr<arrow::Field>>* out_fields);
   arrow::Status GetResult(std::vector<ArrayList>* out, std::vector<int>* out_sizes,
@@ -104,13 +92,11 @@ class ExprVisitor {
   ArrayList in_batch_;
   ArrayList in_array_list_;
   std::shared_ptr<arrow::Array> in_array_;
-  std::shared_ptr<DictionaryExtArray> in_ext_array_;
 
   // Output data types.
   ArrowComputeResultType return_type_ = ArrowComputeResultType::None;
   // This is used when we want to output an Array after evaluate.
   std::shared_ptr<arrow::Array> result_array_;
-  std::shared_ptr<DictionaryExtArray> dict_ext_array_;
   // This is used when we want to output an ArrayList after evaluation.
   ArrayList result_array_list_;
   ArrayList result_batch_;
