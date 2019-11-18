@@ -14,29 +14,19 @@ using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
 class ArrayBuilderImplBase {
  public:
   virtual arrow::Status AppendArray(arrow::Array* in, int group_id = 0) = 0;
+  virtual arrow::Status AppendArray(arrow::Array* in, int group_id, int row_id) = 0;
   virtual arrow::Status Finish(ArrayList* out) = 0;
   virtual arrow::Status Finish(std::shared_ptr<arrow::Array>* out) = 0;
 };
 
-template <typename ArrayType, typename T>
+template <typename ArrayType, typename T,
+          typename BuilderType = typename arrow::TypeTraits<T>::BuilderType>
 class ArrayBuilderImpl : public ArrayBuilderImplBase {
  public:
   static arrow::Status Make(const std::shared_ptr<arrow::DataType> type,
                             arrow::MemoryPool* pool,
                             std::shared_ptr<ArrayBuilderImpl>* builder) {
     auto builder_ptr = std::make_shared<ArrayBuilderImpl<ArrayType, T>>(type, pool);
-    RETURN_NOT_OK(builder_ptr->Init());
-    *builder = builder_ptr;
-    return arrow::Status::OK();
-  }
-
-  static arrow::Status Make(const std::shared_ptr<arrow::DataType> type,
-                            arrow::MemoryPool* pool,
-                            const std::shared_ptr<arrow::Array>& counts,
-                            std::shared_ptr<ArrayBuilderImpl>* builder) {
-    auto builder_ptr =
-        std::make_shared<ArrayBuilderImpl<ArrayType, T>>(type, pool, counts);
-    RETURN_NOT_OK(builder_ptr->Init());
     *builder = builder_ptr;
     return arrow::Status::OK();
   }
@@ -46,46 +36,50 @@ class ArrayBuilderImpl : public ArrayBuilderImplBase {
     type_ = type;
   }
 
-  ArrayBuilderImpl(const std::shared_ptr<arrow::DataType> type, arrow::MemoryPool* pool,
-                   const std::shared_ptr<arrow::Array>& counts)
-      : pool_(pool) {
-    type_ = type;
-    counts_ = counts;
+  arrow::Status InitBuilder() {
+    // prepare builder, should be size of key number
+    std::unique_ptr<arrow::ArrayBuilder> builder;
+    RETURN_NOT_OK(arrow::MakeBuilder(pool_, type_, &builder));
+
+    std::shared_ptr<BuilderType> builder_ptr;
+    builder_ptr.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
+    builder_list_.push_back(builder_ptr);
+    return arrow::Status::OK();
   }
 
-  arrow::Status Init() {
-    // prepare builder, should be size of key number
-    if (!counts_) {
-      std::unique_ptr<arrow::ArrayBuilder> builder;
-      RETURN_NOT_OK(arrow::MakeBuilder(pool_, type_, &builder));
-
-      std::shared_ptr<BuilderType> builder_ptr;
-      builder_ptr.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
-      builder_list_.push_back(builder_ptr);
-      return arrow::Status::OK();
+  arrow::Status GetOrCreateBuilder(int group_id, std::shared_ptr<BuilderType>* builder) {
+    while (builder_list_.size() <= group_id) {
+      RETURN_NOT_OK(InitBuilder());
     }
-    for (int i = 0; i < counts_->length(); i++) {
-      std::unique_ptr<arrow::ArrayBuilder> builder;
-      RETURN_NOT_OK(arrow::MakeBuilder(pool_, type_, &builder));
-      auto count = arrow::internal::checked_cast<const arrow::Int64Array&>(*counts_.get())
-                       .GetView(i);
-      RETURN_NOT_OK(builder->Reserve(count));
-      std::shared_ptr<BuilderType> builder_ptr;
-      builder_ptr.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
-      builder_list_.push_back(builder_ptr);
+    *builder = builder_list_[group_id];
+    return arrow::Status::OK();
+  }
+
+  arrow::Status AppendArray(arrow::Array* in, int group_id, int row_id) {
+    std::shared_ptr<BuilderType> builder;
+    RETURN_NOT_OK(GetOrCreateBuilder(group_id, &builder));
+    RETURN_NOT_OK(builder->Reserve(1));
+    auto in_ = arrow::internal::checked_cast<ArrayType*>(in);
+    if (in_->IsNull(row_id)) {
+      builder->UnsafeAppendNull();
+    } else {
+      auto value = in_->GetView(row_id);
+      UnsafeAppend(builder, value);
     }
     return arrow::Status::OK();
   }
 
   arrow::Status AppendArray(arrow::Array* in, int group_id = 0) {
-    RETURN_NOT_OK(builder_list_[group_id]->Reserve(1));
+    std::shared_ptr<BuilderType> builder;
+    RETURN_NOT_OK(GetOrCreateBuilder(group_id, &builder));
+    RETURN_NOT_OK(builder->Reserve(in->length()));
     auto in_ = arrow::internal::checked_cast<ArrayType*>(in);
-    for (int i = 0; i < in_->length(); i++) {
-      if (in_->IsNull(i)) {
-        builder_list_[group_id]->UnsafeAppendNull();
+    for (int row_id = 0; row_id < in_->length(); row_id++) {
+      if (in_->IsNull(row_id)) {
+        builder->UnsafeAppendNull();
       } else {
-        auto value = in_->GetView(i);
-        UnsafeAppend(builder_list_[group_id], value);
+        auto value = in_->GetView(row_id);
+        UnsafeAppend(builder, value);
       }
     }
     return arrow::Status::OK();
@@ -108,9 +102,7 @@ class ArrayBuilderImpl : public ArrayBuilderImplBase {
   }
 
  private:
-  using BuilderType = typename arrow::TypeTraits<T>::BuilderType;
   std::vector<std::shared_ptr<BuilderType>> builder_list_;
-  std::shared_ptr<arrow::Array> counts_;
   arrow::MemoryPool* pool_;
   std::shared_ptr<arrow::DataType> type_;
 

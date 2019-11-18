@@ -20,42 +20,43 @@ namespace extra {
 
 arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayList& in,
                              const std::shared_ptr<arrow::Array>& dict,
-                             const std::shared_ptr<arrow::Array>& counts,
                              std::vector<ArrayList>* out, std::vector<int>* out_sizes) {
-  if (!dict || !counts) {
+  if (!dict) {
     return arrow::Status::Invalid("input data is invalid");
   }
-  out->resize(counts->length());
-  out_sizes->resize(counts->length());
   std::vector<std::shared_ptr<splitter::ArrayVisitorImpl>> array_visitor_list;
+  std::vector<std::shared_ptr<ArrayBuilderImplBase>> builder_list_;
   for (auto col : in) {
-    auto visitor = std::make_shared<splitter::ArrayVisitorImpl>(ctx, counts);
+    auto visitor = std::make_shared<splitter::ArrayVisitorImpl>(ctx);
     RETURN_NOT_OK(col->Accept(&(*visitor.get())));
     array_visitor_list.push_back(visitor);
+
+    std::shared_ptr<ArrayBuilderImplBase> builder;
+    visitor->GetBuilder(&builder);
+    builder_list_.push_back(builder);
   }
 
-  for (int i = 0; i < dict->length(); i++) {
-    auto group_id =
-        arrow::internal::checked_cast<const arrow::Int32Array&>(*dict.get()).GetView(i);
-    for (auto array_visitor : array_visitor_list) {
-      array_visitor->Eval(i, group_id);
+  for (int row_id = 0; row_id < dict->length(); row_id++) {
+    auto group_id = arrow::internal::checked_cast<const arrow::Int32Array&>(*dict.get())
+                        .GetView(row_id);
+    for (int i = 0; i < array_visitor_list.size(); i++) {
+      array_visitor_list[i]->Eval(builder_list_[i], group_id, row_id);
     }
   }
 
-  for (auto array_visitor : array_visitor_list) {
-    ArrayList res;
-    array_visitor->Finish();
-    array_visitor->GetResult(&res);
-    if (res.size() != out->size()) {
-      return arrow::Status::Invalid(
-          "ArrayVicitorImpl failed: result array number does not match expectation.");
-    }
-    for (int i = 0; i < out->size(); i++) {
-      // move array from single array batch to output multiple array batch.
-      out->at(i).push_back(res[i]);
-      out_sizes->at(i) = res[i]->length();
+  for (auto builder : builder_list_) {
+    std::vector<std::shared_ptr<arrow::Array>> arr_list_out;
+    RETURN_NOT_OK(builder->Finish(&arr_list_out));
+    for (int i = 0; i < arr_list_out.size(); i++) {
+      if (out->size() <= i) {
+        ArrayList arr_list;
+        out->push_back(arr_list);
+        out_sizes->push_back(arr_list_out[i]->length());
+      }
+      out->at(i).push_back(arr_list_out[i]);
     }
   }
+
   return arrow::Status::OK();
 }
 

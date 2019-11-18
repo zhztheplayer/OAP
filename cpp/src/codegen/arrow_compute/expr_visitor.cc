@@ -113,7 +113,6 @@ class ExprVisitor::Impl {
         }
         RETURN_NOT_OK(
             extra::SplitArrayList(&p_->ctx_, col_list, p_->in_ext_array_->dict_indices(),
-                                  p_->in_ext_array_->value_counts(),
                                   &p_->result_batch_list_, &p_->result_batch_size_list_));
         p_->return_type_ = ArrowComputeResultType::BatchList;
       } break;

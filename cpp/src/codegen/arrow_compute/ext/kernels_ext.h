@@ -23,7 +23,6 @@ class KernalBase {
 
 arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayList& in,
                              const std::shared_ptr<arrow::Array>& dict,
-                             const std::shared_ptr<arrow::Array>& counts,
                              std::vector<ArrayList>* out, std::vector<int>* out_sizes);
 
 arrow::Status SumArray(arrow::compute::FunctionContext* ctx,
