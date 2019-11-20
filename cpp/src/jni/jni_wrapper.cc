@@ -235,15 +235,11 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
 
   std::vector<std::shared_ptr<arrow::RecordBatch>> out;
   status = handler->evaluate(in, &out);
-  if (out.empty()) {
-    return nullptr;
-  }
 
   if (!status.ok()) {
     std::string error_message =
         "nativeEvaluate: evaluate failed with error msg " + status.ToString();
     env->ThrowNew(io_exception_class, error_message.c_str());
-    return nullptr;
   }
 
   jobjectArray record_batch_builder_array =
@@ -267,15 +263,11 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
   std::shared_ptr<CodeGenerator> handler = GetCodeGenerator(env, id);
   std::vector<std::shared_ptr<arrow::RecordBatch>> out;
   status = handler->finish(&out);
-  if (out.empty()) {
-    return nullptr;
-  }
 
   if (!status.ok()) {
     std::string error_message =
         "nativeFinish: finish failed with error msg " + status.ToString();
     env->ThrowNew(io_exception_class, error_message.c_str());
-    return nullptr;
   }
 
   std::shared_ptr<arrow::Schema> schema;
