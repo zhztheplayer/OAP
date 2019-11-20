@@ -34,4 +34,8 @@ object CodeGeneration {
     case other =>
       throw new UnsupportedOperationException(s"getResultType doesn't support $other.")
   }
+
+  def getResultType(): ArrowType = {
+    new ArrowType.Int(32, true)
+  }
 }

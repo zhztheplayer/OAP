@@ -40,10 +40,6 @@ object ColumnarExpressionConverter extends Logging {
       }
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
       ColumnarUnaryOperator.create(replaceWithColumnarExpression(u.child), expr)
-    case a: AggregateExpression =>
-      check_if_no_calculation = false
-      logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
-      new ColumnarAggregateExpression(a.aggregateFunction, a.mode, a.isDistinct, a.resultId)
     case expr =>
       logWarning(s"${expr.getClass} ${expr} is not currently supported.")
       expr

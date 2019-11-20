@@ -1,12 +1,10 @@
 package com.intel.sparkColumnarPlugin.vectorized;
 
 import io.netty.buffer.ArrowBuf;
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.channels.Channels;
 import java.util.List;
-
 import org.apache.arrow.gandiva.exceptions.GandivaException;
 import org.apache.arrow.gandiva.expression.ExpressionTree;
 import org.apache.arrow.gandiva.ipc.GandivaTypes;
@@ -29,7 +27,19 @@ public class ExpressionEvaluator {
   /** Convert ExpressionTree into native function. */
   public void build(Schema schema, List<ExpressionTree> exprs)
       throws RuntimeException, IOException, GandivaException {
-    nativeHandler = jniWrapper.nativeBuild(getSchemaBytesBuf(schema), getExprListBytesBuf(exprs));
+    nativeHandler = jniWrapper.nativeBuild(getSchemaBytesBuf(schema), getExprListBytesBuf(exprs), false);
+  }
+
+  /** Convert ExpressionTree into native function. */
+  public void build(Schema schema, List<ExpressionTree> exprs, boolean finishReturn)
+      throws RuntimeException, IOException, GandivaException {
+    nativeHandler = jniWrapper.nativeBuild(getSchemaBytesBuf(schema), getExprListBytesBuf(exprs), finishReturn);
+  }
+
+  /** Convert ExpressionTree into native function. */
+  public void build(Schema schema, List<ExpressionTree> exprs, List<ExpressionTree> finish_exprs)
+      throws RuntimeException, IOException, GandivaException {
+    nativeHandler = jniWrapper.nativeBuildWithFinish(getSchemaBytesBuf(schema), getExprListBytesBuf(exprs), getExprListBytesBuf(finish_exprs));
   }
 
   /** Evaluate input data using builded native function, and output as recordBatch. */
@@ -51,6 +61,21 @@ public class ExpressionEvaluator {
 
     ArrowRecordBatchBuilder[] resRecordBatchBuilderList =
         jniWrapper.nativeEvaluate(nativeHandler, recordBatch.getLength(), bufAddrs, bufSizes);
+    ArrowRecordBatch[] recordBatchList = new ArrowRecordBatch[resRecordBatchBuilderList.length];
+    for (int i = 0; i < resRecordBatchBuilderList.length; i++) {
+      if (resRecordBatchBuilderList[i] == null) {
+        recordBatchList[i] = null;
+        break;
+      }
+      ArrowRecordBatchBuilderImpl resRecordBatchBuilderImpl =
+          new ArrowRecordBatchBuilderImpl(resRecordBatchBuilderList[i]);
+      recordBatchList[i] = resRecordBatchBuilderImpl.build();
+    }
+    return recordBatchList;
+  }
+
+  public ArrowRecordBatch[] finish() throws RuntimeException, IOException {
+    ArrowRecordBatchBuilder[] resRecordBatchBuilderList = jniWrapper.nativeFinish(nativeHandler);
     ArrowRecordBatch[] recordBatchList = new ArrowRecordBatch[resRecordBatchBuilderList.length];
     for (int i = 0; i < resRecordBatchBuilderList.length; i++) {
       if (resRecordBatchBuilderList[i] == null) {
