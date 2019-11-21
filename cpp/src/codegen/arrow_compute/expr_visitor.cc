@@ -548,6 +548,9 @@ arrow::Status ExprVisitor::Finish(std::shared_ptr<ExprVisitor>* finish_visitor) 
         std::dynamic_pointer_cast<gandiva::FunctionNode>(finish_func_)
             ->descriptor()
             ->name();
+#ifdef DEBUG
+    std::cout << "ExprVisitor::Finish call finish func " << finish_func_name << std::endl;
+#endif
     *finish_visitor = std::make_shared<ExprVisitor>(
         schema_, finish_func_name, param_field_names_, shared_from_this());
     RETURN_NOT_OK((*finish_visitor)->Eval());

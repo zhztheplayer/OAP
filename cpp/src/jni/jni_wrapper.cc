@@ -147,55 +147,67 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
     jboolean return_when_finish = false) {
   arrow::Status status;
 
-  jsize schema_len = env->GetArrayLength(schema_arr);
-  jbyte* schema_bytes = env->GetByteArrayElements(schema_arr, 0);
-
-  auto serialized_schema =
-      std::make_shared<arrow::Buffer>((uint8_t*)schema_bytes, schema_len);
-  arrow::ipc::DictionaryMemo in_memo;
   std::shared_ptr<arrow::Schema> schema;
-  arrow::io::BufferReader buf_reader(serialized_schema);
-
-  arrow::Status msg = arrow::ipc::ReadSchema(&buf_reader, &in_memo, &schema);
+  arrow::Status msg = MakeSchema(env, schema_arr, &schema);
   if (!msg.ok()) {
-    env->ReleaseByteArrayElements(schema_arr, schema_bytes, JNI_ABORT);
-    std::string error_message =
-        "nativeOpenParquetWriter: failed to readSchema, err msg is " + msg.message();
+    std::string error_message = "failed to readSchema, err msg is " + msg.message();
     env->ThrowNew(io_exception_class, error_message.c_str());
   }
 
   gandiva::ExpressionVector expr_vector;
   gandiva::FieldVector ret_types;
-  types::ExpressionList exprs;
-  jsize exprs_len = env->GetArrayLength(exprs_arr);
-  jbyte* exprs_bytes = env->GetByteArrayElements(exprs_arr, 0);
-
-  if (!ParseProtobuf(reinterpret_cast<uint8_t*>(exprs_bytes), exprs_len, &exprs)) {
-    env->ReleaseByteArrayElements(schema_arr, schema_bytes, JNI_ABORT);
-    env->ReleaseByteArrayElements(exprs_arr, exprs_bytes, JNI_ABORT);
-    std::string error_message = "Unable to parse expressions protobuf";
+  msg = MakeExprVector(env, exprs_arr, &expr_vector, &ret_types);
+  if (!msg.ok()) {
+    std::string error_message =
+        "failed to parse expressions protobuf, err msg is " + msg.message();
     env->ThrowNew(io_exception_class, error_message.c_str());
-  }
-
-  // create Expression out of the list of exprs
-  for (int i = 0; i < exprs.exprs_size(); i++) {
-    gandiva::ExpressionPtr root = ProtoTypeToExpression(exprs.exprs(i));
-
-    if (root == nullptr) {
-      env->ReleaseByteArrayElements(schema_arr, schema_bytes, JNI_ABORT);
-      env->ReleaseByteArrayElements(exprs_arr, exprs_bytes, JNI_ABORT);
-      std::string error_message =
-          "Unable to construct expression object from expression protobuf";
-      env->ThrowNew(io_exception_class, error_message.c_str());
-    }
-
-    expr_vector.push_back(root);
-    ret_types.push_back(root->result());
   }
 
   std::shared_ptr<CodeGenerator> handler;
   msg = sparkcolumnarplugin::codegen::CreateCodeGenerator(schema, expr_vector, ret_types,
                                                           &handler, return_when_finish);
+  if (!msg.ok()) {
+    std::string error_message =
+        "nativeBuild: failed to create CodeGenerator, err msg is " + msg.message();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+  return handler_holder_.Insert(std::shared_ptr<CodeGenerator>(handler));
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeBuildWithFinish(
+    JNIEnv* env, jobject obj, jbyteArray schema_arr, jbyteArray exprs_arr,
+    jbyteArray finish_exprs_arr) {
+  arrow::Status status;
+
+  std::shared_ptr<arrow::Schema> schema;
+  arrow::Status msg = MakeSchema(env, schema_arr, &schema);
+  if (!msg.ok()) {
+    std::string error_message = "failed to readSchema, err msg is " + msg.message();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  gandiva::ExpressionVector expr_vector;
+  gandiva::FieldVector ret_types;
+  msg = MakeExprVector(env, exprs_arr, &expr_vector, &ret_types);
+  if (!msg.ok()) {
+    std::string error_message =
+        "failed to parse expressions protobuf, err msg is " + msg.message();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  gandiva::ExpressionVector finish_expr_vector;
+  gandiva::FieldVector finish_ret_types;
+  msg = MakeExprVector(env, finish_exprs_arr, &finish_expr_vector, &finish_ret_types);
+  if (!msg.ok()) {
+    std::string error_message =
+        "failed to parse expressions protobuf, err msg is " + msg.message();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  std::shared_ptr<CodeGenerator> handler;
+  msg = sparkcolumnarplugin::codegen::CreateCodeGenerator(
+      schema, expr_vector, ret_types, &handler, true, finish_expr_vector);
   if (!msg.ok()) {
     std::string error_message =
         "nativeBuild: failed to create CodeGenerator, err msg is " + msg.message();

@@ -10,6 +10,7 @@
 
 #include <arrow/builder.h>
 #include <arrow/record_batch.h>
+#include <arrow/status.h>
 #include <arrow/type.h>
 
 #include <gandiva/arrow.h>
@@ -99,4 +100,50 @@ std::string JStringToCString(JNIEnv* env, jstring string) {
   std::vector<char> buffer(clen);
   env->GetStringUTFRegion(string, 0, jlen, buffer.data());
   return std::string(buffer.data(), clen);
+}
+
+arrow::Status MakeSchema(JNIEnv* env, jbyteArray schema_arr,
+                         std::shared_ptr<arrow::Schema>* schema) {
+  jsize schema_len = env->GetArrayLength(schema_arr);
+  jbyte* schema_bytes = env->GetByteArrayElements(schema_arr, 0);
+
+  auto serialized_schema =
+      std::make_shared<arrow::Buffer>((uint8_t*)schema_bytes, schema_len);
+  arrow::ipc::DictionaryMemo in_memo;
+  arrow::io::BufferReader buf_reader(serialized_schema);
+  auto status = arrow::ipc::ReadSchema(&buf_reader, &in_memo, schema);
+  if (!status.ok()) {
+    env->ReleaseByteArrayElements(schema_arr, schema_bytes, JNI_ABORT);
+    return status;
+  }
+
+  return arrow::Status::OK();
+}
+
+arrow::Status MakeExprVector(JNIEnv* env, jbyteArray exprs_arr,
+                             gandiva::ExpressionVector* expr_vector,
+                             gandiva::FieldVector* ret_types) {
+  types::ExpressionList exprs;
+  jsize exprs_len = env->GetArrayLength(exprs_arr);
+  jbyte* exprs_bytes = env->GetByteArrayElements(exprs_arr, 0);
+
+  if (!ParseProtobuf(reinterpret_cast<uint8_t*>(exprs_bytes), exprs_len, &exprs)) {
+    env->ReleaseByteArrayElements(exprs_arr, exprs_bytes, JNI_ABORT);
+    return arrow::Status::UnknownError("Unable to parse");
+  }
+
+  // create Expression out of the list of exprs
+  for (int i = 0; i < exprs.exprs_size(); i++) {
+    gandiva::ExpressionPtr root = ProtoTypeToExpression(exprs.exprs(i));
+
+    if (root == nullptr) {
+      env->ReleaseByteArrayElements(exprs_arr, exprs_bytes, JNI_ABORT);
+      return arrow::Status::UnknownError("Unable to construct expression object");
+    }
+
+    expr_vector->push_back(root);
+    ret_types->push_back(root->result());
+  }
+
+  return arrow::Status::OK();
 }
