@@ -19,7 +19,8 @@ class ArrayViewerImplBase {
  public:
   virtual arrow::Status MakeBuilder(arrow::MemoryPool* pool,
                                     std::shared_ptr<ArrayBuilderImplBase>* builder) = 0;
-  virtual arrow::Status Process(const std::shared_ptr<ArrayBuilderImplBase>& builder) = 0;
+  virtual arrow::Status Process(const std::shared_ptr<ArrayBuilderImplBase>& builder,
+                                int group_id) = 0;
 };
 
 template <typename ArrayType, typename T>
@@ -43,8 +44,9 @@ class ArrayViewerImpl : public ArrayViewerImplBase {
     return arrow::Status::OK();
   }
 
-  arrow::Status Process(const std::shared_ptr<ArrayBuilderImplBase>& builder) {
-    return builder->AppendArray(in_);
+  arrow::Status Process(const std::shared_ptr<ArrayBuilderImplBase>& builder,
+                        int group_id) {
+    return builder->AppendArray(in_, group_id);
   }
 
  private:
@@ -65,8 +67,9 @@ class ArrayVisitorImpl : public arrow::ArrayVisitor {
     return arrow::Status::OK();
   }
 
-  arrow::Status Eval(const std::shared_ptr<ArrayBuilderImplBase>& builder) {
-    return viewer_->Process(builder);
+  arrow::Status Eval(const std::shared_ptr<ArrayBuilderImplBase>& builder,
+                     int group_id = 0) {
+    return viewer_->Process(builder, group_id);
   }
 
  private:

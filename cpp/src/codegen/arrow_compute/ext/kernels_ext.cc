@@ -4,12 +4,14 @@
 #include <arrow/compute/kernels/count.h>
 #include <arrow/compute/kernels/hash.h>
 #include <arrow/compute/kernels/sum.h>
+#include <arrow/pretty_print.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
 #include <arrow/type_traits.h>
 #include <arrow/util/bit_util.h>
 #include <arrow/util/checked_cast.h>
 #include <iostream>
+#include <unordered_map>
 #include "codegen/arrow_compute/ext/append.h"
 #include "codegen/arrow_compute/ext/split.h"
 
@@ -18,14 +20,17 @@ namespace codegen {
 namespace arrowcompute {
 namespace extra {
 
+///////////////  SplitArrayList  ////////////////
 arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayList& in,
                              const std::shared_ptr<arrow::Array>& dict,
-                             std::vector<ArrayList>* out, std::vector<int>* out_sizes) {
+                             std::vector<ArrayList>* out, std::vector<int>* out_sizes,
+                             std::vector<int>* group_indices) {
   if (!dict) {
     return arrow::Status::Invalid("input data is invalid");
   }
   std::vector<std::shared_ptr<splitter::ArrayVisitorImpl>> array_visitor_list;
   std::vector<std::shared_ptr<ArrayBuilderImplBase>> builder_list_;
+  std::unordered_map<int, int> group_id_to_index;
   for (auto col : in) {
     auto visitor = std::make_shared<splitter::ArrayVisitorImpl>(ctx);
     RETURN_NOT_OK(col->Accept(&(*visitor.get())));
@@ -39,8 +44,17 @@ arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayLi
   for (int row_id = 0; row_id < dict->length(); row_id++) {
     auto group_id = arrow::internal::checked_cast<const arrow::Int32Array&>(*dict.get())
                         .GetView(row_id);
+    auto find = group_id_to_index.find(group_id);
+    int index;
+    if (find == group_id_to_index.end()) {
+      index = group_id_to_index.size();
+      group_id_to_index.emplace(group_id, index);
+      group_indices->push_back(group_id);
+    } else {
+      index = find->second;
+    }
     for (int i = 0; i < array_visitor_list.size(); i++) {
-      array_visitor_list[i]->Eval(builder_list_[i], group_id, row_id);
+      array_visitor_list[i]->Eval(builder_list_[i], index, row_id);
     }
   }
 
@@ -53,6 +67,8 @@ arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayLi
         out->push_back(arr_list);
         out_sizes->push_back(arr_list_out[i]->length());
       }
+      // std::cout << "push arr_list_out[" << i << "] input out[" << i << "]" <<
+      // std::endl; arrow::PrettyPrint(*arr_list_out[i].get(), 2, &std::cout);
       out->at(i).push_back(arr_list_out[i]);
     }
   }
@@ -60,6 +76,21 @@ arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayLi
   return arrow::Status::OK();
 }
 
+///////////////  UniqueArray  ////////////////
+arrow::Status UniqueArray(arrow::compute::FunctionContext* ctx,
+                          const std::shared_ptr<arrow::Array>& in,
+                          std::shared_ptr<arrow::Array>* out) {
+  if (in->length() == 0) {
+    *out = in;
+    return arrow::Status::OK();
+  }
+  arrow::compute::Datum input_datum(in);
+  RETURN_NOT_OK(arrow::compute::Unique(ctx, input_datum, out));
+
+  return arrow::Status::OK();
+}
+
+///////////////  SumArray  ////////////////
 arrow::Status SumArray(arrow::compute::FunctionContext* ctx,
                        const std::shared_ptr<arrow::Array>& in,
                        std::shared_ptr<arrow::Array>* out) {
@@ -71,9 +102,11 @@ arrow::Status SumArray(arrow::compute::FunctionContext* ctx,
   RETURN_NOT_OK(arrow::compute::Sum(ctx, *in.get(), &output));
   RETURN_NOT_OK(
       arrow::MakeArrayFromScalar(*(output.scalar()).get(), output.length(), out));
+
   return arrow::Status::OK();
 }
 
+///////////////  CountArray  ////////////////
 arrow::Status CountArray(arrow::compute::FunctionContext* ctx,
                          const std::shared_ptr<arrow::Array>& in,
                          std::shared_ptr<arrow::Array>* out) {
@@ -90,21 +123,47 @@ arrow::Status CountArray(arrow::compute::FunctionContext* ctx,
   return arrow::Status::OK();
 }
 
+///////////////  EncodeArray  ////////////////
+class EncodeArrayKernel::Impl {
+ public:
+  Impl() {}
+  ~Impl() {}
+  virtual arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in,
+                                 std::shared_ptr<arrow::Array>* out) = 0;
+};
+
 template <typename InType, typename MemoTableType>
-arrow::Status EncodeArrayImpl(arrow::compute::FunctionContext* ctx,
-                              const std::shared_ptr<arrow::Array>& in,
-                              std::shared_ptr<arrow::Array>* out) {
-  arrow::compute::Datum input_datum(in);
-  static auto hash_table = std::make_shared<MemoTableType>(ctx->memory_pool());
+class EncodeArrayTypedImpl : public EncodeArrayKernel::Impl {
+ public:
+  EncodeArrayTypedImpl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
+    hash_table_ = std::make_shared<MemoTableType>(ctx_->memory_pool());
+  }
+  ~EncodeArrayTypedImpl() {}
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in,
+                         std::shared_ptr<arrow::Array>* out) {
+    arrow::compute::Datum input_datum(in);
 
-  arrow::compute::Datum out_dict;
-  RETURN_NOT_OK(
-      arrow::compute::DictionaryEncode<InType>(ctx, input_datum, hash_table, &out_dict));
-  auto dict = std::dynamic_pointer_cast<arrow::DictionaryArray>(out_dict.make_array());
+    arrow::compute::Datum out_dict;
+    RETURN_NOT_OK(arrow::compute::DictionaryEncode<InType>(ctx_, input_datum, hash_table_,
+                                                           &out_dict));
+    auto dict = std::dynamic_pointer_cast<arrow::DictionaryArray>(out_dict.make_array());
 
-  *out = dict->indices();
+    *out = dict->indices();
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<MemoTableType> hash_table_;
+};
+
+arrow::Status EncodeArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                      std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<EncodeArrayKernel>(ctx);
   return arrow::Status::OK();
 }
+
+EncodeArrayKernel::EncodeArrayKernel(arrow::compute::FunctionContext* ctx) { ctx_ = ctx; }
 
 #define PROCESS_SUPPORTED_TYPES(PROCESS) \
   PROCESS(arrow::BooleanType)            \
@@ -127,24 +186,25 @@ arrow::Status EncodeArrayImpl(arrow::compute::FunctionContext* ctx,
   PROCESS(arrow::StringType)             \
   PROCESS(arrow::FixedSizeBinaryType)    \
   PROCESS(arrow::Decimal128Type)
-arrow::Status EncodeArray(arrow::compute::FunctionContext* ctx,
-                          const std::shared_ptr<arrow::Array>& in,
-                          std::shared_ptr<arrow::Array>* out) {
-  switch (in->type_id()) {
+arrow::Status EncodeArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in,
+                                          std::shared_ptr<arrow::Array>* out) {
+  if (!impl_) {
+    switch (in->type_id()) {
 #define PROCESS(InType)                                                                \
   case InType::type_id: {                                                              \
     using MemoTableType = typename arrow::internal::HashTraits<InType>::MemoTableType; \
-    return EncodeArrayImpl<InType, MemoTableType>(ctx, in, out);                       \
+    impl_.reset(new EncodeArrayTypedImpl<InType, MemoTableType>(ctx_));                \
   } break;
-    PROCESS_SUPPORTED_TYPES(PROCESS)
+      PROCESS_SUPPORTED_TYPES(PROCESS)
 #undef PROCESS
-    default:
-      break;
+      default:
+        break;
+    }
   }
-  return arrow::Status::OK();
+  return impl_->Evaluate(in, out);
 }
-#undef PROCESS_SUPPORTED_TYPES
 
+///////////////  AppendToCacheArrayList  ////////////////
 class AppendToCacheArrayListKernel::Impl {
  public:
   Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
@@ -208,6 +268,60 @@ arrow::Status AppendToCacheArrayListKernel::Evaluate(const ArrayList& in) {
 }
 
 arrow::Status AppendToCacheArrayListKernel::Finish(ArrayList* out) {
+  return impl_->Finish(out);
+}
+
+///////////////  AppendToCacheArray  ////////////////
+class AppendToCacheArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  ~Impl() {}
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in, int group_id) {
+    auto visitor = std::make_shared<appender::ArrayVisitorImpl>(ctx_);
+    RETURN_NOT_OK(in->Accept(&(*visitor.get())));
+
+    if (!builder) {
+      RETURN_NOT_OK(visitor->GetBuilder(&builder));
+    }
+    RETURN_NOT_OK(visitor->Eval(builder, group_id));
+
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(ArrayList* out) {
+    RETURN_NOT_OK(builder->Finish(out));
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
+    RETURN_NOT_OK(builder->Finish(out));
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<ArrayBuilderImplBase> builder;
+};
+arrow::Status AppendToCacheArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                             std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<AppendToCacheArrayKernel>(ctx);
+  return arrow::Status::OK();
+}
+
+AppendToCacheArrayKernel::AppendToCacheArrayKernel(arrow::compute::FunctionContext* ctx) {
+  impl_.reset(new Impl(ctx));
+}
+
+arrow::Status AppendToCacheArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in,
+                                                 int group_id) {
+  return impl_->Evaluate(in, group_id);
+}
+
+arrow::Status AppendToCacheArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
+  return impl_->Finish(out);
+}
+
+arrow::Status AppendToCacheArrayKernel::Finish(ArrayList* out) {
   return impl_->Finish(out);
 }
 

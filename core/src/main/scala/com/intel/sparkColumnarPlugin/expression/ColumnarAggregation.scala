@@ -48,53 +48,80 @@ class ColumnarAggregation(
   logInfo(
     s"groupingExpressions: $groupingExpressions,\noriginalInputAttributes: $originalInputAttributes,\naggregateExpressions: $aggregateExpressions,\naggregateAttributes: $aggregateAttributes,\nresultExpressions: $resultExpressions")
 
-  val aggregateColumnarExpressions: Seq[Expression] =
-    aggregateExpressions.map(expr =>
-      ColumnarExpressionConverter.replaceWithColumnarExpression(expr))
-
-  val resultSchema = StructType(
-    aggregateAttributes.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
   var resultTotalRows: Int = 0
-  val resultCache = new ArrayList[ColumnarBatch]()
-  var aggregator: ExpressionEvaluator = _
-  var finalAggregator: ExpressionEvaluator = _
-  var resultArrowSchema: Schema = _
 
-  def createAggregation(input: ColumnarBatch) {
-    val fieldTypesList = List
-      .range(0, input.numCols())
-      .map(i => Field.nullable(s"c_$i", CodeGeneration.getResultType(input.column(i).dataType())))
+    /*val fieldTypesList : List[Field] = originalInputAttributes.map({attr =>
+      Field.nullable(s"${attr.name}", CodeGeneration.getResultType(attr.dataType))
+    }).asInstanceOf[List[Field]]*/
 
-    var col_id = 0
-    val gandivaExpressionTree: Seq[(ExpressionTree, Field, ExpressionTree)] =
-      (aggregateColumnarExpressions zip aggregateAttributes)
+    val keyFieldList : List[Field] = groupingExpressions.map(expr => {
+       Field.nullable(s"${expr.name}", CodeGeneration.getResultType(expr.dataType))
+    }).toArray.toList
+
+    val aggregateColumnarExpressions = (aggregateExpressions zip aggregateAttributes).map{
+      case (expr, attr) =>
+      val a = expr.asInstanceOf[AggregateExpression]
+      val child = a.aggregateFunction.children.toList.head
+      val field = getFieldByName(child, attr.dataType)
+      new ColumnarAggregateExpression(field, a.aggregateFunction, a.mode, a.isDistinct, a.resultId)
+    }.asInstanceOf[List[ColumnarAggregateExpressionBase]]
+
+    /*resultType field will not be use in HashAggregate, but since we need one to make Gandiva Expression, fake one here.*/
+    val resultType = CodeGeneration.getResultType()
+    val expressions : List[ColumnarAggregateExpressionBase]= if (keyFieldList.length > 0) {
+      val uniqueExpressions = keyFieldList.map(field => new ColumnarUniqueAggregateExpression(field))
+      uniqueExpressions ::: aggregateColumnarExpressions
+    } else {
+      aggregateColumnarExpressions
+    }
+
+    val fieldTypesList : List[Field] = if (keyFieldList.length > 0) { 
+      keyFieldList ::: aggregateColumnarExpressions.map({expr => expr.getField})
+    } else {
+      aggregateColumnarExpressions.map({expr => expr.getField})
+    }
+
+    val gandivaExpressionTree: List[(ExpressionTree, Field, ExpressionTree)] =
+      //(expressions zip resultExpressions.toArray.toList)
+      expressions
         .map {
-          case (expr, attr) => {
-            val (node, result, finalNode) =
-              expr
-                .asInstanceOf[ColumnarAggregateExpression]
-                .doColumnarCodeGen_ext((fieldTypesList(col_id), attr, s"result_${col_id}"))
-            col_id += 1
+          case expr => {
+            val resultField =
+              Field.nullable(s"result_${expr.getFieldName}", expr.getFieldType)
+            val (node, finalNode) =
+              expr.doColumnarCodeGen_ext((keyFieldList, fieldTypesList, resultType, resultField))
             if (node == null) {
               null
             } else {
               (
-                TreeBuilder.makeExpression(node, result),
-                result,
-                TreeBuilder.makeExpression(finalNode, result))
+                TreeBuilder.makeExpression(node, resultField),
+                resultField,
+                TreeBuilder.makeExpression(finalNode, resultField))
             }
           }
         }
         .filter(_ != null)
 
+    val resultFieldList = gandivaExpressionTree.map(_._2)
+    logInfo(s"first evaluation fields: $fieldTypesList, second evaluation fields: $resultFieldList")
+
+    val aggregator = new ExpressionEvaluator()
     val arrowSchema = new Schema(fieldTypesList.asJava)
-    resultArrowSchema = new Schema(gandivaExpressionTree.map(_._2).toList.asJava)
+    aggregator.build(arrowSchema, gandivaExpressionTree.map(_._1).asJava, gandivaExpressionTree.map(_._3).asJava)
 
-    aggregator = new ExpressionEvaluator()
-    aggregator.build(arrowSchema, gandivaExpressionTree.map(_._1).toList.asJava)
+    val resultArrowSchema = new Schema(resultFieldList.asJava)
 
-    finalAggregator = new ExpressionEvaluator()
-    finalAggregator.build(resultArrowSchema, gandivaExpressionTree.map(_._3).toList.asJava)
+  def getFieldByName(argExpr: Expression, dataType: DataType): Field = {
+    val attr = argExpr match {
+      case c : Cast =>
+        c.child.asInstanceOf[AttributeReference]
+      case a : AttributeReference =>
+        a
+      case other =>
+        throw new UnsupportedOperationException(s"getFieldByName is unable parse arg name from $other (${other.getClass}).")
+    }
+
+    Field.nullable(s"${attr.name}", CodeGeneration.getResultType(dataType))
   }
 
   def close(): Unit = {
@@ -102,48 +129,36 @@ class ColumnarAggregation(
   }
 
   def updateAggregationResult(columnarBatch: ColumnarBatch): Unit = {
-    if (aggregator == null) {
-      createAggregation(columnarBatch)
-    }
     val inputRecordBatch = createArrowRecordBatch(columnarBatch)
     val resultRecordBatchList = aggregator.evaluate(inputRecordBatch)
-    val resultRecordBatch = resultRecordBatchList(0)
     releaseArrowRecordBatch(inputRecordBatch)
-    val resultColumnarBatch = fromArrowRecordBatch(resultArrowSchema, resultRecordBatch)
-    releaseArrowRecordBatch(resultRecordBatch)
-
-    resultCache.add(resultColumnarBatch);
-    resultTotalRows += resultColumnarBatch.numRows()
-    //logInfo(s"getAggregationResult one batch done, result is ${resultColumnarBatch.column(0).getUTF8String(0)}")
+    releaseArrowRecordBatchList(resultRecordBatchList)
   }
 
   def getAggregationResult(): ColumnarBatch = {
+    val finalResultRecordBatchList = aggregator.finish()
+    
+    // generate columnarBatch from recordBatchList
+    // we need to merge multiple batch into one batch, row number is number of batches.
+    val resultSchema = ArrowUtils.fromArrowSchema(resultArrowSchema)
     val resultColumnVectors =
-      ArrowWritableColumnVector.allocateColumns(resultTotalRows, resultSchema).toArray
+      ArrowWritableColumnVector.allocateColumns(finalResultRecordBatchList.length, resultSchema).toArray
     var rowId: Int = 0;
-    resultCache.asScala.map(columnarBatch => {
-      // get rows from cached columnarBatch and put into the final one
+    finalResultRecordBatchList.foreach(recordBatch => {
+      val columnarBatch = fromArrowRecordBatch(resultArrowSchema, recordBatch)
       for (i <- 0 until columnarBatch.numCols()) {
-        columnarBatch
-          .column(i)
-          .asInstanceOf[ArrowWritableColumnVector]
-          .mergeTo(resultColumnVectors(i), rowId)
+        for (j <- 0 until columnarBatch.numRows()) {
+        columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].mergeTo(resultColumnVectors(i), rowId + j)
+        }
       }
       rowId += columnarBatch.numRows()
       columnarBatch.close()
-    })
-    val finalInputColumnarBatch =
-      new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), rowId)
-    val finalInputRecordBatch = createArrowRecordBatch(finalInputColumnarBatch)
-    val finalResultRecordBatchList = finalAggregator.evaluate(finalInputRecordBatch)
-    val finalResultRecordBatch = finalResultRecordBatchList(0)
-    releaseArrowRecordBatch(finalInputRecordBatch)
-    finalInputColumnarBatch.close()
+    }) 
+    
+    val finalColumnarBatch = new ColumnarBatch(
+      resultColumnVectors.map(_.asInstanceOf[ColumnVector]), rowId)
+    releaseArrowRecordBatchList(finalResultRecordBatchList)
 
-    val finalColumnarBatch = fromArrowRecordBatch(resultArrowSchema, finalResultRecordBatch)
-    releaseArrowRecordBatch(finalResultRecordBatch)
-
-    //logInfo(s"getAggregationResult done, result is ${finalColumnarBatch.column(0).getUTF8String(0)}")
     finalColumnarBatch
   }
 
@@ -198,7 +213,15 @@ class ColumnarAggregation(
   }
 
   def releaseArrowRecordBatch(recordBatch: ArrowRecordBatch): Unit = {
-    recordBatch.close();
+    if (recordBatch != null)
+      recordBatch.close()
+  }
+
+  def releaseArrowRecordBatchList(recordBatchList: Array[ArrowRecordBatch]): Unit = {
+    recordBatchList.foreach({recordBatch =>
+      if (recordBatch != null)
+        recordBatch.close()
+    })
   }
 }
 

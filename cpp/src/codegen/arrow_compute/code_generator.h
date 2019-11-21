@@ -12,19 +12,28 @@ namespace arrowcompute {
 
 class ArrowComputeCodeGenerator : public CodeGenerator {
  public:
-  ArrowComputeCodeGenerator(std::shared_ptr<arrow::Schema> schema_ptr,
-                            std::vector<std::shared_ptr<gandiva::Expression>> expr_vector,
-                            std::vector<std::shared_ptr<arrow::Field>> ret_types,
-                            bool return_when_finish = false)
+  ArrowComputeCodeGenerator(
+      std::shared_ptr<arrow::Schema> schema_ptr,
+      std::vector<std::shared_ptr<gandiva::Expression>> expr_vector,
+      std::vector<std::shared_ptr<arrow::Field>> ret_types, bool return_when_finish,
+      std::vector<std::shared_ptr<::gandiva::Expression>> finish_exprs_vector)
       : schema_(schema_ptr),
         ret_types_(ret_types),
         return_when_finish_(return_when_finish) {
+    int i = 0;
     for (auto expr : expr_vector) {
       std::shared_ptr<ExprVisitor> root_visitor;
-      auto visitor =
-          MakeExprVisitor(schema_ptr, expr, &expr_visitor_cache_, &root_visitor);
-      visitor_list_.push_back(root_visitor);
+      if (finish_exprs_vector.empty()) {
+        auto visitor =
+            MakeExprVisitor(schema_ptr, expr, &expr_visitor_cache_, &root_visitor);
+        visitor_list_.push_back(root_visitor);
+      } else {
+        auto visitor = MakeExprVisitor(schema_ptr, expr, finish_exprs_vector[i++],
+                                       &expr_visitor_cache_, &root_visitor);
+        visitor_list_.push_back(root_visitor);
+      }
     }
+    std::cout << "new ExprVisitor for " << schema_->ToString() << std::endl;
   }
 
   ~ArrowComputeCodeGenerator() {
@@ -52,7 +61,12 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     }
 
     if (!return_when_finish_) {
-      auto res_schema = arrow::schema(ret_types_);
+      std::shared_ptr<arrow::Schema> res_schema;
+      if (ret_types_.size() < fields.size()) {
+        res_schema = arrow::schema(fields);
+      } else {
+        res_schema = arrow::schema(ret_types_);
+      }
       for (int i = 0; i < batch_array.size(); i++) {
         out->push_back(
             arrow::RecordBatch::Make(res_schema, batch_size_array[i], batch_array[i]));
@@ -61,6 +75,10 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
       // we need to clean up this visitor chain result for next record_batch.
       for (auto visitor : visitor_list_) {
         RETURN_NOT_OK(visitor->Reset());
+      }
+    } else {
+      for (auto visitor : visitor_list_) {
+        RETURN_NOT_OK(visitor->ResetDependency());
       }
     }
     return status;
@@ -73,10 +91,22 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     std::vector<std::shared_ptr<arrow::Field>> fields;
 
     for (auto visitor : visitor_list_) {
-      RETURN_NOT_OK(GetResult(visitor, &batch_array, &batch_size_array, &fields));
+      std::shared_ptr<ExprVisitor> finish_visitor;
+      RETURN_NOT_OK(visitor->Finish(&finish_visitor));
+      if (finish_visitor) {
+        RETURN_NOT_OK(
+            GetResult(finish_visitor, &batch_array, &batch_size_array, &fields));
+      } else {
+        RETURN_NOT_OK(GetResult(visitor, &batch_array, &batch_size_array, &fields));
+      }
     }
 
-    auto res_schema = arrow::schema(ret_types_);
+    std::shared_ptr<arrow::Schema> res_schema;
+    if (ret_types_.size() < fields.size()) {
+      res_schema = arrow::schema(fields);
+    } else {
+      res_schema = arrow::schema(ret_types_);
+    }
     for (int i = 0; i < batch_array.size(); i++) {
       out->push_back(
           arrow::RecordBatch::Make(res_schema, batch_size_array[i], batch_array[i]));
@@ -134,8 +164,7 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
       return arrow::Status::Invalid("GetOrInser index: ", i, "  is out of range.");
     }
     if (i == input->size()) {
-      T new_data;
-
+      T new_data = *out;
       input->push_back(new_data);
     }
     *out = input->at(i);

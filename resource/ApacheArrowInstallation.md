@@ -62,7 +62,7 @@ apache arrow, parquet and gandiva
 git clone https://github.com/Intel-bigdata/arrow.git
 mkdir -p arrow/cpp/release-build
 cd arrow/cpp/release-build
-cmake -DARROW_GANDIVA_JAVA=ON -DARROW_GANDIVA=ON -DARROW_PARQUET=ON -DARROW_HDFS=ON -DARROW_BOOST_USE_SHARED=ON -DARROW_JNI=ON ..
+cmake -DARROW_GANDIVA_JAVA=ON -DARROW_GANDIVA=ON -DARROW_PARQUET=ON -DARROW_HDFS=ON -DARROW_BOOST_USE_SHARED=ON -DARROW_JNI=ON -DARROW_WITH_SNAPPY=ON ..
 make -j
 make install
 

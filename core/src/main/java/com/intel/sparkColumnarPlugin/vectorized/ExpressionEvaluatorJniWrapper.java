@@ -21,15 +21,30 @@ public class ExpressionEvaluatorJniWrapper {
    *     specification
    * @param exprListBuf The serialized protobuf of the expression vector. Each expression is created
    *     using TreeBuilder::MakeExpression.
-   * @return A moduleId that is passed to the evaluateProjector() and closeProjector() methods
+   * @param finishReturn This parameter is used to indicate that this expression should return when calling finish
+   * @return A nativeHandler that is passed to the evaluateProjector() and closeProjector() methods
    */
-  native long nativeBuild(byte[] schemaBuf, byte[] exprListBuf) throws RuntimeException;
+  native long nativeBuild(byte[] schemaBuf, byte[] exprListBuf, boolean finishReturn) throws RuntimeException;
 
   /**
-   * Evaluate the expressions represented by the moduleId on a record batch and store the output in
-   * ValueVectors. Throws an exception in case of errors
+   * Generates the projector module to evaluate the expressions with custom configuration.
    *
-   * @param moduleId moduleId representing expressions. Created using a call to buildNativeCode
+   * @param schemaBuf The schema serialized as a protobuf. See Types.proto to see the protobuf
+   *     specification
+   * @param exprListBuf The serialized protobuf of the expression vector. Each expression is created
+   *     using TreeBuilder::MakeExpression.
+   * @param finishExprListBuf The serialized protobuf of the expression vector. Each expression is created
+   *     using TreeBuilder::MakeExpression.
+   * @return A nativeHandler that is passed to the evaluateProjector() and closeProjector() methods
+   */
+  native long nativeBuildWithFinish(byte[] schemaBuf, byte[] exprListBuf, byte[] finishExprListBuf) throws RuntimeException;
+
+  /**
+   * Evaluate the expressions represented by the nativeHandler on a record batch and store the
+   * output in ValueVectors. Throws an exception in case of errors
+   *
+   * @param nativeHandler nativeHandler representing expressions. Created using a call to
+   *     buildNativeCode
    * @param numRows Number of rows in the record batch
    * @param bufAddrs An array of memory addresses. Each memory address points to a validity vector
    *     or a data vector (will add support for offset vectors later).
@@ -41,9 +56,19 @@ public class ExpressionEvaluatorJniWrapper {
       long nativeHandler, int numRows, long[] bufAddrs, long[] bufSizes) throws RuntimeException;
 
   /**
-   * Closes the projector referenced by moduleId.
+   * Evaluate the expressions represented by the nativeHandler on a record batch and store the
+   * output in ValueVectors. Throws an exception in case of errors
    *
-   * @param moduleId moduleId that needs to be closed
+   * @param nativeHandler nativeHandler representing expressions. Created using a call to
+   *     buildNativeCode
+   * @return A list of ArrowRecordBatchBuilder which can be used to build a List of ArrowRecordBatch
+   */
+  native ArrowRecordBatchBuilder[] nativeFinish(long nativeHandler) throws RuntimeException;
+
+  /**
+   * Closes the projector referenced by nativeHandler.
+   *
+   * @param nativeHandler nativeHandler that needs to be closed
    */
   native void nativeClose(long nativeHandler);
 }
