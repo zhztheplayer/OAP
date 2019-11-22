@@ -21,3 +21,16 @@ OAP is designed to leverage the user defined indices and smart fine-grained in-m
 
 By using DCPMM (AEP) as index and data cache, we can provide a more cost effective solutions for high performance environment requirement.
 
+
+## OAP Components
+### Index 
+
+![OAP-INDEX](./image/OAP-Index.PNG)
+
+### Cache
+Cache Aware
+![OAP-AWARE](./image/OAP-Aware.PNG)
+
+### OAPFileFormat
+
+![OAPFILEFORMAT](./image/OAPFileFormat.PNG)
