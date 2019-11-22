@@ -95,7 +95,7 @@ Take 1 simple ad-hoc query as instance, the store_sales table comes from TPCDS w
 
 Cases:                                                          | T1/ms | T2/ms | T3/ms | Median/ms 
 ------------------------------------------------------------    | ----- | ----- | ----- | ---------
-                                                    Orc w/ index|14964|15023|15509|    15023|
+                                                    Orc w/ index|14964  |15023  |15509  |    15023|
                                   Orc w/ index oap cache enabled| 3999| 7528| 8898|     7528|
                       Orc w/ index data cache separation enabled| 9633|11148| 8294|     9633|
                                                    Orc w/o index|19253|20023|19140|    19253|
