@@ -2,7 +2,8 @@
 
 
 * [Introduction](#introduction)
-* [Introduction](#introduction)
+* [OAP Architecture](#oap-architecture)
+* [OAP Components](#oap-components)
 
 
 ## Introduction
@@ -29,7 +30,7 @@ By using DCPMM (AEP) as index and data cache, we can provide a more cost effecti
 
 ### Cache
 Cache Aware
-![OAP-AWARE](./image/OAP-Aware.PNG)
+![CACHE-AWARE](./image/Cache-Aware.PNG)
 
 ### OAPFileFormat
 
