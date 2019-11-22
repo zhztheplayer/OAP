@@ -81,7 +81,7 @@ Refer to [OAP User guide](https://github.com/Intel-bigdata/OAP/wiki/OAP-User-gui
 
 # Integration with Spark
 Although OAP (Optimized Analytical Package for Spark) acts as a plugin jar to Spark, there are still a few tricks to note when integration with Spark. 
-Refer to [Spark OAP Integration Guide](https://github.com/Intel-bigdata/OAP/blob/branch-0.6-spark-2.3.x/docs/Spark-OAP-Integration-Guide.md) for more details.
+Refer to [Spark OAP Integration Guide](./docs/Spark-OAP-Integration-Guide.md) for more details.
 
 ## Query Example and Performance Data
 Take 1 simple ad-hoc query as instance, the store_sales table comes from TPCDS with data scale 200G. Generally we can see over 10x boost in performance.
