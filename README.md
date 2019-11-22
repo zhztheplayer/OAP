@@ -15,6 +15,10 @@ OAP - Optimized Analytics Package (previously known as Spinach) is designed to a
 * [Contributors](#contributors)
 * [How to Contribute](#how-to-contribute)
 
+## OAP Overview
+
+![OAP-OVERVIEW](./docs/image/OAP-overview.PNG)
+
 ## Building
 
 ```
