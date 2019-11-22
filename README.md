@@ -95,7 +95,7 @@ Take 1 simple ad-hoc query as instance, the store_sales table comes from TPCDS w
 
 Cases:                                                          | T1/ms | T2/ms | T3/ms | Median/ms 
 ------------------------------------------------------------    | ----- | ----- | ----- | ---------
-                                                    Orc w/ index|14964  |15023  |15509  |    15023|
+                                                    Orc w/ index| 14964 |15023  | 15509 |   15023 |
                                   Orc w/ index oap cache enabled| 3999| 7528| 8898|     7528|
                       Orc w/ index data cache separation enabled| 9633|11148| 8294|     9633|
                                                    Orc w/o index|19253|20023|19140|    19253|
@@ -111,6 +111,11 @@ Cases:                                                          | T1/ms | T2/ms 
                              parquet w/o index oap cache enabled| 4768| 5041| 1636|     4768|
                   parquet w/ index data cache separation enabled| 5052| 2169| 5499|     5052|
 
+Q6:                   | T1/ms | T2/ms | T3/ms | Median/ms 
+--------------------- | ----- | ----- | ----- | ---------
+oap-with-index        |   542 |   295 |   370 |      370  
+parquet-with-index    |  1161 |   682 |   680 |      682  
+parquet-without-index |  2010 |  1922 |  1915 |     1922
 
 ## How to Contribute
 If you are looking for some ideas on what to contribute, check out GitHub issues for this project labeled ["Pick me up!"](https://github.com/Intel-bigdata/OAP/issues?labels=pick+me+up%21&state=open).
