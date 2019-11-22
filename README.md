@@ -1,17 +1,34 @@
+
 # OAP - Optimized Analytics Package for Spark Platform
 [![Build Status](https://travis-ci.org/Intel-bigdata/OAP.svg?branch=master)](https://travis-ci.org/Intel-bigdata/OAP)
 
-OAP - Optimized Analytics Package (previously known as Spinach) is designed to accelerate Ad-hoc query. OAP defines a new parquet-like columnar storage data format and offering a fine-grained hierarchical cache mechanism in the unit of “Fiber” in memory. What’s more, OAP has extended the Spark SQL DDL to allow user to define the customized indices based on relation.
+OAP - Optimized Analytics Package (previously known as Spinach) is designed to accelerate Ad-hoc query. OAP defines a new parquet-like columnar storage data format and offers a fine-grained hierarchical cache mechanism in the unit of "Fiber" in memory. What’s more, OAP has extended the Spark SQL DDL to allow user to define the customized indices based on relation.
 ## Building
 
 ```
 mvn clean -q -Ppersistent-memory -DskipTests package
 ```
-Profile `persistent-memory` is Optional.
+Must specify Profile `persistent-memory` when using Intel DCPMM.
+
+## Running Test
+
+To run all the tests, use
+```
+mvn clean -q -Ppersistent-memory test
+```
+To run any specific test suite, for example `OapDDLSuite`, use
+```
+mvn -DwildcardSuites=org.apache.spark.sql.execution.datasources.oap.OapDDLSuite test
+```
+To run test suites using `LocalClusterMode`, please refer to `SharedOapLocalClusterContext`
+
+**NOTE**: Log level of OAP unit tests currently default to ERROR, please override src/test/resources/log4j.properties if needed.
+
 ## Prerequisites
 You should have [Apache Spark](http://spark.apache.org/) of version 2.3.2 installed in your cluster
 . Refer to Apache Spark's [documents](http://spark.apache.org/docs/2.3.2/) for details.
-## Use OAP with Spark
+# Get started With OAP
+In Yarn mode :
 1. Build OAP find `oap-<version>-with-<spark-version>.jar` in `target/`
 2. Deploy `oap-<version>-with-<spark-version>.jar` to master machine.
 3. Put below configurations to _$SPARK_HOME/conf/spark-defaults.conf_
@@ -42,19 +59,6 @@ spark.memory.offHeap.size           20g
 > spark.sql("drop oindex index1 on oap_test")
 ```
 For a more detailed examples with performance compare, you can refer to [this page](https://github.com/Intel-bigdata/OAP/wiki/OAP-examples) for further instructions.
-## Running Test
-
-To run all the tests, use
-```
-mvn clean -q -Ppersistent-memory test
-```
-To run any specific test suite, for example `OapDDLSuite`, use
-```
-mvn -DwildcardSuites=org.apache.spark.sql.execution.datasources.oap.OapDDLSuite test
-```
-To run test suites using `LocalClusterMode`, please refer to `SharedOapLocalClusterContext`
-
-NOTE: Log level of OAP unit tests currently default to ERROR, please override src/test/resources/log4j.properties if needed.
 
 ## Features
 
@@ -67,60 +71,46 @@ Sometimes, reading index could bring extra cost for some queries, for example if
 * Fine-grained cache
 OAP format data file consists of several row groups. For each row group, we have many different columns according to user defined table schema. Each column data in one row is called a "Fiber", we are using this as the minimum cache unit.
 * Parquet Data Adaptor
-Parquet is the most popular and recommended data format in Spark open-source community. Since a lot of potential users are now using Parquet storing their data, it would be expensive for them to shift their existing data to OAP. So we designed the compatible layer to allow user to create index directly on top of parquet data. With the Parquet reader we implemented, query over indexed Parquet data is also accelerated, though not as much as OAP.
+Parquet is the most popular and recommended data format in Spark open-source community. Since a lot of potential users are now using Parquet storing their data, it would be expensive for them to shift their existing data to OAP. So we designed the compatible layer to allow user to create index directly and use OAP cache on top of parquet data. With the Parquet reader we implemented, query over indexed Parquet data is also accelerated, though not as much as OAP.
 * Orc Data Adaptor
-Orc is another popular data format. We also designed the compatible layer to allow user to create index directly on top of Orc data. With the Orc reader we implemented, query over indexed Orc data is also accelerated.
-* Compatible with multiple versions of spark
+Orc is another popular data format. We also designed the compatible layer to allow user to create index directly and use OAP cache on top of Orc data. With the Orc reader we implemented, query over indexed Orc data is also accelerated.
+* Support DCPMM (Intel Optane DC Persistent Memory Module) as memory cache.
 
-## Configurations and Performance Tuning
-
-Parquet Support - Enable OAP support for parquet files
-* Default: true
-* Usage: `sqlContext.conf.setConfString(SQLConf.OAP_PARQUET_ENABLED.key, "false")`
-
-Index Directory Setting - Enable OAP support to separate the index file in specific directory. The index file is in the directory of data file in default.
-* Default: ""
-* Usage1: `sqlContext.conf.setConfString(SQLConf.OAP_INDEX_DIRECTORY.key, "/tmp")`
-* Usage2: `SET spark.sql.oap.index.directory = /tmp`
-
-Fiber Cache Size - Total Memory size to cache Fiber, configured implicitly by 'spark.memory.offHeap.size'
-* Default Size: `spark.memory.offHeap.size * 0.7`
-* Usage: Fiber cache locates in off heap storage memory, basically this size is spark.memory.offHeap.size * 0.7. But as execution can borrow a few memory from storage in UnifiedMemoryManager mode, it may vary during execution.
-
-Full Scan Threshold - If the analysis result is above this threshold, it will go through the whole data file instead of read index data.
-* Default: 0.8
-* Usage: `sqlContext.conf.setConfString(SQLConf.OAP_FULL_SCAN_THRESHOLD.key, "0.8")`
-
-Row Group Size - Row count for each row group
-* Default: 1048576
-* Usage1: `sqlContext.conf.setConfString(SQLConf.OAP_ROW_GROUP_SIZE.key, "1048576")`
-* Usage2: `CREATE TABLE t USING oap OPTIONS ('rowgroup' '1048576')`
-
-Compression Codec - Choose compression type for OAP data files.
-* Default: GZIP
-* Values: UNCOMPRESSED, SNAPPY, GZIP, LZO (Note that ORC does not support GZIP)
-* Usage1: `sqlContext.conf.setConfString(SQLConf.OAP_COMPRESSION.key, "SNAPPY")`
-* Usage2: `CREATE TABLE t USING oap OPTIONS ('compression' 'SNAPPY')`
-
+# OAP User guide
 Refer to [OAP User guide](https://github.com/Intel-bigdata/OAP/wiki/OAP-User-guide) for more details.
 
+# Integration with Spark
+Although OAP (Optimized Analytical Package for Spark) acts as a plugin jar to Spark, there are still a few tricks to note when integration with Spark. 
+Refer to [Spark OAP Integration Guide](https://github.com/Intel-bigdata/OAP/wiki/Spark-OAP-Integration-Guide.md) for more details.
+
 ## Query Example and Performance Data
-Take 2 simple ad-hoc queries as instances, the store_sales table comes from TPCDS with data scale 200G. Generally we can see 5x boost in performance.
-1. "SELECT * FROM store_sales WHERE ss_ticket_number BETWEEN 100 AND 200"
+Take 1 simple ad-hoc query as instance, the store_sales table comes from TPCDS with data scale 200G. Generally we can see over 10x boost in performance.
 
-Q6:                   | T1/ms | T2/ms | T3/ms | Median/ms 
---------------------- | ----- | ----- | ----- | ---------
-oap-with-index        |   542 |   295 |   370 |      370  
-parquet-with-index    |  1161 |   682 |   680 |      682  
-parquet-without-index |  2010 |  1922 |  1915 |     1922  
+#### First, create index:
 
-2. "SELECT * FROM store_sales WHERE ss_ticket_number < 10000 AND ss_net_paid BETWEEN 100.0 AND 110.0")
+"create oindex store_sales_ss_customer_sk_index on store_sales (ss_customer_sk) using btree"
+#### query
 
-Q12:                  | T1/ms | T2/ms | T3/ms | Median/ms 
---------------------- | ----- | ----- | ----- | ---------
-oap-with-index        |    509|   431 |   437 |      437
-parquet-with-index    |    944|   930 |  1318 |      944
-parquet-without-index |   2084|  1895 |  2007 |     2007
+1. "SELECT * FROM store_sales WHERE ss_customer_sk < 10000 AND ss_list_price < 100.0 AND ss_net_paid > 500.0"
+
+Cases:                                                          | T1/ms | T2/ms | T3/ms | Median/ms 
+------------------------------------------------------------    | ----- | ----- | ----- | ---------
+                                                    Orc w/ index|14964|15023|15509|    15023|
+                                  Orc w/ index oap cache enabled| 3999| 7528| 8898|     7528|
+                      Orc w/ index data cache separation enabled| 9633|11148| 8294|     9633|
+                                                   Orc w/o index|19253|20023|19140|    19253|
+                                 Orc w/o index oap cache enabled| 3056| 6147| 2508|     3056|
+                                                    oap w/ index|10152|  913| 6144|     6144|
+                                  oap w/ index oap cache enabled| 1714|  850|  709|      850|
+                      oap w/ index data cache separation enabled|  931|  800|17429|      931|
+                                                   oap w/o index| 5937|11780| 5373|     5937|
+                                 oap w/o index oap cache enabled| 6102| 8307| 5172|     6102|
+                             parquet w/ index oap cache disabled|14971|15204|13748|    14971|
+                              parquet w/ index oap cache enabled| 4894| 1918| 4419|     4419|
+                            parquet w/o index oap cache disabled|15500|15881|14346|    15500|
+                             parquet w/o index oap cache enabled| 4768| 5041| 1636|     4768|
+                  parquet w/ index data cache separation enabled| 5052| 2169| 5499|     5052|
+
 
 ## How to Contribute
 If you are looking for some ideas on what to contribute, check out GitHub issues for this project labeled ["Pick me up!"](https://github.com/Intel-bigdata/OAP/issues?labels=pick+me+up%21&state=open).
@@ -132,4 +122,6 @@ We tend to do fairly close readings of pull requests, and you may get a lot of c
 * Give your operators some room. Not `a+b` but `a + b` and not `def foo(a:Int,b:Int):Int` but `def foo(a: Int, b: Int): Int`.
 * Generally speaking, stick to the [Scala Style Guide](http://docs.scala-lang.org/style/)
 * Make sure tests pass!
+
+
 
