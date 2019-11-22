@@ -2,6 +2,7 @@
 
 
 * [Introduction](#introduction)
+* [Introduction](#introduction)
 
 
 ## Introduction
@@ -11,3 +12,12 @@ Interactive queries usually processes on a large data set but return a small por
 OAP (Optimized Analytic Package ) is a package for Spark to speed up interactive queries (ad-hoc queries) by utilizing index and cache technologies. By properly using index and cache, the performance of some interactive queries can possible be improved by order of magnitude.
 
 ![OAP-INTRODUCTION](./image/OAP-Introduction.PNG)
+
+## OAP Architecture
+
+OAP is designed to leverage the user defined indices and smart fine-grained in-memory data caching strategy for boosting Spark SQL performance on ad-hoc queries.
+
+![OAP-ARCHITECTURE](./image/OAP-Architecture.PNG)
+
+By using DCPMM (AEP) as index and data cache, we can provide a more cost effective solutions for high performance environment requirement.
+
