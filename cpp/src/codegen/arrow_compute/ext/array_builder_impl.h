@@ -79,7 +79,7 @@ class ArrayBuilderImpl : public ArrayBuilderImplBase {
         builder->UnsafeAppendNull();
       } else {
         auto value = in_->GetView(row_id);
-#ifdef DEBUG
+#ifdef DEBUG_DATA
         std::cout << "AppendArray group_id is " << group_id << ", data is " << value
                   << std::endl;
 #endif
