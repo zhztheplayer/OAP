@@ -27,7 +27,7 @@ To run test suites using `LocalClusterMode`, please refer to `SharedOapLocalClus
 ## Prerequisites
 You should have [Apache Spark](http://spark.apache.org/) of version 2.3.2 installed in your cluster
 . Refer to Apache Spark's [documents](http://spark.apache.org/docs/2.3.2/) for details.
-# Get started With OAP
+## Get started With OAP
 In Yarn mode :
 1. Build OAP find `oap-<version>-with-<spark-version>.jar` in `target/`
 2. Deploy `oap-<version>-with-<spark-version>.jar` to master machine.
@@ -45,7 +45,7 @@ spark.memory.offHeap.size           20g
           2. For yarn mode, we need to config all spark.driver.memory, spark.memory.offHeap.size and spark.yarn.executor.memoryOverhead (should be close to offHeap.size) to enable fiber cache.
           3. The comprehensive guidance and example of OAP configuration can be referred @https://github.com/Intel-bigdata/OAP/wiki/OAP-User-guide. Briefly speaking, the recommended configuration is one executor per one node with fully memory/computation capability.
 
-## Example
+### Example
 ```
 ./bin/spark-shell
 > spark.sql(s"""CREATE TEMPORARY TABLE oap_test (a INT, b STRING)
@@ -76,10 +76,10 @@ Parquet is the most popular and recommended data format in Spark open-source com
 Orc is another popular data format. We also designed the compatible layer to allow user to create index directly and use OAP cache on top of Orc data. With the Orc reader we implemented, query over indexed Orc data is also accelerated.
 * Support DCPMM (Intel Optane DC Persistent Memory Module) as memory cache.
 
-# OAP User guide
+## OAP User guide
 Refer to [OAP User guide](./docs/OAP-User-Guide.md) for more details.
 
-# Integration with Spark
+## Integration with Spark
 Although OAP (Optimized Analytical Package for Spark) acts as a plugin jar to Spark, there are still a few tricks to note when integration with Spark. 
 Refer to [Spark OAP Integration Guide](./docs/Spark-OAP-Integration-Guide.md) for more details.
 
