@@ -77,7 +77,7 @@ Orc is another popular data format. We also designed the compatible layer to all
 * Support DCPMM (Intel Optane DC Persistent Memory Module) as memory cache.
 
 # OAP User guide
-Refer to [OAP User guide](https://github.com/Intel-bigdata/OAP/wiki/OAP-User-guide) for more details.
+Refer to [OAP User guide](./docs/OAP-User-Guide.md) for more details.
 
 # Integration with Spark
 Although OAP (Optimized Analytical Package for Spark) acts as a plugin jar to Spark, there are still a few tricks to note when integration with Spark. 
@@ -110,6 +110,9 @@ parquet with index, oap cache enabled| 4894| 1918| 4419|     4419|
 parquet without index, oap cache disabled|15500|15881|14346|    15500|
 parquet without index, oap cache enabled| 4768| 5041| 1636|     4768|
 parquet with index, data cache separation enabled| 5052| 2169| 5499|     5052|
+
+## Contributors
+@JkSelf (Ke Jia, Intel) @jerrychenhf (Chen Haifeng, Intel) @LuciferYang (Yang Jie, Baidu) @lidinghao (Li Hao, Baidu) @shaowenzh (shaowen zhang, Intel) @WinkerDu (Du Ripeng, Baidu) @zhixingheyi-tian (Shen Xiangxiang, Intel) @WangGuangxin
 
 ## How to Contribute
 If you are looking for some ideas on what to contribute, check out GitHub issues for this project labeled ["Pick me up!"](https://github.com/Intel-bigdata/OAP/issues?labels=pick+me+up%21&state=open).
