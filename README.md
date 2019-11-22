@@ -5,6 +5,7 @@
 OAP - Optimized Analytics Package (previously known as Spinach) is designed to accelerate Ad-hoc query. OAP defines a new parquet-like columnar storage data format and offers a fine-grained hierarchical cache mechanism in the unit of "Fiber" in memory. What’s more, OAP has extended the Spark SQL DDL to allow user to define the customized indices based on relation.
 
 * [OAP Overview](#oap-overview)
+* [OAP Design](#oap-design)
 * [Building](#building)
 * [Running Test](#running-test)
 * [Prerequisites](#prerequisites)
@@ -19,6 +20,10 @@ OAP - Optimized Analytics Package (previously known as Spinach) is designed to a
 ## OAP Overview
 
 ![OAP-OVERVIEW](./docs/image/OAP-overview.PNG)
+
+## OAP Design
+
+Refer to [OAP Design](./docs/OAP-Design.md).
 
 ## Building
 
