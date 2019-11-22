@@ -93,29 +93,23 @@ Take 1 simple ad-hoc query as instance, the store_sales table comes from TPCDS w
 
 1. "SELECT * FROM store_sales WHERE ss_customer_sk < 10000 AND ss_list_price < 100.0 AND ss_net_paid > 500.0"
 
-Cases:                                                          | T1/ms | T2/ms | T3/ms | Median/ms 
-------------------------------------------------------------    | ----- | ----- | ----- | ---------
-                                                    Orc w/ index| 14964 |15023  | 15509 |   15023 
-                                  Orc w/ index oap cache enabled| 3999| 7528| 8898|     7528
-                      Orc w/ index data cache separation enabled| 9633|11148| 8294|     9633
-                                                   Orc w/o index|19253|20023|19140|    19253
-                                 Orc w/o index oap cache enabled| 3056| 6147| 2508|     3056
-                                                    oap w/ index|10152|  913| 6144|     6144|
-                                  oap w/ index oap cache enabled| 1714|  850|  709|      850|
-                      oap w/ index data cache separation enabled|  931|  800|17429|      931|
-                                                   oap w/o index| 5937|11780| 5373|     5937|
-                                 oap w/o index oap cache enabled| 6102| 8307| 5172|     6102|
-                             parquet w/ index oap cache disabled|14971|15204|13748|    14971|
-                              parquet w/ index oap cache enabled| 4894| 1918| 4419|     4419|
-                            parquet w/o index oap cache disabled|15500|15881|14346|    15500|
-                             parquet w/o index oap cache enabled| 4768| 5041| 1636|     4768|
-                  parquet w/ index data cache separation enabled| 5052| 2169| 5499|     5052|
-
-Q6:                   | T1/ms | T2/ms | T3/ms | Median/ms 
---------------------- | ----- | ----- | ----- | ---------
-oap-with-index        |   542 |   295 |   370 |      370  
-parquet-with-index    |  1161 |   682 |   680 |      682  
-parquet-without-index |  2010 |  1922 |  1915 |     1922
+Cases:                | T1/ms | T2/ms | T3/ms | Median/ms 
+------------------    | ----- | ----- | ----- | ---------
+Orc with index| 14964 |15023  | 15509 |   15023 
+Orc with index, oap cache enabled| 3999| 7528| 8898|     7528
+Orc with index, data cache separation enabled| 9633|11148| 8294|     9633
+Orc without index|19253|20023|19140|    19253
+Orc without index, oap cache enabled| 3056| 6147| 2508|     3056
+oap with index|10152|  913| 6144|     6144|
+oap with index, oap cache enabled| 1714|  850|  709|      850|
+oap with index, data cache separation enabled|  931|  800|17429|      931|
+oap without index| 5937|11780| 5373|     5937|
+oap without index, oap cache enabled| 6102| 8307| 5172|     6102|
+parquet with index, oap cache disabled|14971|15204|13748|    14971|
+parquet with index, oap cache enabled| 4894| 1918| 4419|     4419|
+parquet without index, oap cache disabled|15500|15881|14346|    15500|
+parquet without index, oap cache enabled| 4768| 5041| 1636|     4768|
+parquet with index, data cache separation enabled| 5052| 2169| 5499|     5052|
 
 ## How to Contribute
 If you are looking for some ideas on what to contribute, check out GitHub issues for this project labeled ["Pick me up!"](https://github.com/Intel-bigdata/OAP/issues?labels=pick+me+up%21&state=open).
