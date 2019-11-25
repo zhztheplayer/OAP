@@ -55,6 +55,7 @@ In Yarn mode :
 2. Deploy `oap-<version>-with-<spark-version>.jar` to master machine.
 3. Put below configurations to _$SPARK_HOME/conf/spark-defaults.conf_
 ```
+spark.sql.extensions                org.apache.spark.sql.OapExtensions
 spark.files                         file:///path/to/oap-dir/oap-<version>-with-<spark-version>.jar
 spark.executor.extraClassPath       ./oap-<version>-with-<spark-version>.jar
 spark.driver.extraClassPath         /path/to/oap-dir/oap-<version>-with-<spark-version>.jar
