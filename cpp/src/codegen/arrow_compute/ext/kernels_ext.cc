@@ -67,8 +67,6 @@ arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayLi
         out->push_back(arr_list);
         out_sizes->push_back(arr_list_out[i]->length());
       }
-      // std::cout << "push arr_list_out[" << i << "] input out[" << i << "]" <<
-      // std::endl; arrow::PrettyPrint(*arr_list_out[i].get(), 2, &std::cout);
       out->at(i).push_back(arr_list_out[i]);
     }
   }
@@ -77,50 +75,152 @@ arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayLi
 }
 
 ///////////////  UniqueArray  ////////////////
-arrow::Status UniqueArray(arrow::compute::FunctionContext* ctx,
-                          const std::shared_ptr<arrow::Array>& in,
-                          std::shared_ptr<arrow::Array>* out) {
-  if (in->length() == 0) {
-    *out = in;
+class UniqueArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  ~Impl() {}
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
+    std::shared_ptr<arrow::Array> out;
+    if (in->length() == 0) {
+      return arrow::Status::OK();
+    }
+    arrow::compute::Datum input_datum(in);
+    RETURN_NOT_OK(arrow::compute::Unique(ctx_, input_datum, &out));
+    if (!builder) {
+      RETURN_NOT_OK(MakeArrayBuilder(out->type(), ctx_->memory_pool(), &builder));
+    }
+
+    RETURN_NOT_OK(builder->AppendArray(&(*out.get()), 0, 0));
+
     return arrow::Status::OK();
   }
-  arrow::compute::Datum input_datum(in);
-  RETURN_NOT_OK(arrow::compute::Unique(ctx, input_datum, out));
 
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
+    RETURN_NOT_OK(builder->Finish(out));
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<ArrayBuilderImplBase> builder;
+};
+
+arrow::Status UniqueArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                      std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<UniqueArrayKernel>(ctx);
   return arrow::Status::OK();
+}
+
+UniqueArrayKernel::UniqueArrayKernel(arrow::compute::FunctionContext* ctx) {
+  impl_.reset(new Impl(ctx));
+}
+
+arrow::Status UniqueArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
+  return impl_->Evaluate(in);
+}
+
+arrow::Status UniqueArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
+  return impl_->Finish(out);
 }
 
 ///////////////  SumArray  ////////////////
-arrow::Status SumArray(arrow::compute::FunctionContext* ctx,
-                       const std::shared_ptr<arrow::Array>& in,
-                       std::shared_ptr<arrow::Array>* out) {
-  arrow::compute::Datum output;
-  if (in->length() == 0) {
-    *out = in;
+class SumArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  ~Impl() {}
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
+    arrow::compute::Datum output;
+    RETURN_NOT_OK(arrow::compute::Sum(ctx_, *in.get(), &output));
+    std::shared_ptr<arrow::Array> out;
+    RETURN_NOT_OK(
+        arrow::MakeArrayFromScalar(*(output.scalar()).get(), output.length(), &out));
+    if (!builder) {
+      RETURN_NOT_OK(MakeArrayBuilder(out->type(), ctx_->memory_pool(), &builder));
+    }
+    RETURN_NOT_OK(builder->AppendArray(&(*out.get()), 0, 0));
+    // TODO: We should only append Scalar instead of array
+    // RETURN_NOT_OK(builder->AppendScalar(output.scalar()));
+
     return arrow::Status::OK();
   }
-  RETURN_NOT_OK(arrow::compute::Sum(ctx, *in.get(), &output));
-  RETURN_NOT_OK(
-      arrow::MakeArrayFromScalar(*(output.scalar()).get(), output.length(), out));
 
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
+    RETURN_NOT_OK(builder->Finish(out));
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<ArrayBuilderImplBase> builder;
+};
+
+arrow::Status SumArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                   std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<SumArrayKernel>(ctx);
   return arrow::Status::OK();
 }
 
+SumArrayKernel::SumArrayKernel(arrow::compute::FunctionContext* ctx) {
+  impl_.reset(new Impl(ctx));
+}
+
+arrow::Status SumArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
+  return impl_->Evaluate(in);
+}
+
+arrow::Status SumArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
+  return impl_->Finish(out);
+}
+
 ///////////////  CountArray  ////////////////
-arrow::Status CountArray(arrow::compute::FunctionContext* ctx,
-                         const std::shared_ptr<arrow::Array>& in,
-                         std::shared_ptr<arrow::Array>* out) {
-  arrow::compute::Datum output;
-  arrow::compute::CountOptions opt =
-      arrow::compute::CountOptions(arrow::compute::CountOptions::COUNT_ALL);
-  if (in->length() == 0) {
-    *out = in;
+class CountArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  ~Impl() {}
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
+    arrow::compute::Datum output;
+    arrow::compute::CountOptions opt =
+        arrow::compute::CountOptions(arrow::compute::CountOptions::COUNT_ALL);
+    RETURN_NOT_OK(arrow::compute::Count(ctx_, opt, *in.get(), &output));
+    std::shared_ptr<arrow::Array> out;
+    RETURN_NOT_OK(
+        arrow::MakeArrayFromScalar(*(output.scalar()).get(), output.length(), &out));
+    if (!builder) {
+      RETURN_NOT_OK(MakeArrayBuilder(out->type(), ctx_->memory_pool(), &builder));
+    }
+
+    RETURN_NOT_OK(builder->AppendArray(&(*out.get()), 0, 0));
+    // TODO: We should only append Scalar instead of array
+
     return arrow::Status::OK();
   }
-  RETURN_NOT_OK(arrow::compute::Count(ctx, opt, *in.get(), &output));
-  RETURN_NOT_OK(
-      arrow::MakeArrayFromScalar(*(output.scalar()).get(), output.length(), out));
+
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
+    RETURN_NOT_OK(builder->Finish(out));
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<ArrayBuilderImplBase> builder;
+};
+
+arrow::Status CountArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                     std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<CountArrayKernel>(ctx);
   return arrow::Status::OK();
+}
+
+CountArrayKernel::CountArrayKernel(arrow::compute::FunctionContext* ctx) {
+  impl_.reset(new Impl(ctx));
+}
+
+arrow::Status CountArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
+  return impl_->Evaluate(in);
+}
+
+arrow::Status CountArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
+  return impl_->Finish(out);
 }
 
 ///////////////  EncodeArray  ////////////////
@@ -203,6 +303,7 @@ arrow::Status EncodeArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& i
   }
   return impl_->Evaluate(in, out);
 }
+#undef PROCESS_SUPPORTED_TYPES
 
 ///////////////  AppendToCacheArrayList  ////////////////
 class AppendToCacheArrayListKernel::Impl {

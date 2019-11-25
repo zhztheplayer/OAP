@@ -160,34 +160,15 @@ class ColumnarAggregation(
       return new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), 0)
     } else {
       val finalResultRecordBatchList = aggregator.finish()
-
-      // generate columnarBatch from recordBatchList
-      // we need to merge multiple batch into one batch, row number is number of batches.
-      val resultColumnVectors =
-        ArrowWritableColumnVector
-          .allocateColumns(finalResultRecordBatchList.length, resultSchema)
-          .toArray
-      var rowId: Int = 0;
-      var batchId: Int = 0;
-      finalResultRecordBatchList.foreach(recordBatch => {
-        val columnarBatch = fromArrowRecordBatch(resultArrowSchema, recordBatch)
-        for (i <- 0 until columnarBatch.numCols()) {
-          columnarBatch
-            .column(i)
-            .asInstanceOf[ArrowWritableColumnVector]
-            .mergeTo(resultColumnVectors(i), rowId, 1)
-        }
-        rowId += 1
-        columnarBatch.close()
-        batchId += 1
-      })
-
+      if (finalResultRecordBatchList.size == 0) {
+        val resultColumnVectors =
+          ArrowWritableColumnVector.allocateColumns(0, resultSchema).toArray
+        return new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), 0)
+      }
+      val finalColumnarBatch = fromArrowRecordBatch(resultArrowSchema, finalResultRecordBatchList(0))
       logInfo(
-        s"HashAggregate output columnar batch has numRows $rowId, numNulls of output is ${resultColumnVectors.map(_.numNulls).mkString(" ")}")
-      val finalColumnarBatch =
-        new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), rowId)
+        s"HashAggregate output columnar batch has numRows ${finalColumnarBatch.numRows}")
       releaseArrowRecordBatchList(finalResultRecordBatchList)
-
       finalColumnarBatch
     }
   }

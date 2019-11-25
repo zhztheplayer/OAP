@@ -130,6 +130,21 @@ class ExprVisitor::Impl {
   }
 
   arrow::Status Aggregate(std::string func_name) {
+    if (func_name.compare("sum") == 0) {
+      if (!kernel_) {
+        RETURN_NOT_OK(extra::SumArrayKernel::Make(&p_->ctx_, &kernel_));
+      }
+
+    } else if (func_name.compare("count") == 0) {
+      if (!kernel_) {
+        RETURN_NOT_OK(extra::CountArrayKernel::Make(&p_->ctx_, &kernel_));
+      }
+
+    } else if (func_name.compare("unique") == 0) {
+      if (!kernel_) {
+        RETURN_NOT_OK(extra::UniqueArrayKernel::Make(&p_->ctx_, &kernel_));
+      }
+    }
     switch (p_->dependency_result_type_) {
       case ArrowComputeResultType::None: {
         if (p_->param_field_names_.size() != 1) {
@@ -143,29 +158,17 @@ class ExprVisitor::Impl {
                                               &col, &field));
         p_->result_fields_.push_back(field);
 
-        if (func_name.compare("sum") == 0) {
-          RETURN_NOT_OK(extra::SumArray(&p_->ctx_, col, &(p_->result_array_)));
-        } else if (func_name.compare("count") == 0) {
-          RETURN_NOT_OK(extra::CountArray(&p_->ctx_, col, &(p_->result_array_)));
-        } else if (func_name.compare("unique") == 0) {
-          RETURN_NOT_OK(extra::UniqueArray(&p_->ctx_, col, &(p_->result_array_)));
-        }
+        RETURN_NOT_OK(kernel_->Evaluate(col));
+        RETURN_NOT_OK(kernel_->Finish(&(p_->result_array_)));
         p_->return_type_ = ArrowComputeResultType::Array;
       } break;
       case ArrowComputeResultType::ArrayList: {
         p_->result_fields_ = p_->in_fields_;
         for (auto col : p_->in_array_list_) {
-          std::shared_ptr<arrow::Array> result_array;
-          if (func_name.compare("sum") == 0) {
-            RETURN_NOT_OK(extra::SumArray(&p_->ctx_, col, &result_array));
-          } else if (func_name.compare("count") == 0) {
-            RETURN_NOT_OK(extra::CountArray(&p_->ctx_, col, &result_array));
-          } else if (func_name.compare("unique") == 0) {
-            RETURN_NOT_OK(extra::UniqueArray(&p_->ctx_, col, &result_array));
-          }
-          p_->result_array_list_.push_back(result_array);
+          RETURN_NOT_OK(kernel_->Evaluate(col));
         }
-        p_->return_type_ = ArrowComputeResultType::ArrayList;
+        RETURN_NOT_OK(kernel_->Finish(&(p_->result_array_)));
+        p_->return_type_ = ArrowComputeResultType::Array;
       } break;
       case ArrowComputeResultType::BatchList: {
         if (p_->param_field_names_.size() != 1) {
@@ -189,13 +192,8 @@ class ExprVisitor::Impl {
             p_->result_fields_.push_back(field);
           }
           std::shared_ptr<arrow::Array> result_array;
-          if (func_name.compare("sum") == 0) {
-            RETURN_NOT_OK(extra::SumArray(&p_->ctx_, col, &result_array));
-          } else if (func_name.compare("count") == 0) {
-            RETURN_NOT_OK(extra::CountArray(&p_->ctx_, col, &result_array));
-          } else if (func_name.compare("unique") == 0) {
-            RETURN_NOT_OK(extra::UniqueArray(&p_->ctx_, col, &result_array));
-          }
+          RETURN_NOT_OK(kernel_->Evaluate(col));
+          RETURN_NOT_OK(kernel_->Finish(&result_array));
           p_->result_array_list_.push_back(result_array);
           first_batch = false;
         }
@@ -452,14 +450,14 @@ arrow::Status ExprVisitor::Eval(const std::shared_ptr<arrow::RecordBatch>& in) {
 arrow::Status ExprVisitor::Eval() {
   if (return_type_ != ArrowComputeResultType::None) {
 #ifdef DEBUG
-    std::cout << "ExprVisitor::Eval " << func_name_ << ", already evaluated, skip"
-              << std::endl;
+    std::cout << "ExprVisitor::Eval " << func_name_ << ", ptr " << this
+              << ", already evaluated, skip" << std::endl;
 #endif
     return arrow::Status::OK();
   }
 #ifdef DEBUG
-  std::cout << "ExprVisitor::Eval " << func_name_ << ", start to check dependency"
-            << std::endl;
+  std::cout << "ExprVisitor::Eval " << func_name_ << ", ptr " << this
+            << ", start to check dependency" << std::endl;
 #endif
   if (dependency_) {
     RETURN_NOT_OK(dependency_->Eval(in_record_batch_));
@@ -484,7 +482,8 @@ arrow::Status ExprVisitor::Eval() {
     }
   }
 #ifdef DEBUG
-  std::cout << "ExprVisitor::Eval " << func_name_ << ", start to execute" << std::endl;
+  std::cout << "ExprVisitor::Eval " << func_name_ << ", ptr " << this
+            << ", start to execute" << std::endl;
 #endif
   RETURN_NOT_OK(Execute());
   return arrow::Status::OK();

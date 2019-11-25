@@ -40,18 +40,6 @@ arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayLi
                              std::vector<ArrayList>* out, std::vector<int>* out_sizes,
                              std::vector<int>* group_indices);
 
-arrow::Status SumArray(arrow::compute::FunctionContext* ctx,
-                       const std::shared_ptr<arrow::Array>& in,
-                       std::shared_ptr<arrow::Array>* out);
-
-arrow::Status CountArray(arrow::compute::FunctionContext* ctx,
-                         const std::shared_ptr<arrow::Array>& in,
-                         std::shared_ptr<arrow::Array>* out);
-
-arrow::Status UniqueArray(arrow::compute::FunctionContext* ctx,
-                          const std::shared_ptr<arrow::Array>& in,
-                          std::shared_ptr<arrow::Array>* out);
-
 class EncodeArrayKernel : public KernalBase {
  public:
   static arrow::Status Make(arrow::compute::FunctionContext* ctx,
@@ -59,6 +47,48 @@ class EncodeArrayKernel : public KernalBase {
   EncodeArrayKernel(arrow::compute::FunctionContext* ctx);
   arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in,
                          std::shared_ptr<arrow::Array>* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class SumArrayKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<KernalBase>* out);
+  SumArrayKernel(arrow::compute::FunctionContext* ctx);
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class CountArrayKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<KernalBase>* out);
+  CountArrayKernel(arrow::compute::FunctionContext* ctx);
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class UniqueArrayKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<KernalBase>* out);
+  UniqueArrayKernel(arrow::compute::FunctionContext* ctx);
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override;
 
  private:
   class Impl;

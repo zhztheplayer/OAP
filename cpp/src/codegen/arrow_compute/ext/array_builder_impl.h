@@ -3,8 +3,10 @@
 #include <arrow/builder.h>
 #include <arrow/compute/context.h>
 #include <arrow/memory_pool.h>
+#include <arrow/scalar.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
+#include <arrow/type_traits.h>
 #include <iostream>
 namespace sparkcolumnarplugin {
 namespace codegen {
@@ -13,6 +15,8 @@ namespace extra {
 using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
 class ArrayBuilderImplBase {
  public:
+  virtual arrow::Status AppendScalar(const std::shared_ptr<arrow::Scalar>& in,
+                                     int group_id = 0) = 0;
   virtual arrow::Status AppendArray(arrow::Array* in, int group_id = 0) = 0;
   virtual arrow::Status AppendArray(arrow::Array* in, int group_id, int row_id) = 0;
   virtual arrow::Status Finish(ArrayList* out) = 0;
@@ -64,7 +68,11 @@ class ArrayBuilderImpl : public ArrayBuilderImplBase {
       builder->UnsafeAppendNull();
     } else {
       auto value = in_->GetView(row_id);
-      UnsafeAppend(builder, value);
+#ifdef DEBUG_DATA
+      std::cout << "AppendArray group_id is " << group_id << ", data is " << value
+                << std::endl;
+#endif
+      UnsafeAppend<T>(builder, value);
     }
     return arrow::Status::OK();
   }
@@ -83,10 +91,26 @@ class ArrayBuilderImpl : public ArrayBuilderImplBase {
         std::cout << "AppendArray group_id is " << group_id << ", data is " << value
                   << std::endl;
 #endif
-        UnsafeAppend(builder, value);
+        UnsafeAppend<T>(builder, value);
       }
     }
     return arrow::Status::OK();
+  }
+
+  arrow::Status AppendScalar(const std::shared_ptr<arrow::Scalar>& in, int group_id = 0) {
+    /*std::shared_ptr<BuilderType> builder;
+    RETURN_NOT_OK(GetOrCreateBuilder(group_id, &builder));
+    RETURN_NOT_OK(builder->Reserve(1));
+    if (!in->is_valid) {
+      builder->UnsafeAppendNull();
+    } else {
+      using ScalarType = typename arrow::TypeTraits<T>::ScalarType;
+      auto in_ = arrow::internal::checked_cast<const ScalarType&>(*in.get());
+      UnsafeAppendScalar(builder, in_, T());
+    }
+    return arrow::Status::OK();
+    */
+    return arrow::Status::NotImplemented("AppendScalar is not implemented yet.");
   }
 
   arrow::Status Finish(ArrayList* out) {
@@ -111,24 +135,84 @@ class ArrayBuilderImpl : public ArrayBuilderImplBase {
   std::shared_ptr<arrow::DataType> type_;
 
   // For non-binary builders, use regular value append
-  template <typename Builder, typename Scalar>
-  static typename std::enable_if<
-      !std::is_base_of<arrow::BaseBinaryType, typename Builder::TypeClass>::value,
-      arrow::Status>::type
-  UnsafeAppend(std::shared_ptr<Builder> builder, Scalar&& value) {
-    builder->UnsafeAppend(std::forward<Scalar>(value));
+  template <typename Scalar, typename ValueType>
+  static typename std::enable_if<!std::is_base_of<arrow::BaseBinaryType, Scalar>::value,
+                                 arrow::Status>::type
+  UnsafeAppend(std::shared_ptr<BuilderType> builder, ValueType&& value) {
+    builder->UnsafeAppend(value);
     return arrow::Status::OK();
   }
 
   // For binary builders, need to reserve byte storage first
-  template <typename Builder>
-  static arrow::enable_if_base_binary<typename Builder::TypeClass, arrow::Status>
-  UnsafeAppend(std::shared_ptr<Builder> builder, arrow::util::string_view value) {
+  template <typename Scalar>
+  static arrow::enable_if_base_binary<Scalar, arrow::Status> UnsafeAppend(
+      std::shared_ptr<BuilderType> builder, arrow::util::string_view value) {
     RETURN_NOT_OK(builder->ReserveData(static_cast<int64_t>(value.size())));
     builder->UnsafeAppend(value);
     return arrow::Status::OK();
   }
+
+  /////////////////////////////////////////////////////////////////////////////
+  // For non-binary builders, use regular value append
+  /*template <typename ValueType, typename ScalarType>
+  static typename arrow::enable_if_number<ValueType, arrow::Status>::type
+  UnsafeAppendScalar(std::shared_ptr<BuilderType> builder, const ScalarType& in) {
+    auto value = in.value;
+    builder->UnsafeAppend(value);
+    return arrow::Status::OK();
+  }
+
+  // For binary builders, need to reserve byte storage first
+  template <typename ValueType, typename ScalarType>
+  static typename arrow::enable_if_base_binary<ValueType, arrow::Status>::type
+  UnsafeAppendScalar(std::shared_ptr<BuilderType> builder, const ScalarType& in) {
+    auto buffer = in.value;
+    auto value = arrow::util::string_view(*buffer.get());
+    RETURN_NOT_OK(builder->ReserveData(static_cast<int64_t>(value.size())));
+    builder->UnsafeAppend(value);
+    return arrow::Status::OK();
+  }*/
 };
+#define PROCESS_SUPPORTED_TYPES(PROCESS) \
+  PROCESS(arrow::BooleanType)            \
+  PROCESS(arrow::UInt8Type)              \
+  PROCESS(arrow::Int8Type)               \
+  PROCESS(arrow::UInt16Type)             \
+  PROCESS(arrow::Int16Type)              \
+  PROCESS(arrow::UInt32Type)             \
+  PROCESS(arrow::Int32Type)              \
+  PROCESS(arrow::UInt64Type)             \
+  PROCESS(arrow::Int64Type)              \
+  PROCESS(arrow::FloatType)              \
+  PROCESS(arrow::DoubleType)             \
+  PROCESS(arrow::Date32Type)             \
+  PROCESS(arrow::Date64Type)             \
+  PROCESS(arrow::Time32Type)             \
+  PROCESS(arrow::Time64Type)             \
+  PROCESS(arrow::TimestampType)          \
+  PROCESS(arrow::BinaryType)             \
+  PROCESS(arrow::StringType)             \
+  PROCESS(arrow::FixedSizeBinaryType)    \
+  PROCESS(arrow::Decimal128Type)
+static arrow::Status MakeArrayBuilder(const std::shared_ptr<arrow::DataType> type,
+                                      arrow::MemoryPool* pool,
+                                      std::shared_ptr<ArrayBuilderImplBase>* builder) {
+  switch (type->id()) {
+#define PROCESS(InType)                                                    \
+  case InType::type_id: {                                                  \
+    using ArrayType = typename arrow::TypeTraits<InType>::ArrayType;       \
+    auto builder_ptr =                                                     \
+        std::make_shared<ArrayBuilderImpl<ArrayType, InType>>(type, pool); \
+    *builder = builder_ptr;                                                \
+  } break;
+    PROCESS_SUPPORTED_TYPES(PROCESS)
+#undef PROCESS
+    default:
+      break;
+  }
+  return arrow::Status::OK();
+}
+#undef PROCESS_SUPPORTED_TYPES
 }  // namespace extra
 }  // namespace arrowcompute
 }  // namespace codegen
