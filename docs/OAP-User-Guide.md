@@ -20,6 +20,7 @@ You need to ensure that the above properties are consistent among the driver and
 spark.files                        file:///{PATH_TO_OAP_JAR}/oap-0.X.0.jar
 spark.executor.extraClassPath      ./oap-0.X.0.jar
 spark.driver.extraClassPath        /{PATH_TO_OAP_JAR}/oap-0.X.0.jar
+spark.sql.extensions    org.apache.spark.sql.OapExtensions
 ```
 With the above approach, you just need to deploy OAP jar to the driver, and no need to deploy to the workers.
 ### b) With standalone mode
