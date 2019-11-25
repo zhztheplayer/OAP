@@ -33,7 +33,9 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
         visitor_list_.push_back(root_visitor);
       }
     }
+#ifdef DEBUG_DATA
     std::cout << "new ExprVisitor for " << schema_->ToString() << std::endl;
+#endif
   }
 
   ~ArrowComputeCodeGenerator() {
@@ -108,8 +110,12 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
       res_schema = arrow::schema(ret_types_);
     }
     for (int i = 0; i < batch_array.size(); i++) {
-      out->push_back(
-          arrow::RecordBatch::Make(res_schema, batch_size_array[i], batch_array[i]));
+      auto record_batch =
+          arrow::RecordBatch::Make(res_schema, batch_size_array[i], batch_array[i]);
+#ifdef DEBUG_DATA
+      arrow::PrettyPrint(*record_batch.get(), 2, &std::cout);
+#endif
+      out->push_back(record_batch);
     }
 
     // we need to clean up this visitor chain result for next record_batch.
@@ -137,6 +143,10 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     ArrayList batch_array_item;
     RETURN_NOT_OK(GetOrInsert(batch_index, batch_array, &batch_array_item));
     batch_array->at(batch_index).push_back(column);
+#ifdef DEBUG_DATA
+    std::cout << "output column " << batch_array->at(batch_index).size() << "size is "
+              << column->length() << std::endl;
+#endif
     return arrow::Status::OK();
   }
   arrow::Status MakeBatchFromArrayList(ArrayList column_list,
