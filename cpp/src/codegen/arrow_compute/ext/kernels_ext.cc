@@ -23,10 +23,10 @@ namespace extra {
 
 ///////////////  SplitArrayList  ////////////////
 arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayList& in,
-                             const std::shared_ptr<arrow::Array>& dict,
+                             const std::shared_ptr<arrow::Array>& in_dict,
                              std::vector<ArrayList>* out, std::vector<int>* out_sizes,
                              std::vector<int>* group_indices) {
-  if (!dict) {
+  if (!in_dict) {
     return arrow::Status::Invalid("input data is invalid");
   }
   std::vector<std::shared_ptr<splitter::ArrayVisitorImpl>> array_visitor_list;
@@ -41,6 +41,10 @@ arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayLi
     visitor->GetBuilder(&builder);
     builder_list_.push_back(builder);
   }
+
+  auto dict_array = std::dynamic_pointer_cast<arrow::DictionaryArray>(in_dict);
+  auto dict = dict_array->indices();
+  auto values = dict_array->dictionary();
 
   for (int row_id = 0; row_id < dict->length(); row_id++) {
     auto group_id = arrow::internal::checked_cast<const arrow::Int32Array&>(*dict.get())
@@ -105,27 +109,41 @@ class SplitArrayListWithActionKernel::Impl {
     return arrow::Status::OK();
   }
 
-  arrow::Status Evaluate(const ArrayList& in, const std::shared_ptr<arrow::Array>& dict) {
+  arrow::Status Evaluate(const ArrayList& in,
+                         const std::shared_ptr<arrow::Array>& in_dict) {
+    if (!in_dict) {
+      return arrow::Status::Invalid("input data is invalid");
+    }
+    auto dict_array = std::dynamic_pointer_cast<arrow::DictionaryArray>(in_dict);
+    auto dict_generic = dict_array->indices();
+    auto dict = std::dynamic_pointer_cast<arrow::Int32Array>(dict_generic);
+    auto values = dict_array->dictionary();
+
     if (action_list_.empty()) {
       RETURN_NOT_OK(InitActionList(in));
     }
-    if (!dict) {
-      return arrow::Status::Invalid("input data is invalid");
-    }
+
     std::vector<std::shared_ptr<splitter::ArrayVisitorImpl>> array_visitor_list;
     if (in.size() != action_list_.size()) {
       return arrow::Status::Invalid(
           "SplitArrayListWithAction input arrayList size does not match numActions");
     }
+
+    auto max_group_id = values->length() - 1;
+    for (int row_id = 0; row_id < dict->length(); row_id++) {
+      auto group_id = dict->GetView(row_id);
+      max_group_id = group_id > max_group_id ? group_id : max_group_id;
+    }
+
     for (int i = 0; i < in.size(); i++) {
       auto col = in[i];
       auto action = action_list_[i];
       action->SetInputArray(col);
+      action->ConfigureGroupSize(max_group_id, values);
     }
 
     for (int row_id = 0; row_id < dict->length(); row_id++) {
-      auto group_id = arrow::internal::checked_cast<const arrow::Int32Array&>(*dict.get())
-                          .GetView(row_id);
+      auto group_id = dict->GetView(row_id);
       for (auto action : action_list_) {
         action->Eval(row_id, group_id);
       }
@@ -226,6 +244,8 @@ class SumArrayKernel::Impl {
   ~Impl() {}
   arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
     arrow::compute::Datum output;
+    // std::cout << "SumArray Evaluate Input is " << std::endl;
+    // arrow::PrettyPrint(*in.get(), 2, &std::cout);
     RETURN_NOT_OK(arrow::compute::Sum(ctx_, *in.get(), &output));
     std::shared_ptr<arrow::Array> out;
     RETURN_NOT_OK(
@@ -233,6 +253,8 @@ class SumArrayKernel::Impl {
     if (!builder) {
       RETURN_NOT_OK(MakeArrayBuilder(out->type(), ctx_->memory_pool(), &builder));
     }
+    // std::cout << "SumArray Evaluate Output is " << std::endl;
+    // arrow::PrettyPrint(*out.get(), 2, &std::cout);
     RETURN_NOT_OK(builder->AppendArray(&(*out.get()), 0, 0));
     // TODO: We should only append Scalar instead of array
     // RETURN_NOT_OK(builder->AppendScalar(output.scalar()));
@@ -342,9 +364,7 @@ class EncodeArrayTypedImpl : public EncodeArrayKernel::Impl {
     arrow::compute::Datum out_dict;
     RETURN_NOT_OK(arrow::compute::DictionaryEncode<InType>(ctx_, input_datum, hash_table_,
                                                            &out_dict));
-    auto dict = std::dynamic_pointer_cast<arrow::DictionaryArray>(out_dict.make_array());
-
-    *out = dict->indices();
+    *out = out_dict.make_array();
     return arrow::Status::OK();
   }
 

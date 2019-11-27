@@ -37,6 +37,10 @@ class ActionBase {
   virtual arrow::Status SetInputArray(const std::shared_ptr<arrow::Array>& in) {
     return arrow::Status::NotImplemented("ActionBase Eval is abstract.");
   }
+  virtual arrow::Status ConfigureGroupSize(int max_group_id,
+                                           const std::shared_ptr<arrow::Array>& in) {
+    return arrow::Status::NotImplemented("ActionBase Eval is abstract.");
+  }
   virtual arrow::Status Eval(int src_row_id, int dest_group_id) {
     return arrow::Status::NotImplemented("ActionBase Eval is abstract.");
   }
@@ -57,51 +61,27 @@ class UniqueAction : public ActionBase {
   }
 
   arrow::Status SetInputArray(const std::shared_ptr<arrow::Array>& in) override {
-    in_ = std::dynamic_pointer_cast<ArrayType>(in);
-    if (!builder_) {
-      MakeArrayBuilder<ResArrayType, DataType>(in_->type(), ctx_->memory_pool(),
-                                               &builder_);
-    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status ConfigureGroupSize(int max_group_id,
+                                   const std::shared_ptr<arrow::Array>& in) override {
+    result_ = in;
     return arrow::Status::OK();
   }
 
   arrow::Status Eval(int src_row_id, int dest_group_id) override {
-    if (cache_validity_.size() > dest_group_id && cache_validity_[dest_group_id]) {
-      return arrow::Status::OK();
-    }
-    if (cache_validity_.size() <= dest_group_id) {
-      auto to_append = dest_group_id - cache_validity_.size() + 1;
-      for (int i = 0; i < to_append; i++) {
-        cache_validity_.push_back(false);
-        cache_.push_back(0);
-      }
-    }
-    if (!in_->IsNull(src_row_id)) {
-      cache_validity_[dest_group_id] = true;
-      cache_[dest_group_id] = in_->GetView(src_row_id);
-    }
     return arrow::Status::OK();
   }
 
   arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override {
-    int group_id = 0;
-    for (int i = 0; i < cache_validity_.size(); i++) {
-      if (cache_validity_[i]) {
-        auto value = cache_[i];
-        RETURN_NOT_OK(builder_->template AppendValue<DataType>(group_id, value));
-      }
-    }
-    RETURN_NOT_OK(builder_->Finish(out));
+    *out = result_;
     return arrow::Status::OK();
   }
 
  private:
-  std::shared_ptr<ResArrayType> in_;
+  std::shared_ptr<arrow::Array> result_;
   arrow::compute::FunctionContext* ctx_;
-  using CType = typename arrow::TypeTraits<DataType>::CType;
-  std::vector<CType> cache_;
-  std::vector<bool> cache_validity_;
-  std::shared_ptr<ArrayBuilderImpl<ArrayType, DataType>> builder_;
 };
 
 template <typename ArrayType, typename DataType,
@@ -124,14 +104,16 @@ class CountAction : public ActionBase {
     return arrow::Status::OK();
   }
 
-  arrow::Status Eval(int src_row_id, int dest_group_id) override {
-    if (cache_validity_.size() <= dest_group_id) {
-      auto to_append = dest_group_id - cache_validity_.size() + 1;
-      for (int i = 0; i < to_append; i++) {
-        cache_validity_.push_back(false);
-        cache_.push_back(0);
-      }
+  arrow::Status ConfigureGroupSize(int max_group_id,
+                                   const std::shared_ptr<arrow::Array>& in) override {
+    if (cache_validity_.size() <= max_group_id) {
+      cache_validity_.resize(max_group_id + 1, false);
+      cache_.resize(max_group_id + 1, 0);
     }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Eval(int src_row_id, int dest_group_id) override {
     cache_validity_[dest_group_id] = true;
     if (!in_->IsNull(src_row_id)) {
       cache_[dest_group_id] += 1;
@@ -181,14 +163,16 @@ class SumAction : public ActionBase {
     return arrow::Status::OK();
   }
 
-  arrow::Status Eval(int src_row_id, int dest_group_id) override {
-    if (cache_validity_.size() <= dest_group_id) {
-      auto to_append = dest_group_id - cache_validity_.size() + 1;
-      for (int i = 0; i < to_append; i++) {
-        cache_validity_.push_back(false);
-        cache_.push_back(0);
-      }
+  arrow::Status ConfigureGroupSize(int max_group_id,
+                                   const std::shared_ptr<arrow::Array>& in) override {
+    if (cache_validity_.size() <= max_group_id) {
+      cache_validity_.resize(max_group_id + 1, false);
+      cache_.resize(max_group_id + 1, 0);
     }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Eval(int src_row_id, int dest_group_id) override {
     cache_validity_[dest_group_id] = true;
     if (!in_->IsNull(src_row_id)) {
       auto value = in_->GetView(src_row_id);
