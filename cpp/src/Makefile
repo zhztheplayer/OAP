@@ -4,7 +4,9 @@ CC=g++
 INCLUDE=-I${JAVA_HOME} -I${JAVA_HOME}/include/linux -I${JAVA_HOME}/include
 INCLUDE+=-I$(shell pwd)
 CFLAGS=-std=c++14 -fPIC -g
-#CFLAGS=-std=c++14 -fPIC -g -DDEBUG_DATA -DDEBUG
+#CFLAGS=-std=c++14 -fPIC -g -DDEBUG_LEVEL_1
+#CFLAGS=-std=c++14 -fPIC -g -DDEBUG -DDEBUG_LEVEL_1
+#CFLAGS=-std=c++14 -fPIC -g -DDEBUG -DDEBUG_DATA
 LFLAGS=-L/usr/local/lib64
 LIBS=-lgandiva -larrow -lgandiva_protobuf
 MAIN=libspark_columnar_jni.so

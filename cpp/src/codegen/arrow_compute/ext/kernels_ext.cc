@@ -12,6 +12,7 @@
 #include <arrow/util/checked_cast.h>
 #include <iostream>
 #include <unordered_map>
+#include "codegen/arrow_compute/ext/actions_impl.h"
 #include "codegen/arrow_compute/ext/append.h"
 #include "codegen/arrow_compute/ext/split.h"
 
@@ -72,6 +73,101 @@ arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayLi
   }
 
   return arrow::Status::OK();
+}
+
+///////////////  SplitArrayListWithAction  ////////////////
+class SplitArrayListWithActionKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx, std::vector<std::string> action_name_list)
+      : ctx_(ctx), action_name_list_(action_name_list) {}
+  ~Impl() {
+#ifdef DEBUG
+    std::cout << "Destruct SplitArrayListWithActionKernel::Impl" << std::endl;
+#endif
+  }
+
+  arrow::Status InitActionList(const ArrayList& in) {
+    int col_id = 0;
+    for (auto action_name : action_name_list_) {
+      auto col = in[col_id++];
+      std::shared_ptr<ActionBase> action;
+      if (action_name.compare("action_unique") == 0) {
+        RETURN_NOT_OK(MakeUniqueAction(ctx_, col->type(), &action));
+      } else if (action_name.compare("action_count") == 0) {
+        RETURN_NOT_OK(MakeCountAction(ctx_, col->type(), &action));
+      } else if (action_name.compare("action_sum") == 0) {
+        RETURN_NOT_OK(MakeSumAction(ctx_, col->type(), &action));
+      } else {
+        return arrow::Status::NotImplemented(action_name, " is not implementetd.");
+      }
+      action_list_.push_back(action);
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Evaluate(const ArrayList& in, const std::shared_ptr<arrow::Array>& dict) {
+    if (action_list_.empty()) {
+      RETURN_NOT_OK(InitActionList(in));
+    }
+    if (!dict) {
+      return arrow::Status::Invalid("input data is invalid");
+    }
+    std::vector<std::shared_ptr<splitter::ArrayVisitorImpl>> array_visitor_list;
+    if (in.size() != action_list_.size()) {
+      return arrow::Status::Invalid(
+          "SplitArrayListWithAction input arrayList size does not match numActions");
+    }
+    for (int i = 0; i < in.size(); i++) {
+      auto col = in[i];
+      auto action = action_list_[i];
+      action->SetInputArray(col);
+    }
+
+    for (int row_id = 0; row_id < dict->length(); row_id++) {
+      auto group_id = arrow::internal::checked_cast<const arrow::Int32Array&>(*dict.get())
+                          .GetView(row_id);
+      for (auto action : action_list_) {
+        action->Eval(row_id, group_id);
+      }
+    }
+
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(ArrayList* out) {
+    for (auto action : action_list_) {
+      std::shared_ptr<arrow::Array> arr_out;
+      RETURN_NOT_OK(action->Finish(&arr_out));
+      out->push_back(arr_out);
+    }
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::vector<std::string> action_name_list_;
+  std::vector<std::shared_ptr<extra::ActionBase>> action_list_;
+};
+
+arrow::Status SplitArrayListWithActionKernel::Make(
+    arrow::compute::FunctionContext* ctx, std::vector<std::string> action_name_list,
+    std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<SplitArrayListWithActionKernel>(ctx, action_name_list);
+  return arrow::Status::OK();
+}
+
+SplitArrayListWithActionKernel::SplitArrayListWithActionKernel(
+    arrow::compute::FunctionContext* ctx, std::vector<std::string> action_name_list) {
+  impl_.reset(new Impl(ctx, action_name_list));
+}
+
+arrow::Status SplitArrayListWithActionKernel::Evaluate(
+    const ArrayList& in, const std::shared_ptr<arrow::Array>& dict) {
+  return impl_->Evaluate(in, dict);
+}
+
+arrow::Status SplitArrayListWithActionKernel::Finish(ArrayList* out) {
+  return impl_->Finish(out);
 }
 
 ///////////////  UniqueArray  ////////////////

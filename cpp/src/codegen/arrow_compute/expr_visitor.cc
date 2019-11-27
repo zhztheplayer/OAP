@@ -72,6 +72,26 @@ arrow::Status BuilderVisitor::Visit(const gandiva::FunctionNode& node) {
     }
   }
 
+  // Add a new type of Function "Action", which will not create a new expr_visitor,
+  // instead, it will register itself to its dependency
+  auto func_name = desc->name();
+  if (func_name.compare(0, 7, "action_") == 0) {
+    if (dependency) {
+      if (param_names.size() != 1) {
+        return arrow::Status::Invalid("BuilderVisitor Action Parameter should be one.");
+      }
+      RETURN_NOT_OK(dependency->AppendAction(func_name, param_names[0]));
+      expr_visitor_ = dependency;
+#ifdef DEBUG
+      std::cout << "Build ExprVisitor for " << node_id_ << ", return ExprVisitor is "
+                << expr_visitor_ << std::endl;
+#endif
+      return arrow::Status::OK();
+    } else {
+      return arrow::Status::Invalid(
+          "BuilderVisitor is processing an action without dependency, this is invalid.");
+    }
+  }
   auto search = expr_visitor_cache_->find(node_id_);
   if (search == expr_visitor_cache_->end()) {
     if (dependency) {
@@ -82,9 +102,17 @@ arrow::Status BuilderVisitor::Visit(const gandiva::FunctionNode& node) {
                                                     param_names, finish_func_);
     }
     expr_visitor_cache_->emplace(node_id_, expr_visitor_);
+#ifdef DEBUG
+    std::cout << "Build ExprVisitor for " << node_id_ << ", return ExprVisitor is "
+              << expr_visitor_ << std::endl;
+#endif
     return arrow::Status::OK();
   }
   expr_visitor_ = search->second;
+#ifdef DEBUG
+  std::cout << "Build ExprVisitor for " << node_id_ << ", return ExprVisitor is "
+            << expr_visitor_ << std::endl;
+#endif
 
   return arrow::Status::OK();
 }
@@ -104,7 +132,11 @@ arrow::Status BuilderVisitor::GetResult(std::shared_ptr<ExprVisitor>* out) {
 class ExprVisitor::Impl {
  public:
   Impl(ExprVisitor* p) : p_(p) { func_name_ = p_->func_name_; }
-  ~Impl() {}
+  ~Impl() {
+#ifdef DEBUG
+    std::cout << "Destruct ExprVisitor::Impl for " << p_->func_name_ << std::endl;
+#endif
+  }
   arrow::Status SplitArrayList() {
     switch (p_->dependency_result_type_) {
       case ArrowComputeResultType::Array: {
@@ -121,6 +153,48 @@ class ExprVisitor::Impl {
             &p_->ctx_, col_list, p_->in_array_, &p_->result_batch_list_,
             &p_->result_batch_size_list_, &p_->group_indices_));
         p_->return_type_ = ArrowComputeResultType::BatchList;
+      } break;
+      default:
+        return arrow::Status::NotImplemented(
+            "ExprVisitor aggregate: Does not support this type of input.");
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status SplitArrayListWithAction() {
+    switch (p_->dependency_result_type_) {
+      case ArrowComputeResultType::Array: {
+        bool init = false;
+        std::vector<std::string> param_field_names;
+        if (!kernel_) {
+          if (p_->action_name_list_.empty()) {
+            return arrow::Status::Invalid(
+                "ExprVisitor::SplitArrayListWithAction have empty action_name_list, this "
+                "is invalid.");
+          }
+          RETURN_NOT_OK(extra::SplitArrayListWithActionKernel::Make(
+              &p_->ctx_, p_->action_name_list_, &kernel_));
+          init = true;
+        }
+        if (p_->action_param_list_.empty()) {
+          param_field_names = p_->param_field_names_;
+        } else {
+          param_field_names = p_->action_param_list_;
+        }
+        ArrayList col_list;
+        for (auto col_name : param_field_names) {
+          std::shared_ptr<arrow::Array> col;
+          std::shared_ptr<arrow::Field> field;
+          RETURN_NOT_OK(GetColumnAndFieldByName(p_->in_record_batch_, p_->schema_,
+                                                col_name, &col, &field));
+          col_list.push_back(col);
+          if (init) {
+            p_->result_fields_.push_back(field);
+          }
+        }
+
+        RETURN_NOT_OK(kernel_->Evaluate(col_list, p_->in_array_));
+        finish_return_type_ = ArrowComputeResultType::Batch;
       } break;
       default:
         return arrow::Status::NotImplemented(
@@ -159,8 +233,23 @@ class ExprVisitor::Impl {
         p_->result_fields_.push_back(field);
 
         RETURN_NOT_OK(kernel_->Evaluate(col));
-        RETURN_NOT_OK(kernel_->Finish(&(p_->result_array_)));
-        p_->return_type_ = ArrowComputeResultType::Array;
+        if (p_->finish_func_) {
+          finish_return_type_ = ArrowComputeResultType::Array;
+        } else {
+          RETURN_NOT_OK(kernel_->Finish(&(p_->result_array_)));
+          p_->return_type_ = ArrowComputeResultType::Array;
+        }
+      } break;
+      case ArrowComputeResultType::Array: {
+        p_->result_fields_ = p_->in_fields_;
+        if (p_->in_array_->length() < 2) {
+          p_->result_array_ = p_->in_array_;
+          p_->return_type_ = ArrowComputeResultType::Array;
+        } else {
+          RETURN_NOT_OK(kernel_->Evaluate(p_->in_array_));
+          RETURN_NOT_OK(kernel_->Finish(&(p_->result_array_)));
+          p_->return_type_ = ArrowComputeResultType::Array;
+        }
       } break;
       case ArrowComputeResultType::ArrayList: {
         p_->result_fields_ = p_->in_fields_;
@@ -407,11 +496,22 @@ ExprVisitor::ExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr, std::string 
   impl_ = std::make_shared<Impl>(this);
 }
 
+arrow::Status ExprVisitor::AppendAction(const std::string& func_name,
+                                        const std::string& param_name) {
+  action_name_list_.push_back(func_name);
+  action_param_list_.push_back(param_name);
+  return arrow::Status::OK();
+}
+
 arrow::Status ExprVisitor::Execute() {
   auto status = arrow::Status::OK();
 
   if (func_name_.compare("splitArrayList") == 0) {
     RETURN_NOT_OK(impl_->SplitArrayList());
+    goto finish;
+  }
+  if (func_name_.compare("splitArrayListWithAction") == 0) {
+    RETURN_NOT_OK(impl_->SplitArrayListWithAction());
     goto finish;
   }
   if (func_name_.compare("sum") == 0 || func_name_.compare("count") == 0 ||
@@ -449,13 +549,13 @@ arrow::Status ExprVisitor::Eval(const std::shared_ptr<arrow::RecordBatch>& in) {
 
 arrow::Status ExprVisitor::Eval() {
   if (return_type_ != ArrowComputeResultType::None) {
-#ifdef DEBUG
+#ifdef DEBUG_LEVEL_2
     std::cout << "ExprVisitor::Eval " << func_name_ << ", ptr " << this
               << ", already evaluated, skip" << std::endl;
 #endif
     return arrow::Status::OK();
   }
-#ifdef DEBUG
+#ifdef DEBUG_LEVEL_2
   std::cout << "ExprVisitor::Eval " << func_name_ << ", ptr " << this
             << ", start to check dependency" << std::endl;
 #endif
@@ -481,7 +581,7 @@ arrow::Status ExprVisitor::Eval() {
         return arrow::Status::Invalid("ArrowComputeResultType is invalid.");
     }
   }
-#ifdef DEBUG
+#ifdef DEBUG_LEVEL_2
   std::cout << "ExprVisitor::Eval " << func_name_ << ", ptr " << this
             << ", start to execute" << std::endl;
 #endif
