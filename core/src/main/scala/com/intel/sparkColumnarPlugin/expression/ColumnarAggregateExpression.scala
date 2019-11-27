@@ -17,12 +17,21 @@ trait ColumnarAggregateExpressionBase extends ColumnarExpression with Logging {
   def getResultFieldName: String
   def getField: Field
   def getResultField: Field
+  def setField(inField: Field, outField: Field): Unit
   def doColumnarCodeGen_ext(args: Object): (TreeNode, TreeNode) = {
     throw new UnsupportedOperationException(s"ColumnarAggregateExpressionBase doColumnarCodeGen_ext is a abstract function.")
   }
 }
 
-class ColumnarUniqueAggregateExpression(aggrField: Field, resField: Field) extends ColumnarAggregateExpressionBase with Logging {
+class ColumnarUniqueAggregateExpression() extends ColumnarAggregateExpressionBase with Logging {
+
+  var aggrField : Field = _
+  var resField : Field = _
+
+  override def setField(inField: Field, outField: Field): Unit = {
+    aggrField = inField
+    resField = outField
+  }
 
   override def getFieldName: String = {
     aggrField.getName()
@@ -65,8 +74,6 @@ class ColumnarUniqueAggregateExpression(aggrField: Field, resField: Field) exten
 }
 
 class ColumnarAggregateExpression(
-    aggrField: Field,
-    resField: Field,
     aggregateFunction: AggregateFunction,
     mode: AggregateMode,
     isDistinct: Boolean,
@@ -74,6 +81,14 @@ class ColumnarAggregateExpression(
     extends AggregateExpression(aggregateFunction, mode, isDistinct, resultId)
     with ColumnarAggregateExpressionBase
     with Logging {
+
+  var aggrField : Field = _
+  var resField : Field = _
+
+  override def setField(inField: Field, outField: Field): Unit = {
+    aggrField = inField
+    resField = outField
+  }
 
   override def getFieldName: String = {
     aggrField.getName()
