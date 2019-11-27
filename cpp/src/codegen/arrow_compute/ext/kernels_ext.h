@@ -17,6 +17,10 @@ class KernalBase {
   virtual arrow::Status Evaluate(const ArrayList& in) {
     return arrow::Status::NotImplemented("KernalBase abstract interface.");
   }
+  virtual arrow::Status Evaluate(const ArrayList& in,
+                                 const std::shared_ptr<arrow::Array>& dict) {
+    return arrow::Status::NotImplemented("KernalBase abstract interface.");
+  }
   virtual arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
     return arrow::Status::NotImplemented("KernalBase abstract interface.");
   }
@@ -39,6 +43,23 @@ arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayLi
                              const std::shared_ptr<arrow::Array>& dict,
                              std::vector<ArrayList>* out, std::vector<int>* out_sizes,
                              std::vector<int>* group_indices);
+
+class SplitArrayListWithActionKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::vector<std::string> action_name_list,
+                            std::shared_ptr<KernalBase>* out);
+  SplitArrayListWithActionKernel(arrow::compute::FunctionContext* ctx,
+                                 std::vector<std::string> action_name_list);
+  arrow::Status Evaluate(const ArrayList& in,
+                         const std::shared_ptr<arrow::Array>& dict) override;
+  arrow::Status Finish(ArrayList* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
 
 class EncodeArrayKernel : public KernalBase {
  public:

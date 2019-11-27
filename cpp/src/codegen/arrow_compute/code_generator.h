@@ -26,11 +26,11 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
       if (finish_exprs_vector.empty()) {
         auto visitor =
             MakeExprVisitor(schema_ptr, expr, &expr_visitor_cache_, &root_visitor);
-        visitor_list_.push_back(root_visitor);
+        auto status = DistinctInsert(root_visitor, &visitor_list_);
       } else {
         auto visitor = MakeExprVisitor(schema_ptr, expr, finish_exprs_vector[i++],
                                        &expr_visitor_cache_, &root_visitor);
-        visitor_list_.push_back(root_visitor);
+        auto status = DistinctInsert(root_visitor, &visitor_list_);
       }
     }
 #ifdef DEBUG_DATA
@@ -41,6 +41,15 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
   ~ArrowComputeCodeGenerator() {
     expr_visitor_cache_.clear();
     visitor_list_.clear();
+  }
+
+  arrow::Status DistinctInsert(const std::shared_ptr<ExprVisitor>& in,
+                               std::vector<std::shared_ptr<ExprVisitor>>* visitor_list) {
+    for (auto visitor : *visitor_list) {
+      if (visitor == in) return arrow::Status::OK();
+    }
+    visitor_list->push_back(in);
+    return arrow::Status::OK();
   }
 
   arrow::Status getSchema(std::shared_ptr<arrow::Schema>* out) {
@@ -70,8 +79,13 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
         res_schema = arrow::schema(ret_types_);
       }
       for (int i = 0; i < batch_array.size(); i++) {
-        out->push_back(
-            arrow::RecordBatch::Make(res_schema, batch_size_array[i], batch_array[i]));
+        auto record_batch =
+            arrow::RecordBatch::Make(res_schema, batch_size_array[i], batch_array[i]);
+#ifdef DEBUG_LEVEL_1
+        std::cout << "ArrowCompute Evaluate func get output recordBatch as " << std::endl;
+        auto status = arrow::PrettyPrint(*record_batch.get(), 2, &std::cout);
+#endif
+        out->push_back(record_batch);
       }
 
       // we need to clean up this visitor chain result for next record_batch.
@@ -112,8 +126,9 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     for (int i = 0; i < batch_array.size(); i++) {
       auto record_batch =
           arrow::RecordBatch::Make(res_schema, batch_size_array[i], batch_array[i]);
-#ifdef DEBUG_DATA
-      arrow::PrettyPrint(*record_batch.get(), 2, &std::cout);
+#ifdef DEBUG_LEVEL_1
+      std::cout << "ArrowCompute Finish func get output recordBatch as " << std::endl;
+      auto status = arrow::PrettyPrint(*record_batch.get(), 2, &std::cout);
 #endif
       out->push_back(record_batch);
     }
@@ -143,10 +158,6 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     ArrayList batch_array_item;
     RETURN_NOT_OK(GetOrInsert(batch_index, batch_array, &batch_array_item));
     batch_array->at(batch_index).push_back(column);
-#ifdef DEBUG_DATA
-    std::cout << "output column " << batch_array->at(batch_index).size() << "size is "
-              << column->length() << std::endl;
-#endif
     return arrow::Status::OK();
   }
   arrow::Status MakeBatchFromArrayList(ArrayList column_list,
@@ -160,8 +171,16 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
   arrow::Status MakeBatchFromBatch(ArrayList batch, std::vector<ArrayList>* batch_array,
                                    std::vector<int>* batch_size_array) {
     int length = 0;
+    int i = 0;
     for (auto column : batch) {
-      length = length < column->length() ? column->length() : length;
+      if (length != 0 && length != column->length()) {
+        return arrow::Status::Invalid(
+            "ArrowCompute MakeBatchFromBatch found batch contains columns with different "
+            "lengths, expect ",
+            length, " while got ", column->length(), " from ", i, "th column.");
+      }
+      length = column->length();
+      i++;
     }
     batch_array->push_back(batch);
     batch_size_array->push_back(length);

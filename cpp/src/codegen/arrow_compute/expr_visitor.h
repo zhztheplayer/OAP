@@ -76,6 +76,12 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
               std::vector<std::string> param_field_names,
               std::shared_ptr<ExprVisitor> dependency);
 
+  ~ExprVisitor() {
+#ifdef DEBUG
+    std::cout << "Destruct " << func_name_ << " ExprVisitor." << std::endl;
+#endif
+  }
+  arrow::Status AppendAction(const std::string& func_name, const std::string& param_name);
   arrow::Status Eval(const std::shared_ptr<arrow::RecordBatch>& in);
   arrow::Status Eval();
   arrow::Status Execute();
@@ -101,6 +107,8 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   std::shared_ptr<arrow::RecordBatch> in_record_batch_;
   std::vector<std::string> param_field_names_;
   std::shared_ptr<gandiva::Node> finish_func_;
+  std::vector<std::string> action_name_list_;
+  std::vector<std::string> action_param_list_;
 
   // Input data from dependency.
   ArrowComputeResultType dependency_result_type_ = ArrowComputeResultType::None;
