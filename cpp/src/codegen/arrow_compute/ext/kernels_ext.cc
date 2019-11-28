@@ -3,6 +3,7 @@
 #include <arrow/compute/kernel.h>
 #include <arrow/compute/kernels/count.h>
 #include <arrow/compute/kernels/hash.h>
+#include <arrow/compute/kernels/minmax.h>
 #include <arrow/compute/kernels/sum.h>
 #include <arrow/pretty_print.h>
 #include <arrow/status.h>
@@ -10,6 +11,7 @@
 #include <arrow/type_traits.h>
 #include <arrow/util/bit_util.h>
 #include <arrow/util/checked_cast.h>
+#include <chrono>
 #include <iostream>
 #include <unordered_map>
 #include "codegen/arrow_compute/ext/actions_impl.h"
@@ -129,11 +131,14 @@ class SplitArrayListWithActionKernel::Impl {
           "SplitArrayListWithAction input arrayList size does not match numActions");
     }
 
-    auto max_group_id = values->length() - 1;
-    for (int row_id = 0; row_id < dict->length(); row_id++) {
-      auto group_id = dict->GetView(row_id);
-      max_group_id = group_id > max_group_id ? group_id : max_group_id;
-    }
+    // using minmax
+    arrow::compute::MinMaxOptions options;
+    arrow::compute::Datum minMaxOut;
+    RETURN_NOT_OK(arrow::compute::MinMax(ctx_, options, *dict.get(), &minMaxOut));
+    auto col = minMaxOut.collection();
+    auto max =
+        arrow::internal::checked_pointer_cast<arrow::UInt32Scalar>(col[1].scalar());
+    auto max_group_id = max->value;
 
     for (int i = 0; i < in.size(); i++) {
       auto col = in[i];
@@ -148,7 +153,6 @@ class SplitArrayListWithActionKernel::Impl {
         action->Eval(row_id, group_id);
       }
     }
-
     return arrow::Status::OK();
   }
 
