@@ -55,15 +55,22 @@ class ColumnarHashAggregateExec(
   // Disable code generation
   override def supportCodegen: Boolean = false
 
+  override lazy val metrics = Map(
+    "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
+    "numOutputBatches" -> SQLMetrics.createMetric(sparkContext, "number of output batches"),
+    "numInputBatches" -> SQLMetrics.createMetric(sparkContext, "number of Input batches"),
+    "aggTime" -> SQLMetrics.createTimingMetric(sparkContext, "time in aggregation process"))
+
   override def doExecuteColumnar(): RDD[ColumnarBatch] = {
     val numOutputRows = longMetric("numOutputRows")
-    val peakMemory = longMetric("peakMemory")
-    val spillSize = longMetric("spillSize")
-    val avgHashProbe = longMetric("avgHashProbe")
+    val numOutputBatches = longMetric("numOutputBatches")
+    val numInputBatches = longMetric("numInputBatches")
     val aggTime = longMetric("aggTime")
+    numOutputRows.set(0)
+    numOutputBatches.set(0)
+    numInputBatches.set(0)
 
     child.executeColumnar().mapPartitionsWithIndex { (partIndex, iter) =>
-      val beforeAgg = System.nanoTime()
       val hasInput = iter.hasNext
       val res = if (!hasInput && groupingExpressions.nonEmpty) {
         // This is a grouped aggregate and the input iterator is empty,
@@ -76,14 +83,17 @@ class ColumnarHashAggregateExec(
           child.output,
           aggregateExpressions,
           aggregateAttributes,
-          resultExpressions)
+          resultExpressions,
+          numInputBatches,
+          numOutputBatches,
+          numOutputRows,
+          aggTime)
         if (!hasInput && groupingExpressions.isEmpty) {
           throw new UnsupportedOperationException(s"Not support groupingExpressions.isEmpty")
         } else {
           aggregation.createIterator(iter)
         }
       }
-      aggTime += NANOSECONDS.toMillis(System.nanoTime() - beforeAgg)
       res
     }
   }
