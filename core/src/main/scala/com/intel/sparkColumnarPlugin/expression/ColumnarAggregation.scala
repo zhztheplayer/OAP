@@ -2,7 +2,7 @@ package com.intel.sparkColumnarPlugin.expression
 
 import io.netty.buffer.ArrowBuf
 import java.util.ArrayList
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeUnit._
 import util.control.Breaks._
 
 import com.intel.sparkColumnarPlugin.vectorized.ExpressionEvaluator
@@ -17,6 +17,7 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized._
 import org.apache.spark.sql.execution.vectorized.ArrowWritableColumnVector
 import org.apache.spark.sql.execution.aggregate.HashAggregateExec
+import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.TaskContext
 
 import org.apache.arrow.gandiva.evaluator._
@@ -40,7 +41,11 @@ class ColumnarAggregation(
     originalInputAttributes: Seq[Attribute],
     aggregateExpressions: Seq[AggregateExpression],
     aggregateAttributes: Seq[Attribute],
-    resultExpressions: Seq[NamedExpression])
+    resultExpressions: Seq[NamedExpression],
+    numInputBatches: SQLMetric,
+    numOutputBatches: SQLMetric,
+    numOutputRows: SQLMetric,
+    aggrTime: SQLMetric)
     extends Logging {
   // build gandiva projection here.
   var elapseTime_make: Long = 0
@@ -202,6 +207,7 @@ class ColumnarAggregation(
       }
 
       override def next(): ColumnarBatch = {
+        val beforeAgg = System.nanoTime()
         if (cb != null) {
           cb.close()
           cb = null
@@ -211,9 +217,15 @@ class ColumnarAggregation(
           if (cb.numRows > 0) {
             updateAggregationResult(cb)
             processedNumRows += cb.numRows
+            numInputBatches += 1
           }
         }
-        getAggregationResult()
+        val outputBatch = getAggregationResult()
+        aggrTime.set(NANOSECONDS.toMillis(System.nanoTime() - beforeAgg))
+        logInfo(s"HasgAggregate Completed, total processed ${numInputBatches.value} batches, took ${aggrTime.value} ms doing evaluation.");
+        numOutputBatches += 1
+        numOutputRows += outputBatch.numRows
+        outputBatch
       }
     }
   }
@@ -258,14 +270,22 @@ object ColumnarAggregation {
       originalInputAttributes: Seq[Attribute],
       aggregateExpressions: Seq[AggregateExpression],
       aggregateAttributes: Seq[Attribute],
-      resultExpressions: Seq[NamedExpression]): ColumnarAggregation = synchronized {
+      resultExpressions: Seq[NamedExpression],
+      numInputBatches: SQLMetric,
+      numOutputBatches: SQLMetric,
+      numOutputRows: SQLMetric,
+      aggrTime: SQLMetric): ColumnarAggregation = synchronized {
     columnarAggregation = new ColumnarAggregation(
       partIndex,
       groupingExpressions,
       originalInputAttributes,
       aggregateExpressions,
       aggregateAttributes,
-      resultExpressions)
+      resultExpressions,
+      numInputBatches,
+      numOutputBatches,
+      numOutputRows,
+      aggrTime)
     columnarAggregation
   }
 
