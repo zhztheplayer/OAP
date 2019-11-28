@@ -123,12 +123,8 @@ class CountAction : public ActionBase {
 
   arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override {
     int group_id = 0;
-    for (int i = 0; i < cache_validity_.size(); i++) {
-      if (cache_validity_[i]) {
-        auto value = cache_[i];
-        RETURN_NOT_OK(builder_->template AppendValue<DataType>(group_id, value));
-      }
-    }
+    RETURN_NOT_OK(
+        builder_->template AppendValues<DataType>(group_id, cache_, cache_validity_));
     RETURN_NOT_OK(builder_->Finish(out));
 
     return arrow::Status::OK();
@@ -183,12 +179,8 @@ class SumAction : public ActionBase {
 
   arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override {
     int group_id = 0;
-    for (int i = 0; i < cache_validity_.size(); i++) {
-      if (cache_validity_[i]) {
-        auto value = cache_[i];
-        RETURN_NOT_OK(builder_->template AppendValue<DataType>(group_id, value));
-      }
-    }
+    RETURN_NOT_OK(
+        builder_->template AppendValues<DataType>(group_id, cache_, cache_validity_));
     RETURN_NOT_OK(builder_->Finish(out));
 
     return arrow::Status::OK();

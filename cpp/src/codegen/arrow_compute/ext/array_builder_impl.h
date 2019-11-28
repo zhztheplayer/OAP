@@ -116,6 +116,14 @@ class ArrayBuilderImpl : public ArrayBuilderImplBase {
     return arrow::Status::OK();
   }
 
+  template <typename DataType, typename CType>
+  arrow::enable_if_has_c_type<DataType, arrow::Status> AppendValues(
+      int group_id, const std::vector<CType>& values, const std::vector<bool>& is_valid) {
+    std::shared_ptr<BuilderType> builder;
+    RETURN_NOT_OK(GetOrCreateBuilder(group_id, &builder));
+    builder->AppendValues(values, is_valid);
+    return arrow::Status::OK();
+  }
   arrow::Status AppendScalar(const std::shared_ptr<arrow::Scalar>& in, int group_id = 0) {
     return arrow::Status::NotImplemented("AppendScalar is not implemented yet.");
   }
