@@ -100,7 +100,7 @@ class SplitArrayListWithActionKernel::Impl {
       if (action_name.compare("action_unique") == 0) {
         RETURN_NOT_OK(MakeUniqueAction(ctx_, col->type(), &action));
       } else if (action_name.compare("action_count") == 0) {
-        RETURN_NOT_OK(MakeCountAction(ctx_, col->type(), &action));
+        RETURN_NOT_OK(MakeCountAction(ctx_, &action));
       } else if (action_name.compare("action_sum") == 0) {
         RETURN_NOT_OK(MakeSumAction(ctx_, col->type(), &action));
       } else {
@@ -140,19 +140,26 @@ class SplitArrayListWithActionKernel::Impl {
         arrow::internal::checked_pointer_cast<arrow::UInt32Scalar>(col[1].scalar());
     auto max_group_id = max->value;
 
+    std::vector<std::function<arrow::Status(int)>> eval_func_list;
     for (int i = 0; i < in.size(); i++) {
       auto col = in[i];
       auto action = action_list_[i];
-      action->SetInputArray(col);
-      action->ConfigureGroupSize(max_group_id, values);
+      std::function<arrow::Status(int)> func;
+      action->Submit(col, max_group_id, &func);
+      eval_func_list.push_back(func);
     }
 
+    auto start = std::chrono::steady_clock::now();
+    const uint32_t* data = dict->data()->GetValues<uint32_t>(1);
     for (int row_id = 0; row_id < dict->length(); row_id++) {
-      auto group_id = dict->GetView(row_id);
-      for (auto action : action_list_) {
-        action->Eval(row_id, group_id);
+      auto group_id = data[row_id];
+      for (auto eval_func : eval_func_list) {
+        eval_func(group_id);
       }
     }
+    auto end = std::chrono::steady_clock::now();
+    eval_elapse_time_ +=
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     return arrow::Status::OK();
   }
 
@@ -162,6 +169,8 @@ class SplitArrayListWithActionKernel::Impl {
       RETURN_NOT_OK(action->Finish(&arr_out));
       out->push_back(arr_out);
     }
+    std::cout << "SplitArrayListWithActionKernel took " << eval_elapse_time_ / 1000
+              << "ms doing evaluation." << std::endl;
     return arrow::Status::OK();
   }
 

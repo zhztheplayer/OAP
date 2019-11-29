@@ -34,89 +34,131 @@ struct FindAccumulatorType<I, arrow::enable_if_floating_point<I>> {
 
 class ActionBase {
  public:
-  virtual arrow::Status SetInputArray(const std::shared_ptr<arrow::Array>& in) {
-    return arrow::Status::NotImplemented("ActionBase Eval is abstract.");
-  }
-  virtual arrow::Status ConfigureGroupSize(int max_group_id,
-                                           const std::shared_ptr<arrow::Array>& in) {
-    return arrow::Status::NotImplemented("ActionBase Eval is abstract.");
-  }
-  virtual arrow::Status Eval(int src_row_id, int dest_group_id) {
-    return arrow::Status::NotImplemented("ActionBase Eval is abstract.");
+  virtual arrow::Status Submit(const std::shared_ptr<arrow::Array>& in, int max_group_id,
+                               std::function<arrow::Status(int)>* out) {
+    return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
   }
   virtual arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
-    return arrow::Status::NotImplemented("ActionBase Eval is abstract.");
+    return arrow::Status::NotImplemented("ActionBase Finish is abstract.");
   }
 };
 
-template <typename ArrayType, typename DataType,
-          typename ResArrayType = typename arrow::TypeTraits<DataType>::ArrayType>
+template <typename DataType>
 class UniqueAction : public ActionBase {
  public:
-  UniqueAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  UniqueAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
+    MakeArrayBuilder<ResArrayType, DataType>(
+        arrow::TypeTraits<DataType>::type_singleton(), ctx_->memory_pool(), &builder_);
+  }
   ~UniqueAction() {
 #ifdef DEBUG
     std::cout << "Destruct UniqueAction" << std::endl;
 #endif
   }
 
-  arrow::Status SetInputArray(const std::shared_ptr<arrow::Array>& in) override {
-    return arrow::Status::OK();
-  }
+  arrow::Status Submit(const std::shared_ptr<arrow::Array>& in, int max_group_id,
+                       std::function<arrow::Status(int)>* out) override {
+    // resize result data
+    if (cache_validity_.size() <= max_group_id) {
+      cache_validity_.resize(max_group_id + 1, false);
+      cache_.resize(max_group_id + 1, 0);
+    }
 
-  arrow::Status ConfigureGroupSize(int max_group_id,
-                                   const std::shared_ptr<arrow::Array>& in) override {
-    result_ = in;
-    return arrow::Status::OK();
-  }
-
-  arrow::Status Eval(int src_row_id, int dest_group_id) override {
+    // prepare evaluate lambda
+    auto data = in->data()->GetValues<CType>(1);
+    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
+        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
+    row_id = 0;
+    if (in->null_count()) {
+      *out = [this, data](int dest_group_id) {
+        const bool is_null = valid_reader->IsNotSet();
+        valid_reader->Next();
+        if (!cache_validity_[dest_group_id]) {
+          cache_validity_[dest_group_id] = true;
+          if (!is_null) {
+            cache_[dest_group_id] = data[row_id];
+          }
+        }
+        row_id++;
+        return arrow::Status::OK();
+      };
+    } else {
+      *out = [this, data](int dest_group_id) {
+        if (!cache_validity_[dest_group_id]) {
+          cache_validity_[dest_group_id] = true;
+          cache_[dest_group_id] = data[row_id];
+        }
+        row_id++;
+        return arrow::Status::OK();
+      };
+    }
     return arrow::Status::OK();
   }
 
   arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override {
-    *out = result_;
+    int group_id = 0;
+    RETURN_NOT_OK(
+        builder_->template AppendValues<DataType>(group_id, cache_, cache_validity_));
+    RETURN_NOT_OK(builder_->Finish(out));
+
     return arrow::Status::OK();
   }
 
  private:
-  std::shared_ptr<arrow::Array> result_;
+  using CType = typename arrow::TypeTraits<DataType>::CType;
+  using ResDataType = typename FindAccumulatorType<DataType>::Type;
+  using ResCType = typename arrow::TypeTraits<ResDataType>::CType;
+  using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
+  // input
   arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  int row_id;
+  // output
+  std::vector<CType> cache_;
+  std::vector<bool> cache_validity_;
+  std::shared_ptr<ArrayBuilderImpl<ResArrayType, DataType>> builder_;
 };
 
-template <typename ArrayType, typename DataType,
-          typename ResArrayType = typename arrow::TypeTraits<DataType>::ArrayType>
+template <typename DataType>
 class CountAction : public ActionBase {
  public:
-  CountAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  CountAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
+    MakeArrayBuilder<ResArrayType, DataType>(
+        arrow::TypeTraits<DataType>::type_singleton(), ctx_->memory_pool(), &builder_);
+  }
   ~CountAction() {
 #ifdef DEBUG
     std::cout << "Destruct CountAction" << std::endl;
 #endif
   }
 
-  arrow::Status SetInputArray(const std::shared_ptr<arrow::Array>& in) override {
-    in_ = std::dynamic_pointer_cast<ArrayType>(in);
-    if (!builder_) {
-      MakeArrayBuilder<ResArrayType, DataType>(
-          arrow::TypeTraits<DataType>::type_singleton(), ctx_->memory_pool(), &builder_);
-    }
-    return arrow::Status::OK();
-  }
-
-  arrow::Status ConfigureGroupSize(int max_group_id,
-                                   const std::shared_ptr<arrow::Array>& in) override {
+  arrow::Status Submit(const std::shared_ptr<arrow::Array>& in, int max_group_id,
+                       std::function<arrow::Status(int)>* out) override {
+    // resize result data
     if (cache_validity_.size() <= max_group_id) {
       cache_validity_.resize(max_group_id + 1, false);
       cache_.resize(max_group_id + 1, 0);
     }
-    return arrow::Status::OK();
-  }
 
-  arrow::Status Eval(int src_row_id, int dest_group_id) override {
-    cache_validity_[dest_group_id] = true;
-    if (!in_->IsNull(src_row_id)) {
-      cache_[dest_group_id] += 1;
+    // prepare evaluate lambda
+    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
+        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
+    if (in->null_count()) {
+      *out = [this](int dest_group_id) {
+        cache_validity_[dest_group_id] = true;
+        const bool is_null = valid_reader->IsNotSet();
+        valid_reader->Next();
+        if (!is_null) {
+          cache_[dest_group_id] += 1;
+        }
+        return arrow::Status::OK();
+      };
+    } else {
+      *out = [this](int dest_group_id) {
+        cache_validity_[dest_group_id] = true;
+        cache_[dest_group_id] += 1;
+        return arrow::Status::OK();
+      };
     }
     return arrow::Status::OK();
   }
@@ -131,48 +173,61 @@ class CountAction : public ActionBase {
   }
 
  private:
-  std::shared_ptr<ArrayType> in_;
+  using ResArrayType = typename arrow::TypeTraits<DataType>::ArrayType;
+  // input
   arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  // result
   using CType = typename arrow::TypeTraits<DataType>::CType;
   std::vector<CType> cache_;
   std::vector<bool> cache_validity_;
   std::shared_ptr<ArrayBuilderImpl<ResArrayType, DataType>> builder_;
 };
 
-template <typename ArrayType, typename DataType,
-          typename ResArrayType = typename arrow::TypeTraits<DataType>::ArrayType>
+template <typename DataType>
 class SumAction : public ActionBase {
  public:
-  SumAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  SumAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
+    MakeArrayBuilder<ResArrayType, ResDataType>(
+        arrow::TypeTraits<ResDataType>::type_singleton(), ctx_->memory_pool(), &builder_);
+  }
   ~SumAction() {
 #ifdef DEBUG
     std::cout << "Destruct SumAction" << std::endl;
 #endif
   }
 
-  arrow::Status SetInputArray(const std::shared_ptr<arrow::Array>& in) override {
-    in_ = std::dynamic_pointer_cast<ArrayType>(in);
-    if (!builder_) {
-      MakeArrayBuilder<ResArrayType, DataType>(
-          arrow::TypeTraits<DataType>::type_singleton(), ctx_->memory_pool(), &builder_);
-    }
-    return arrow::Status::OK();
-  }
-
-  arrow::Status ConfigureGroupSize(int max_group_id,
-                                   const std::shared_ptr<arrow::Array>& in) override {
+  arrow::Status Submit(const std::shared_ptr<arrow::Array>& in, int max_group_id,
+                       std::function<arrow::Status(int)>* out) override {
+    // resize result data
     if (cache_validity_.size() <= max_group_id) {
       cache_validity_.resize(max_group_id + 1, false);
       cache_.resize(max_group_id + 1, 0);
     }
-    return arrow::Status::OK();
-  }
 
-  arrow::Status Eval(int src_row_id, int dest_group_id) override {
-    cache_validity_[dest_group_id] = true;
-    if (!in_->IsNull(src_row_id)) {
-      auto value = in_->GetView(src_row_id);
-      cache_[dest_group_id] += value;
+    // prepare evaluate lambda
+    auto data = in->data()->GetValues<CType>(1);
+    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
+        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
+    row_id = 0;
+    if (in->null_count()) {
+      *out = [this, data](int dest_group_id) {
+        cache_validity_[dest_group_id] = true;
+        const bool is_null = valid_reader->IsNotSet();
+        valid_reader->Next();
+        if (!is_null) {
+          cache_[dest_group_id] += data[row_id];
+        }
+        row_id++;
+        return arrow::Status::OK();
+      };
+    } else {
+      *out = [this, data](int dest_group_id) {
+        cache_validity_[dest_group_id] = true;
+        cache_[dest_group_id] += data[row_id];
+        row_id++;
+        return arrow::Status::OK();
+      };
     }
     return arrow::Status::OK();
   }
@@ -180,19 +235,25 @@ class SumAction : public ActionBase {
   arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override {
     int group_id = 0;
     RETURN_NOT_OK(
-        builder_->template AppendValues<DataType>(group_id, cache_, cache_validity_));
+        builder_->template AppendValues<ResDataType>(group_id, cache_, cache_validity_));
     RETURN_NOT_OK(builder_->Finish(out));
 
     return arrow::Status::OK();
   }
 
  private:
-  std::shared_ptr<ArrayType> in_;
-  arrow::compute::FunctionContext* ctx_;
   using CType = typename arrow::TypeTraits<DataType>::CType;
-  std::vector<CType> cache_;
+  using ResDataType = typename FindAccumulatorType<DataType>::Type;
+  using ResCType = typename arrow::TypeTraits<ResDataType>::CType;
+  using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
+  // input
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  int row_id;
+  // result
+  std::vector<ResCType> cache_;
   std::vector<bool> cache_validity_;
-  std::shared_ptr<ArrayBuilderImpl<ResArrayType, DataType>> builder_;
+  std::shared_ptr<ArrayBuilderImpl<ResArrayType, ResDataType>> builder_;
 };
 
 #define PROCESS_SUPPORTED_TYPES(PROCESS) \
@@ -221,11 +282,10 @@ arrow::Status MakeUniqueAction(arrow::compute::FunctionContext* ctx,
                                std::shared_ptr<arrow::DataType> type,
                                std::shared_ptr<ActionBase>* out) {
   switch (type->id()) {
-#define PROCESS(InType)                                                       \
-  case InType::type_id: {                                                     \
-    using ArrayType = typename arrow::TypeTraits<InType>::ArrayType;          \
-    auto action_ptr = std::make_shared<UniqueAction<ArrayType, InType>>(ctx); \
-    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);                 \
+#define PROCESS(InType)                                            \
+  case InType::type_id: {                                          \
+    auto action_ptr = std::make_shared<UniqueAction<InType>>(ctx); \
+    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);      \
   } break;
     PROCESS_SUPPORTED_TYPES(PROCESS)
 #undef PROCESS
@@ -236,21 +296,9 @@ arrow::Status MakeUniqueAction(arrow::compute::FunctionContext* ctx,
 }
 
 arrow::Status MakeCountAction(arrow::compute::FunctionContext* ctx,
-                              std::shared_ptr<arrow::DataType> type,
                               std::shared_ptr<ActionBase>* out) {
-  switch (type->id()) {
-#define PROCESS(InType)                                                           \
-  case InType::type_id: {                                                         \
-    using ArrayType = typename arrow::TypeTraits<InType>::ArrayType;              \
-    using ResDataType = typename FindAccumulatorType<InType>::Type;               \
-    auto action_ptr = std::make_shared<CountAction<ArrayType, ResDataType>>(ctx); \
-    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);                     \
-  } break;
-    PROCESS_SUPPORTED_TYPES(PROCESS)
-#undef PROCESS
-    default:
-      break;
-  }
+  auto action_ptr = std::make_shared<CountAction<arrow::UInt64Type>>(ctx);
+  *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);
   return arrow::Status::OK();
 }
 
@@ -258,12 +306,10 @@ arrow::Status MakeSumAction(arrow::compute::FunctionContext* ctx,
                             std::shared_ptr<arrow::DataType> type,
                             std::shared_ptr<ActionBase>* out) {
   switch (type->id()) {
-#define PROCESS(InType)                                                         \
-  case InType::type_id: {                                                       \
-    using ArrayType = typename arrow::TypeTraits<InType>::ArrayType;            \
-    using ResDataType = typename FindAccumulatorType<InType>::Type;             \
-    auto action_ptr = std::make_shared<SumAction<ArrayType, ResDataType>>(ctx); \
-    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);                   \
+#define PROCESS(InType)                                         \
+  case InType::type_id: {                                       \
+    auto action_ptr = std::make_shared<SumAction<InType>>(ctx); \
+    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);   \
   } break;
     PROCESS_SUPPORTED_TYPES(PROCESS)
 #undef PROCESS
