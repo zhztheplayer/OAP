@@ -2,7 +2,7 @@
 
 #include <arrow/pretty_print.h>
 #include <arrow/type.h>
-
+#include <chrono>
 #include "codegen/arrow_compute/expr_visitor.h"
 #include "codegen/code_generator.h"
 
@@ -32,6 +32,9 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
                                        &expr_visitor_cache_, &root_visitor);
         auto status = DistinctInsert(root_visitor, &visitor_list_);
       }
+    }
+    for (auto visitor : visitor_list_) {
+      auto status = visitor->Init();
     }
 #ifdef DEBUG_DATA
     std::cout << "new ExprVisitor for " << schema_->ToString() << std::endl;
@@ -65,7 +68,11 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     std::vector<std::shared_ptr<arrow::Field>> fields;
 
     for (auto visitor : visitor_list_) {
+      auto start = std::chrono::steady_clock::now();
       RETURN_NOT_OK(visitor->Eval(in));
+      auto end = std::chrono::steady_clock::now();
+      eval_elapse_time_ +=
+          std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
       if (!return_when_finish_) {
         RETURN_NOT_OK(GetResult(visitor, &batch_array, &batch_size_array, &fields));
       }
@@ -101,6 +108,7 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
   }
 
   arrow::Status finish(std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
+    auto start = std::chrono::steady_clock::now();
     arrow::Status status = arrow::Status::OK();
     std::vector<ArrayList> batch_array;
     std::vector<int> batch_size_array;
@@ -115,6 +123,8 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
       } else {
         RETURN_NOT_OK(GetResult(visitor, &batch_array, &batch_size_array, &fields));
       }
+      visitor->PrintMetrics();
+      std::cout << std::endl;
     }
 
     std::shared_ptr<arrow::Schema> res_schema;
@@ -137,6 +147,15 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     for (auto visitor : visitor_list_) {
       RETURN_NOT_OK(visitor->Reset());
     }
+    auto end = std::chrono::steady_clock::now();
+    finish_elapse_time_ +=
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+
+    std::cout << "Evaluate took "
+              << (eval_elapse_time_ > 10000 ? eval_elapse_time_ / 1000
+                                            : eval_elapse_time_)
+              << (eval_elapse_time_ > 10000 ? "ms" : "us") << ", Finish took "
+              << finish_elapse_time_ / 1000 << "ms." << std::endl;
     return status;
   }
 
@@ -144,6 +163,9 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
   std::vector<std::shared_ptr<ExprVisitor>> visitor_list_;
   std::shared_ptr<arrow::Schema> schema_;
   std::vector<std::shared_ptr<arrow::Field>> ret_types_;
+  // metrics
+  uint64_t eval_elapse_time_ = 0;
+  uint64_t finish_elapse_time_ = 0;
   bool return_when_finish_;
   // ExprVisitor Cache, used when multiple node depends on same node.
   ExprVisitorMap expr_visitor_cache_;

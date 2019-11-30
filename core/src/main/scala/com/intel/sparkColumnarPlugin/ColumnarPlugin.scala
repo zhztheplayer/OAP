@@ -31,12 +31,12 @@ case class ColumnarOverrides() extends Rule[SparkPlan] {
         plan.initialInputBufferOffset,
         plan.resultExpressions,
         replaceWithColumnarPlan(plan.child))
-    case plan: ShuffleExchangeExec =>
+    /*case plan: ShuffleExchangeExec =>
       logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
       new ColumnarShuffleExchangeExec(
         plan.outputPartitioning,
         replaceWithColumnarPlan(plan.child),
-        plan.canChangeNumPartitions)
+        plan.canChangeNumPartitions)*/
     case p =>
       logWarning(s"Columnar Processing for ${p.getClass} is not currently supported.")
       p.withNewChildren(p.children.map(replaceWithColumnarPlan))
