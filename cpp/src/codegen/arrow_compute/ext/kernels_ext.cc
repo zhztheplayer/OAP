@@ -11,7 +11,6 @@
 #include <arrow/type_traits.h>
 #include <arrow/util/bit_util.h>
 #include <arrow/util/checked_cast.h>
-#include <chrono>
 #include <iostream>
 #include <unordered_map>
 #include "codegen/arrow_compute/ext/actions_impl.h"
@@ -149,7 +148,6 @@ class SplitArrayListWithActionKernel::Impl {
       eval_func_list.push_back(func);
     }
 
-    auto start = std::chrono::steady_clock::now();
     const uint32_t* data = dict->data()->GetValues<uint32_t>(1);
     for (int row_id = 0; row_id < dict->length(); row_id++) {
       auto group_id = data[row_id];
@@ -157,9 +155,6 @@ class SplitArrayListWithActionKernel::Impl {
         eval_func(group_id);
       }
     }
-    auto end = std::chrono::steady_clock::now();
-    eval_elapse_time_ +=
-        std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     return arrow::Status::OK();
   }
 
@@ -169,8 +164,6 @@ class SplitArrayListWithActionKernel::Impl {
       RETURN_NOT_OK(action->Finish(&arr_out));
       out->push_back(arr_out);
     }
-    std::cout << "SplitArrayListWithActionKernel took " << eval_elapse_time_ / 1000
-              << "ms doing evaluation." << std::endl;
     return arrow::Status::OK();
   }
 

@@ -8,8 +8,6 @@
 
 #include <memory>
 #include <unordered_map>
-#include "codegen/arrow_compute/ext/kernels_ext.h"
-#include "codegen/code_generator.h"
 #include "codegen/common/visitor_base.h"
 
 namespace sparkcolumnarplugin {
@@ -18,6 +16,7 @@ namespace arrowcompute {
 
 class ExprVisitor;
 class BuilderVisitor;
+class ExprVisitorImpl;
 
 using ExprVisitorMap = std::unordered_map<std::string, std::shared_ptr<ExprVisitor>>;
 using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
@@ -63,28 +62,28 @@ class BuilderVisitor : public VisitorBase {
 
 class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
  public:
-  ExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr, std::string func_name,
-              std::vector<std::string> param_field_names,
-              std::shared_ptr<gandiva::Node> finish_func);
+  static arrow::Status Make(std::shared_ptr<arrow::Schema> schema_ptr,
+                            std::string func_name,
+                            std::vector<std::string> param_field_names,
+                            std::shared_ptr<ExprVisitor> dependency,
+                            std::shared_ptr<gandiva::Node> finish_func,
+                            std::shared_ptr<ExprVisitor>* out);
 
   ExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr, std::string func_name,
               std::vector<std::string> param_field_names,
               std::shared_ptr<ExprVisitor> dependency,
               std::shared_ptr<gandiva::Node> finish_func);
 
-  ExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr, std::string func_name,
-              std::vector<std::string> param_field_names,
-              std::shared_ptr<ExprVisitor> dependency);
-
   ~ExprVisitor() {
 #ifdef DEBUG
     std::cout << "Destruct " << func_name_ << " ExprVisitor." << std::endl;
 #endif
   }
+  arrow::Status MakeExprVisitorImpl(const std::string& func_name, ExprVisitor* p);
   arrow::Status AppendAction(const std::string& func_name, const std::string& param_name);
+  arrow::Status Init();
   arrow::Status Eval(const std::shared_ptr<arrow::RecordBatch>& in);
   arrow::Status Eval();
-  arrow::Status Execute();
   arrow::Status Reset();
   arrow::Status ResetDependency();
   arrow::Status Finish(std::shared_ptr<ExprVisitor>* finish_visitor);
@@ -99,7 +98,13 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   arrow::Status GetResult(std::vector<ArrayList>* out, std::vector<int>* out_sizes,
                           std::vector<std::shared_ptr<arrow::Field>>* out_fields);
 
- private:
+  void PrintMetrics() {
+    if (dependency_) {
+      dependency_->PrintMetrics();
+    }
+    std::cout << func_name_ << " took " << elapse_time_ / 1000 << "ms, ";
+  }
+
   // Input data holder.
   std::shared_ptr<arrow::Schema> schema_;
   std::string func_name_;
@@ -137,8 +142,10 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
 
   // Long live variables
   arrow::compute::FunctionContext ctx_;
-  class Impl;
-  std::shared_ptr<Impl> impl_;
+  std::shared_ptr<ExprVisitorImpl> impl_;
+
+  // metrics, in microseconds
+  uint64_t elapse_time_ = 0;
 
   arrow::Status GetResult(std::shared_ptr<arrow::Array>* out,
                           std::vector<std::shared_ptr<arrow::Field>>* out_fields,
