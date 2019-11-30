@@ -157,7 +157,6 @@ class ColumnarAggregation(
       val attr = getAttrFromExpr(fieldExpr)
       StructField(s"${attr._1}", attr._2, true)
     }).toArray)
-    logInfo(s"getAggregationResult resultSchema is ${resultSchema}")
 
     if (processedNumRows == 0) {
       val resultColumnVectors =
@@ -184,8 +183,6 @@ class ColumnarAggregation(
           }
       }}.filter(_ != null).toArray
       val finalColumnarBatch = new ColumnarBatch(filteredResultColumnVectorList, finalResultRecordBatchList(0).getLength())
-      logInfo(
-        s"HashAggregate output columnar batch has numRows ${finalColumnarBatch.numRows}, data is ${(0 until finalColumnarBatch.numCols).map(i => finalColumnarBatch.column(i).getUTF8String(0)).mkString(" ")}")
       releaseArrowRecordBatchList(finalResultRecordBatchList)
       finalColumnarBatch
     }
@@ -208,21 +205,29 @@ class ColumnarAggregation(
 
       override def next(): ColumnarBatch = {
         val beforeAgg = System.nanoTime()
-        if (cb != null) {
-          cb.close()
-          cb = null
-        }
+        var eval_elapse : Long = 0
+        var finish_elapse : Long = 0
         while (cbIterator.hasNext) {
+          if (cb != null) {
+            cb.close()
+            cb = null
+          }
           cb = cbIterator.next()
+
+          val beforeEval = System.nanoTime()
           if (cb.numRows > 0) {
             updateAggregationResult(cb)
             processedNumRows += cb.numRows
             numInputBatches += 1
           }
+          eval_elapse += System.nanoTime() - beforeEval
         }
+        val beforeFinish = System.nanoTime()
         val outputBatch = getAggregationResult()
-        aggrTime.set(NANOSECONDS.toMillis(System.nanoTime() - beforeAgg))
-        logInfo(s"HasgAggregate Completed, total processed ${numInputBatches.value} batches, took ${aggrTime.value} ms doing evaluation.");
+        finish_elapse += System.nanoTime() - beforeFinish
+        val elapse = System.nanoTime() - beforeAgg
+        aggrTime.set(NANOSECONDS.toMillis(elapse))
+        logInfo(s"HasgAggregate Completed, total processed ${numInputBatches.value} batches, took ${NANOSECONDS.toMillis(elapse)} ms handling one file(including fetching + processing), took ${NANOSECONDS.toMillis(eval_elapse)} ms doing evaluation, ${NANOSECONDS.toMillis(finish_elapse)} ms doing finish process.");
         numOutputBatches += 1
         numOutputRows += outputBatch.numRows
         outputBatch
