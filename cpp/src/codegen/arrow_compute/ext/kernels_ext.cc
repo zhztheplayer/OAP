@@ -43,9 +43,7 @@ arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayLi
     builder_list_.push_back(builder);
   }
 
-  auto dict_array = std::dynamic_pointer_cast<arrow::DictionaryArray>(in_dict);
-  auto dict = dict_array->indices();
-  auto values = dict_array->dictionary();
+  auto dict = in_dict;
 
   for (int row_id = 0; row_id < dict->length(); row_id++) {
     auto group_id = arrow::internal::checked_cast<const arrow::Int32Array&>(*dict.get())
@@ -115,10 +113,7 @@ class SplitArrayListWithActionKernel::Impl {
     if (!in_dict) {
       return arrow::Status::Invalid("input data is invalid");
     }
-    auto dict_array = std::dynamic_pointer_cast<arrow::DictionaryArray>(in_dict);
-    auto dict_generic = dict_array->indices();
-    auto dict = std::dynamic_pointer_cast<arrow::Int32Array>(dict_generic);
-    auto values = dict_array->dictionary();
+    auto dict = std::dynamic_pointer_cast<arrow::Int32Array>(in_dict);
 
     if (action_list_.empty()) {
       RETURN_NOT_OK(InitActionList(in));
@@ -351,7 +346,7 @@ arrow::Status CountArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
 class EncodeArrayKernel::Impl {
  public:
   Impl() {}
-  ~Impl() {}
+  virtual ~Impl() {}
   virtual arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in,
                                  std::shared_ptr<arrow::Array>* out) = 0;
 };
@@ -360,17 +355,13 @@ template <typename InType, typename MemoTableType>
 class EncodeArrayTypedImpl : public EncodeArrayKernel::Impl {
  public:
   EncodeArrayTypedImpl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
-    hash_table_ = std::make_shared<MemoTableType>(ctx_->memory_pool());
+    hash_table_ = std::make_shared<MemoTableType>(ctx_->memory_pool(), 64UL);
   }
-  ~EncodeArrayTypedImpl() {}
   arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in,
                          std::shared_ptr<arrow::Array>* out) {
     arrow::compute::Datum input_datum(in);
 
-    arrow::compute::Datum out_dict;
-    RETURN_NOT_OK(arrow::compute::DictionaryEncode<InType>(ctx_, input_datum, hash_table_,
-                                                           &out_dict));
-    *out = out_dict.make_array();
+    RETURN_NOT_OK(arrow::compute::Group<InType>(ctx_, input_datum, hash_table_, out));
     return arrow::Status::OK();
   }
 
