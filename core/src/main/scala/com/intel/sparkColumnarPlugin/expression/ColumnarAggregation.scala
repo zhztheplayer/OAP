@@ -114,7 +114,7 @@ class ColumnarAggregation(
 
   logInfo(s"first evaluation fields: $inputFieldList, second evaluation fields: $outputFieldList")
 
-  val aggregator = new ExpressionEvaluator()
+  var aggregator = new ExpressionEvaluator()
   val arrowSchema = new Schema(inputFieldList.asJava)
   if (keyFieldList.length > 0) {
   aggregator.build(
@@ -143,6 +143,7 @@ class ColumnarAggregation(
 
   def close(): Unit = {
     aggregator.close()
+    aggregator = null
   }
 
   def updateAggregationResult(columnarBatch: ColumnarBatch): Unit = {
