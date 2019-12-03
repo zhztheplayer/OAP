@@ -88,6 +88,9 @@ class ColumnarHashAggregateExec(
           numOutputBatches,
           numOutputRows,
           aggTime)
+        TaskContext.get().addTaskCompletionListener[Unit](_ => {
+          aggregation.close()
+        })
         if (!hasInput && groupingExpressions.isEmpty) {
           throw new UnsupportedOperationException(s"Not support groupingExpressions.isEmpty")
         } else {
@@ -97,4 +100,5 @@ class ColumnarHashAggregateExec(
       res
     }
   }
+
 }
