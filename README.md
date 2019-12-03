@@ -60,8 +60,13 @@ This project has dependencies of Apache Spark and Apache Arrow, so please make s
 ``` shell
 cd SparkColumnarPlugin
 # libspark_columnar_jni.so is used for sparkColumnarPlugin java codes to call native functions.
-cd cpp/src/
-make
+cd cpp/
+mkdir build/
+cd build/
+cmake ..
+#cmake .. -DTESTS=ON
+make -j
+make install
 cd ../../core/
 mvn package
 ```

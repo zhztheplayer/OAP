@@ -7,13 +7,35 @@ include(FindPkgConfig)
 include(GNUInstallDirs)
 
 # This ensures that things like gnu++11 get passed correctly
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 14)
 
 # We require a C++11 compliant compiler
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(CMAKE_BUILD_TYPE  "Release")
+
+option(TESTS "Build the tests" OFF)
+option(DEBUG "Enable Debug Info" OFF)
+
+find_package(Arrow)
+if(NOT Arrow_FOUND)
+  message(FATAL_ERROR "arrow is not found")
+endif()
 find_package(JNI REQUIRED)
 
+set(source_root_directory ${CMAKE_CURRENT_SOURCE_DIR})
+
+if(TESTS)
+  find_package(GTest)
+  include(GoogleTest)
+  ENABLE_TESTING()
+  add_custom_target(test ${CMAKE_CTEST_COMMAND})
+  add_subdirectory(tests)
+endif()
+
+if(DEBUG)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDEBUG -DDEBUG_LEVEL_1 -DDEBUG_LEVEL_2")
+endif()
 find_library(ARROW_LIB arrow)
 find_library(GANDIVA_LIB gandiva)
 find_library(GANDIVA_PROTOBUF_LIB gandiva_protobuf)
@@ -46,12 +68,13 @@ set(SPARK_COLUMNAR_PLUGIN_TESTS
         codegen/test.cc
         )
 
+file(MAKE_DIRECTORY ${root_directory}/releases)
 add_library(spark_columnar_jni SHARED ${SPARK_COLUMNAR_PLUGIN_SRCS})
 target_link_libraries(spark_columnar_jni ${ARROW_LIB} ${GANDIVA_LIB} ${GANDIVA_PROTOBUF_LIB})
-target_include_directories(spark_columnar_jni PUBLIC ${CMAKE_SYSTEM_INCLUDE_PATH} ${JNI_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(codegen_test ${SPARK_COLUMNAR_PLUGIN_TESTS})
-target_link_libraries(codegen_test spark_columnar_jni)
+target_include_directories(spark_columnar_jni PUBLIC ${CMAKE_SYSTEM_INCLUDE_PATH} ${JNI_INCLUDE_DIRS} ${source_root_directory})
+set_target_properties(spark_columnar_jni PROPERTIES
+                      LIBRARY_OUTPUT_DIRECTORY ${root_directory}/releases
+)
 
 install(TARGETS spark_columnar_jni
         DESTINATION ${CMAKE_INSTALL_LIBDIR})
