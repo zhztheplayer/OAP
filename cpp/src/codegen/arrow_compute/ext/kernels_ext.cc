@@ -113,7 +113,6 @@ class SplitArrayListWithActionKernel::Impl {
     if (!in_dict) {
       return arrow::Status::Invalid("input data is invalid");
     }
-    auto dict = std::dynamic_pointer_cast<arrow::Int32Array>(in_dict);
 
     if (action_list_.empty()) {
       RETURN_NOT_OK(InitActionList(in));
@@ -128,11 +127,21 @@ class SplitArrayListWithActionKernel::Impl {
     // using minmax
     arrow::compute::MinMaxOptions options;
     arrow::compute::Datum minMaxOut;
-    RETURN_NOT_OK(arrow::compute::MinMax(ctx_, options, *dict.get(), &minMaxOut));
+    RETURN_NOT_OK(arrow::compute::MinMax(ctx_, options, *in_dict.get(), &minMaxOut));
+    if (!minMaxOut.is_collection()) {
+      return arrow::Status::Invalid(
+          "SplitArrayListWithActionKernel MinMax return an invalid result.");
+    }
     auto col = minMaxOut.collection();
-    auto max =
-        arrow::internal::checked_pointer_cast<arrow::UInt32Scalar>(col[1].scalar());
-    auto max_group_id = max->value;
+    if (col.size() < 2) {
+      return arrow::Status::Invalid(
+          "SplitArrayListWithActionKernel MinMax return an invalid result.");
+    }
+    auto max = col[1].scalar();
+    // std::cout << "max is " << max->ToString() << ", type is "
+    //          << in_dict->type()->ToString() << std::endl;
+    auto max_group_id =
+        arrow::internal::checked_pointer_cast<arrow::Int32Scalar>(max)->value;
 
     std::vector<std::function<arrow::Status(int)>> eval_func_list;
     for (int i = 0; i < in.size(); i++) {
@@ -143,8 +152,8 @@ class SplitArrayListWithActionKernel::Impl {
       eval_func_list.push_back(func);
     }
 
-    const uint32_t* data = dict->data()->GetValues<uint32_t>(1);
-    for (int row_id = 0; row_id < dict->length(); row_id++) {
+    const int32_t* data = in_dict->data()->GetValues<int32_t>(1);
+    for (int row_id = 0; row_id < in_dict->length(); row_id++) {
       auto group_id = data[row_id];
       for (auto eval_func : eval_func_list) {
         eval_func(group_id);
