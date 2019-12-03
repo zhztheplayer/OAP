@@ -142,6 +142,7 @@ class ColumnarAggregation(
   }
 
   def close(): Unit = {
+    logInfo("ColumnarAggregation ExpressionEvaluator closed");
     aggregator.close()
     aggregator = null
   }
@@ -193,13 +194,6 @@ class ColumnarAggregation(
     new Iterator[ColumnarBatch] {
       var cb: ColumnarBatch = null
 
-      TaskContext.get().addTaskCompletionListener[Unit] { _ =>
-        if (cb != null) {
-          cb.close()
-          cb = null
-        }
-      }
-
       override def hasNext: Boolean = {
         cbIterator.hasNext
       }
@@ -231,6 +225,10 @@ class ColumnarAggregation(
         logInfo(s"HasgAggregate Completed, total processed ${numInputBatches.value} batches, took ${NANOSECONDS.toMillis(elapse)} ms handling one file(including fetching + processing), took ${NANOSECONDS.toMillis(eval_elapse)} ms doing evaluation, ${NANOSECONDS.toMillis(finish_elapse)} ms doing finish process.");
         numOutputBatches += 1
         numOutputRows += outputBatch.numRows
+        if (cb != null) {
+          cb.close()
+          cb = null
+        }
         outputBatch
       }
     }
@@ -298,6 +296,7 @@ object ColumnarAggregation {
   def close(): Unit = {
     if (columnarAggregation != null) {
       columnarAggregation.close()
+      columnarAggregation = null
     }
   }
 }
