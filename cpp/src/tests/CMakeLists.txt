@@ -1,6 +1,1 @@
-# Add test cpp file
-add_executable(TestArrowCompute arrow_compute_test.cc)
-target_link_libraries(TestArrowCompute gtest gtest_main)
-target_include_directories(TestArrowCompute PUBLIC ${source_root_directory})
-target_link_libraries(TestArrowCompute spark_columnar_jni)
-gtest_discover_tests(TestArrowCompute TestArrowCompute)
+package_add_test(TestArrowCompute arrow_compute_test.cc)

@@ -27,9 +27,19 @@ set(source_root_directory ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(TESTS)
   find_package(GTest)
+macro(package_add_test TESTNAME)
+  add_executable(${TESTNAME} ${ARGN})
+  target_link_libraries(${TESTNAME} gtest gmock gtest_main spark_columnar_jni)
+  target_include_directories(${TESTNAME} PUBLIC ${source_root_directory})
+  gtest_discover_tests(${TESTNAME}
+    WORKING_DIRECTORY ${PROJECT_DIR}
+    PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${PROJECT_DIR}"
+  )
+  set_target_properties(${TESTNAME} PROPERTIES FOLDER tests)
+endmacro()
   include(GoogleTest)
   ENABLE_TESTING()
-  add_custom_target(test ${CMAKE_CTEST_COMMAND})
+  add_custom_target(test ${CMAKE_CTEST_COMMAND} --output-on-failure)
   add_subdirectory(tests)
 endif()
 
