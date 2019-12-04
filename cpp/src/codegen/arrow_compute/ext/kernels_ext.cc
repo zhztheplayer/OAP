@@ -2,6 +2,7 @@
 #include <arrow/compute/context.h>
 #include <arrow/compute/kernel.h>
 #include <arrow/compute/kernels/count.h>
+#include <arrow/compute/kernels/groupby_aggregate.h>
 #include <arrow/compute/kernels/hash.h>
 #include <arrow/compute/kernels/minmax.h>
 #include <arrow/compute/kernels/sum.h>
