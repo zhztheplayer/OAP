@@ -165,6 +165,10 @@ arrow::Status ExprVisitor::MakeExprVisitorImpl(const std::string& func_name,
     RETURN_NOT_OK(SplitArrayListWithActionVisitorImpl::Make(p, &impl_));
     goto finish;
   }
+  if (func_name.compare("shuffleArrayList") == 0) {
+    RETURN_NOT_OK(ShuffleArrayListVisitorImpl::Make(p, &impl_));
+    goto finish;
+  }
   if (func_name.compare("sum") == 0 || func_name.compare("count") == 0 ||
       func_name.compare("unique") == 0) {
     RETURN_NOT_OK(AggregateVisitorImpl::Make(p, func_name, &impl_));
@@ -172,6 +176,10 @@ arrow::Status ExprVisitor::MakeExprVisitorImpl(const std::string& func_name,
   }
   if (func_name.compare("encodeArray") == 0) {
     RETURN_NOT_OK(EncodeVisitorImpl::Make(p, &impl_));
+    goto finish;
+  }
+  if (func_name.compare("sortArraysToIndices") == 0) {
+    RETURN_NOT_OK(SortArraysToIndicesVisitorImpl::Make(p, &impl_));
     goto finish;
   }
   goto unrecognizedFail;
@@ -211,6 +219,20 @@ arrow::Status ExprVisitor::Eval() {
   if (dependency_) {
     // if this visitor has dependency, we need to get dependency result firstly.
     RETURN_NOT_OK(dependency_->Eval(in_record_batch_));
+    RETURN_NOT_OK(GetResultFromDependency());
+  }
+#ifdef DEBUG_LEVEL_2
+  std::cout << "ExprVisitor::Eval " << func_name_ << ", ptr " << this
+            << ", start to execute" << std::endl;
+#endif
+  // now we has dependeny result as this visitor's input.
+  RETURN_NOT_OK(impl_->Eval());
+  return arrow::Status::OK();
+}
+
+arrow::Status ExprVisitor::GetResultFromDependency() {
+  if (dependency_ && dependency_result_type_ == ArrowComputeResultType::None) {
+    // if this visitor has dependency, we need to get dependency result firstly.
     dependency_result_type_ = dependency_->GetResultType();
     switch (dependency_result_type_) {
       case ArrowComputeResultType::BatchList: {
@@ -227,16 +249,12 @@ arrow::Status ExprVisitor::Eval() {
       case ArrowComputeResultType::Array: {
         RETURN_NOT_OK(dependency_->GetResult(&in_array_, &in_fields_, &group_indices_));
       } break;
+      case ArrowComputeResultType::None: {
+      } break;
       default:
         return arrow::Status::Invalid("ArrowComputeResultType is invalid.");
     }
   }
-#ifdef DEBUG_LEVEL_2
-  std::cout << "ExprVisitor::Eval " << func_name_ << ", ptr " << this
-            << ", start to execute" << std::endl;
-#endif
-  // now we has dependeny result as this visitor's input.
-  RETURN_NOT_OK(impl_->Eval());
   return arrow::Status::OK();
 }
 
@@ -299,6 +317,11 @@ arrow::Status ExprVisitor::Init() {
 }
 
 arrow::Status ExprVisitor::Finish(std::shared_ptr<ExprVisitor>* finish_visitor) {
+  if (dependency_) {
+    std::shared_ptr<ExprVisitor> dummy;
+    RETURN_NOT_OK(dependency_->Finish(&dummy));
+    RETURN_NOT_OK(GetResultFromDependency());
+  }
   RETURN_NOT_OK(impl_->Finish());
   // call finish_func_ here.
   if (finish_func_) {
@@ -306,9 +329,6 @@ arrow::Status ExprVisitor::Finish(std::shared_ptr<ExprVisitor>* finish_visitor) 
         std::dynamic_pointer_cast<gandiva::FunctionNode>(finish_func_)
             ->descriptor()
             ->name();
-#ifdef DEBUG
-    std::cout << "ExprVisitor::Finish call finish func " << finish_func_name << std::endl;
-#endif
     RETURN_NOT_OK(ExprVisitor::Make(schema_, finish_func_name, param_field_names_,
                                     shared_from_this(), nullptr, finish_visitor));
     RETURN_NOT_OK((*finish_visitor)->Eval());
@@ -320,6 +340,7 @@ arrow::Status ExprVisitor::Finish(std::shared_ptr<ExprVisitor>* finish_visitor) 
 }
 
 ArrowComputeResultType ExprVisitor::GetResultType() { return return_type_; }
+
 arrow::Status ExprVisitor::GetResult(
     std::shared_ptr<arrow::Array>* out,
     std::vector<std::shared_ptr<arrow::Field>>* out_fields) {

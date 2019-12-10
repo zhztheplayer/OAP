@@ -38,11 +38,16 @@ class ActionBase {
                                std::function<arrow::Status(int)>* out) {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
   }
+  virtual arrow::Status Submit(std::vector<std::shared_ptr<arrow::Array>> in,
+                               std::function<arrow::Status(uint64_t, uint64_t)>* out) {
+    return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
+  }
   virtual arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
     return arrow::Status::NotImplemented("ActionBase Finish is abstract.");
   }
 };
 
+//////////////// UniqueAction ///////////////
 template <typename DataType>
 class UniqueAction : public ActionBase {
  public:
@@ -119,6 +124,7 @@ class UniqueAction : public ActionBase {
   std::shared_ptr<ArrayBuilderImpl<ResArrayType, DataType>> builder_;
 };
 
+//////////////// CountAction ///////////////
 template <typename DataType>
 class CountAction : public ActionBase {
  public:
@@ -184,6 +190,7 @@ class CountAction : public ActionBase {
   std::shared_ptr<ArrayBuilderImpl<ResArrayType, DataType>> builder_;
 };
 
+//////////////// SumAction ///////////////
 template <typename DataType>
 class SumAction : public ActionBase {
  public:
@@ -256,6 +263,45 @@ class SumAction : public ActionBase {
   std::shared_ptr<ArrayBuilderImpl<ResArrayType, ResDataType>> builder_;
 };
 
+//////////////// ShuffleAction ///////////////
+template <typename DataType>
+class ShuffleAction : public ActionBase {
+ public:
+  ShuffleAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
+    MakeArrayBuilder<ResArrayType, ResDataType>(
+        arrow::TypeTraits<ResDataType>::type_singleton(), ctx_->memory_pool(), &builder_);
+  }
+  ~ShuffleAction() {
+#ifdef DEBUG
+    std::cout << "Destruct ShuffleAction" << std::endl;
+#endif
+  }
+
+  arrow::Status Submit(std::vector<std::shared_ptr<arrow::Array>> in,
+                       std::function<arrow::Status(uint64_t, uint64_t)>* out) override {
+    // prepare evaluate lambda
+    *out = [this, in](uint64_t array_id, uint64_t id) {
+      builder_->AppendArrayItem(in[array_id].get(), 0, id);
+      return arrow::Status::OK();
+    };
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override {
+    RETURN_NOT_OK(builder_->Finish(out));
+    return arrow::Status::OK();
+  }
+
+ private:
+  using ResDataType = DataType;
+  using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
+  // input
+  arrow::compute::FunctionContext* ctx_;
+  // result
+  std::shared_ptr<ArrayBuilderImpl<ResArrayType, ResDataType>> builder_;
+};
+
+///////////////////// Public Functions //////////////////
 #define PROCESS_SUPPORTED_TYPES(PROCESS) \
   PROCESS(arrow::UInt8Type)              \
   PROCESS(arrow::Int8Type)               \
@@ -310,6 +356,23 @@ arrow::Status MakeSumAction(arrow::compute::FunctionContext* ctx,
   case InType::type_id: {                                       \
     auto action_ptr = std::make_shared<SumAction<InType>>(ctx); \
     *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);   \
+  } break;
+    PROCESS_SUPPORTED_TYPES(PROCESS)
+#undef PROCESS
+    default:
+      break;
+  }
+  return arrow::Status::OK();
+}
+
+arrow::Status MakeShuffleAction(arrow::compute::FunctionContext* ctx,
+                                std::shared_ptr<arrow::DataType> type,
+                                std::shared_ptr<ActionBase>* out) {
+  switch (type->id()) {
+#define PROCESS(InType)                                             \
+  case InType::type_id: {                                           \
+    auto action_ptr = std::make_shared<ShuffleAction<InType>>(ctx); \
+    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);       \
   } break;
     PROCESS_SUPPORTED_TYPES(PROCESS)
 #undef PROCESS
