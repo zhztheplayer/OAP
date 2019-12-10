@@ -22,6 +22,10 @@ class ExprVisitorImpl {
 
   virtual arrow::Status Finish() {
     if (kernel_ && p_->return_type_ == ArrowComputeResultType::None) {
+#ifdef DEBUG
+      std::cout << "ExprVisitorImpl::Finish visitor is " << p_->func_name_ << ", ptr is "
+                << p_ << std::endl;
+#endif
       switch (finish_return_type_) {
         case ArrowComputeResultType::Batch: {
           RETURN_NOT_OK(kernel_->Finish(&p_->result_batch_));
@@ -106,6 +110,7 @@ class SplitArrayListWithActionVisitorImpl : public ExprVisitorImpl {
         p_->elapse_time_ +=
             std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         finish_return_type_ = ArrowComputeResultType::Batch;
+        p_->dependency_result_type_ = ArrowComputeResultType::None;
       } break;
       default:
         return arrow::Status::NotImplemented(
@@ -168,12 +173,14 @@ class AggregateVisitorImpl : public ExprVisitorImpl {
         }
         RETURN_NOT_OK(kernel_->Evaluate(p_->in_array_));
         finish_return_type_ = ArrowComputeResultType::Array;
+        p_->dependency_result_type_ = ArrowComputeResultType::None;
       } break;
       case ArrowComputeResultType::ArrayList: {
         for (auto col : p_->in_array_list_) {
           RETURN_NOT_OK(kernel_->Evaluate(col));
         }
         finish_return_type_ = ArrowComputeResultType::Array;
+        p_->dependency_result_type_ = ArrowComputeResultType::None;
       } break;
       default:
         return arrow::Status::NotImplemented(
@@ -233,6 +240,138 @@ class EncodeVisitorImpl : public ExprVisitorImpl {
 
  private:
   int col_id_;
+};
+
+////////////////////////// SortArraysToIndicesVisitorImpl ///////////////////////
+class SortArraysToIndicesVisitorImpl : public ExprVisitorImpl {
+ public:
+  SortArraysToIndicesVisitorImpl(ExprVisitor* p) : ExprVisitorImpl(p) {}
+  static arrow::Status Make(ExprVisitor* p, std::shared_ptr<ExprVisitorImpl>* out) {
+    auto impl = std::make_shared<SortArraysToIndicesVisitorImpl>(p);
+    *out = impl;
+    return arrow::Status::OK();
+  }
+  arrow::Status Init() override {
+    if (initialized_) {
+      return arrow::Status::OK();
+    }
+    RETURN_NOT_OK(extra::SortArraysToIndicesKernel::Make(&p_->ctx_, &kernel_));
+    if (p_->param_field_names_.size() != 1) {
+      return arrow::Status::Invalid(
+          "SortArraysToIndicesVisitorImpl expects param_field_name_list only contains "
+          "one element.");
+    }
+    auto col_name = p_->param_field_names_[0];
+    std::shared_ptr<arrow::Field> field;
+    RETURN_NOT_OK(GetColumnIdAndFieldByName(p_->schema_, col_name, &col_id_, &field));
+    p_->result_fields_.push_back(field);
+    initialized_ = true;
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Eval() override {
+    switch (p_->dependency_result_type_) {
+      case ArrowComputeResultType::None: {
+        auto col = p_->in_record_batch_->column(col_id_);
+        auto start = std::chrono::steady_clock::now();
+        RETURN_NOT_OK(kernel_->Evaluate(col));
+        auto end = std::chrono::steady_clock::now();
+        p_->elapse_time_ +=
+            std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        finish_return_type_ = ArrowComputeResultType::Array;
+      } break;
+      default:
+        return arrow::Status::NotImplemented(
+            "SortArraysToIndicesVisitorImpl: Does not support this type of input.");
+    }
+    return arrow::Status::OK();
+  }
+
+ private:
+  int col_id_;
+};
+
+//////////////////////// ShuffleArrayListVisitorImpl //////////////////////
+class ShuffleArrayListVisitorImpl : public ExprVisitorImpl {
+ public:
+  ShuffleArrayListVisitorImpl(ExprVisitor* p) : ExprVisitorImpl(p) {}
+  static arrow::Status Make(ExprVisitor* p, std::shared_ptr<ExprVisitorImpl>* out) {
+    auto impl = std::make_shared<ShuffleArrayListVisitorImpl>(p);
+    *out = impl;
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Init() override {
+    if (initialized_) {
+      return arrow::Status::OK();
+    }
+
+    std::vector<std::shared_ptr<arrow::DataType>> type_list;
+    for (auto col_name : p_->param_field_names_) {
+      std::shared_ptr<arrow::Field> field;
+      int col_id;
+      RETURN_NOT_OK(GetColumnIdAndFieldByName(p_->schema_, col_name, &col_id, &field));
+      p_->result_fields_.push_back(field);
+      col_id_list_.push_back(col_id);
+      type_list.push_back(field->type());
+    }
+
+    RETURN_NOT_OK(extra::ShuffleArrayListKernel::Make(&p_->ctx_, type_list, &kernel_));
+
+    initialized_ = true;
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Eval() override {
+    switch (p_->dependency_result_type_) {
+      case ArrowComputeResultType::None: {
+        // This indicates shuffle indices was not cooked yet.
+        ArrayList col_list;
+        for (auto col_id : col_id_list_) {
+          auto col = p_->in_record_batch_->column(col_id);
+          col_list.push_back(col);
+        }
+        auto start = std::chrono::steady_clock::now();
+        RETURN_NOT_OK(kernel_->Evaluate(col_list));
+        auto end = std::chrono::steady_clock::now();
+        p_->elapse_time_ +=
+            std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        finish_return_type_ = ArrowComputeResultType::Batch;
+      } break;
+      default:
+        return arrow::Status::NotImplemented(
+            "ShuffleArrayListVisitorImpl: Does not support this type of input.");
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish() override {
+    // override ExprVisitorImpl Finish
+    if (!p_->in_array_) {
+      return arrow::Status::Invalid(
+          "ShuffleArrayListVisitorImpl depends on an indices array to indicate shuffle, "
+          "while input_array is invalid.");
+    }
+#ifdef DEBUG
+    std::cout << "ExprVisitorImpl::Finish visitor is " << p_->func_name_ << ", ptr is "
+              << p_ << std::endl;
+#endif
+    RETURN_NOT_OK(kernel_->SetDependencyInput(p_->in_array_));
+    switch (finish_return_type_) {
+      case ArrowComputeResultType::Batch: {
+        RETURN_NOT_OK(kernel_->Finish(&p_->result_batch_));
+        p_->return_type_ = ArrowComputeResultType::Batch;
+      } break;
+      default:
+        return arrow::Status::Invalid(
+            "ShuffleArrayListVisitorImpl Finish does not support dependency type other "
+            "than Batch and BatchList.");
+    }
+    return arrow::Status::OK();
+  }
+
+ private:
+  std::vector<int> col_id_list_;
 };
 
 }  // namespace arrowcompute

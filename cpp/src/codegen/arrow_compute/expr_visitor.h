@@ -84,6 +84,7 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   arrow::Status Init();
   arrow::Status Eval(const std::shared_ptr<arrow::RecordBatch>& in);
   arrow::Status Eval();
+  arrow::Status GetResultFromDependency();
   arrow::Status Reset();
   arrow::Status ResetDependency();
   arrow::Status Finish(std::shared_ptr<ExprVisitor>* finish_visitor);

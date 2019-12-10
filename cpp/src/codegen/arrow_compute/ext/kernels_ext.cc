@@ -5,6 +5,7 @@
 #include <arrow/compute/kernels/groupby_aggregate.h>
 #include <arrow/compute/kernels/hash.h>
 #include <arrow/compute/kernels/minmax.h>
+#include <arrow/compute/kernels/sort_arrays_to_indices.h>
 #include <arrow/compute/kernels/sum.h>
 #include <arrow/pretty_print.h>
 #include <arrow/status.h>
@@ -15,80 +16,18 @@
 #include <iostream>
 #include <unordered_map>
 #include "codegen/arrow_compute/ext/actions_impl.h"
-#include "codegen/arrow_compute/ext/append.h"
-#include "codegen/arrow_compute/ext/split.h"
 
 namespace sparkcolumnarplugin {
 namespace codegen {
 namespace arrowcompute {
 namespace extra {
 
-///////////////  SplitArrayList  ////////////////
-arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayList& in,
-                             const std::shared_ptr<arrow::Array>& in_dict,
-                             std::vector<ArrayList>* out, std::vector<int>* out_sizes,
-                             std::vector<int>* group_indices) {
-  if (!in_dict) {
-    return arrow::Status::Invalid("input data is invalid");
-  }
-  std::vector<std::shared_ptr<splitter::ArrayVisitorImpl>> array_visitor_list;
-  std::vector<std::shared_ptr<ArrayBuilderImplBase>> builder_list_;
-  std::unordered_map<int, int> group_id_to_index;
-  for (auto col : in) {
-    auto visitor = std::make_shared<splitter::ArrayVisitorImpl>(ctx);
-    RETURN_NOT_OK(col->Accept(&(*visitor.get())));
-    array_visitor_list.push_back(visitor);
-
-    std::shared_ptr<ArrayBuilderImplBase> builder;
-    visitor->GetBuilder(&builder);
-    builder_list_.push_back(builder);
-  }
-
-  auto dict = in_dict;
-
-  for (int row_id = 0; row_id < dict->length(); row_id++) {
-    auto group_id = arrow::internal::checked_cast<const arrow::Int32Array&>(*dict.get())
-                        .GetView(row_id);
-    auto find = group_id_to_index.find(group_id);
-    int index;
-    if (find == group_id_to_index.end()) {
-      index = group_id_to_index.size();
-      group_id_to_index.emplace(group_id, index);
-      group_indices->push_back(group_id);
-    } else {
-      index = find->second;
-    }
-    for (int i = 0; i < array_visitor_list.size(); i++) {
-      array_visitor_list[i]->Eval(builder_list_[i], index, row_id);
-    }
-  }
-
-  for (auto builder : builder_list_) {
-    std::vector<std::shared_ptr<arrow::Array>> arr_list_out;
-    RETURN_NOT_OK(builder->Finish(&arr_list_out));
-    for (int i = 0; i < arr_list_out.size(); i++) {
-      if (out->size() <= i) {
-        ArrayList arr_list;
-        out->push_back(arr_list);
-        out_sizes->push_back(arr_list_out[i]->length());
-      }
-      out->at(i).push_back(arr_list_out[i]);
-    }
-  }
-
-  return arrow::Status::OK();
-}
-
 ///////////////  SplitArrayListWithAction  ////////////////
 class SplitArrayListWithActionKernel::Impl {
  public:
   Impl(arrow::compute::FunctionContext* ctx, std::vector<std::string> action_name_list)
       : ctx_(ctx), action_name_list_(action_name_list) {}
-  ~Impl() {
-#ifdef DEBUG
-    std::cout << "Destruct SplitArrayListWithActionKernel::Impl" << std::endl;
-#endif
-  }
+  ~Impl() {}
 
   arrow::Status InitActionList(const ArrayList& in) {
     int col_id = 0;
@@ -119,7 +58,6 @@ class SplitArrayListWithActionKernel::Impl {
       RETURN_NOT_OK(InitActionList(in));
     }
 
-    std::vector<std::shared_ptr<splitter::ArrayVisitorImpl>> array_visitor_list;
     if (in.size() != action_list_.size()) {
       return arrow::Status::Invalid(
           "SplitArrayListWithAction input arrayList size does not match numActions");
@@ -199,6 +137,156 @@ arrow::Status SplitArrayListWithActionKernel::Finish(ArrayList* out) {
   return impl_->Finish(out);
 }
 
+///////////////  ShuffleArrayList  ////////////////
+class ShuffleArrayListKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx,
+       std::vector<std::shared_ptr<arrow::DataType>> type_list)
+      : ctx_(ctx) {
+    InitActionList(type_list);
+  }
+  ~Impl() {}
+
+  arrow::Status InitActionList(std::vector<std::shared_ptr<arrow::DataType>> type_list) {
+    for (auto type : type_list) {
+      std::shared_ptr<ActionBase> action;
+      RETURN_NOT_OK(MakeShuffleAction(ctx_, type, &action));
+      action_list_.push_back(action);
+    }
+    input_cache_.resize(type_list.size());
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Evaluate(const ArrayList& in) {
+    if (in.size() != input_cache_.size()) {
+      return arrow::Status::Invalid(
+          "ShuffleArrayListKernel input arrayList size does not match numCols in cache");
+    }
+    // we need to convert std::vector<Batch> to std::vector<ArrayList>
+    for (int col_id = 0; col_id < input_cache_.size(); col_id++) {
+      input_cache_[col_id].push_back(in[col_id]);
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status SetDependencyInput(const std::shared_ptr<arrow::Array>& in) {
+    in_indices_ = in;
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(ArrayList* out) {
+    if (input_cache_.size() == 0 || !in_indices_) {
+      return arrow::Status::Invalid("input data is invalid");
+    }
+
+    std::vector<std::function<arrow::Status(uint64_t, uint64_t)>> eval_func_list;
+    for (int i = 0; i < input_cache_.size(); i++) {
+      auto col_list = input_cache_[i];
+      auto action = action_list_[i];
+      std::function<arrow::Status(uint64_t, uint64_t)> func;
+      action->Submit(col_list, &func);
+      eval_func_list.push_back(func);
+    }
+
+    ArrayItemIndex* data =
+        (ArrayItemIndex*)std::dynamic_pointer_cast<arrow::FixedSizeBinaryArray>(
+            in_indices_)
+            ->raw_values();
+    for (int row_id = 0; row_id < in_indices_->length(); row_id++) {
+      ArrayItemIndex* item = data + row_id;
+      for (auto eval_func : eval_func_list) {
+        eval_func(item->array_id, item->id);
+      }
+    }
+    for (auto action : action_list_) {
+      std::shared_ptr<arrow::Array> arr_out;
+      RETURN_NOT_OK(action->Finish(&arr_out));
+      out->push_back(arr_out);
+    }
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::vector<std::shared_ptr<extra::ActionBase>> action_list_;
+  std::shared_ptr<arrow::Array> in_indices_;
+  std::vector<ArrayList> input_cache_;
+  struct ArrayItemIndex {
+    uint64_t id = 0;
+    uint64_t array_id = 0;
+  };
+};
+
+arrow::Status ShuffleArrayListKernel::Make(
+    arrow::compute::FunctionContext* ctx,
+    std::vector<std::shared_ptr<arrow::DataType>> type_list,
+    std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<ShuffleArrayListKernel>(ctx, type_list);
+  return arrow::Status::OK();
+}
+
+ShuffleArrayListKernel::ShuffleArrayListKernel(
+    arrow::compute::FunctionContext* ctx,
+    std::vector<std::shared_ptr<arrow::DataType>> type_list) {
+  impl_.reset(new Impl(ctx, type_list));
+}
+
+arrow::Status ShuffleArrayListKernel::Evaluate(const ArrayList& in) {
+  return impl_->Evaluate(in);
+}
+
+arrow::Status ShuffleArrayListKernel::Finish(ArrayList* out) {
+  return impl_->Finish(out);
+}
+
+arrow::Status ShuffleArrayListKernel::SetDependencyInput(
+    const std::shared_ptr<arrow::Array>& in) {
+  return impl_->SetDependencyInput(in);
+}
+
+///////////////  SortArraysToIndices  ////////////////
+class SortArraysToIndicesKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  ~Impl() {}
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
+    if (in->length() == 0) {
+      return arrow::Status::OK();
+    }
+    array_cache_.push_back(in);
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
+    RETURN_NOT_OK(arrow::compute::SortArraysToIndices(ctx_, array_cache_, out));
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::vector<std::shared_ptr<arrow::Array>> array_cache_;
+};
+
+arrow::Status SortArraysToIndicesKernel::Make(arrow::compute::FunctionContext* ctx,
+                                              std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<SortArraysToIndicesKernel>(ctx);
+  return arrow::Status::OK();
+}
+
+SortArraysToIndicesKernel::SortArraysToIndicesKernel(
+    arrow::compute::FunctionContext* ctx) {
+  impl_.reset(new Impl(ctx));
+}
+
+arrow::Status SortArraysToIndicesKernel::Evaluate(
+    const std::shared_ptr<arrow::Array>& in) {
+  return impl_->Evaluate(in);
+}
+
+arrow::Status SortArraysToIndicesKernel::Finish(std::shared_ptr<arrow::Array>* out) {
+  return impl_->Finish(out);
+}
+
 ///////////////  UniqueArray  ////////////////
 class UniqueArrayKernel::Impl {
  public:
@@ -215,7 +303,7 @@ class UniqueArrayKernel::Impl {
       RETURN_NOT_OK(MakeArrayBuilder(out->type(), ctx_->memory_pool(), &builder));
     }
 
-    RETURN_NOT_OK(builder->AppendArray(&(*out.get()), 0, 0));
+    RETURN_NOT_OK(builder->AppendArrayItem(&(*out.get()), 0, 0));
 
     return arrow::Status::OK();
   }
@@ -266,7 +354,7 @@ class SumArrayKernel::Impl {
     }
     // std::cout << "SumArray Evaluate Output is " << std::endl;
     // arrow::PrettyPrint(*out.get(), 2, &std::cout);
-    RETURN_NOT_OK(builder->AppendArray(&(*out.get()), 0, 0));
+    RETURN_NOT_OK(builder->AppendArrayItem(&(*out.get()), 0, 0));
     // TODO: We should only append Scalar instead of array
     // RETURN_NOT_OK(builder->AppendScalar(output.scalar()));
 
@@ -306,6 +394,7 @@ class CountArrayKernel::Impl {
  public:
   Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
   ~Impl() {}
+
   arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
     arrow::compute::Datum output;
     arrow::compute::CountOptions opt =
@@ -318,7 +407,7 @@ class CountArrayKernel::Impl {
       RETURN_NOT_OK(MakeArrayBuilder(out->type(), ctx_->memory_pool(), &builder));
     }
 
-    RETURN_NOT_OK(builder->AppendArray(&(*out.get()), 0, 0));
+    RETURN_NOT_OK(builder->AppendArrayItem(&(*out.get()), 0, 0));
     // TODO: We should only append Scalar instead of array
 
     return arrow::Status::OK();
@@ -427,127 +516,6 @@ arrow::Status EncodeArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& i
   return impl_->Evaluate(in, out);
 }
 #undef PROCESS_SUPPORTED_TYPES
-
-///////////////  AppendToCacheArrayList  ////////////////
-class AppendToCacheArrayListKernel::Impl {
- public:
-  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
-  ~Impl() {}
-  arrow::Status Evaluate(const ArrayList& in) {
-    std::vector<std::shared_ptr<appender::ArrayVisitorImpl>> array_visitor_list;
-    for (auto col : in) {
-      auto visitor = std::make_shared<appender::ArrayVisitorImpl>(ctx_);
-      RETURN_NOT_OK(col->Accept(&(*visitor.get())));
-      array_visitor_list.push_back(visitor);
-    }
-
-    int need_to_append = array_visitor_list.size() - builder_list_.size() + 1;
-    if (need_to_append < 0) {
-      return arrow::Status::Invalid(
-          "AppendToCacheArrayListKernel::Impl array size is smaller than total array "
-          "builder size, unable to map the relation.appender");
-    }
-
-    for (int i = 0; i < array_visitor_list.size(); i++) {
-      std::shared_ptr<ArrayBuilderImplBase> builder;
-      if (builder_list_.size() <= i) {
-        RETURN_NOT_OK(array_visitor_list[i]->GetBuilder(&builder));
-        builder_list_.push_back(builder);
-
-      } else {
-        builder = builder_list_[i];
-      }
-      RETURN_NOT_OK(array_visitor_list[i]->Eval(builder));
-    }
-
-    return arrow::Status::OK();
-  }
-
-  arrow::Status Finish(ArrayList* out) {
-    for (auto builder : builder_list_) {
-      std::shared_ptr<arrow::Array> arr_out;
-      RETURN_NOT_OK(builder->Finish(&arr_out));
-      out->push_back(arr_out);
-    }
-    return arrow::Status::OK();
-  }
-
- private:
-  arrow::compute::FunctionContext* ctx_;
-  std::vector<std::shared_ptr<ArrayBuilderImplBase>> builder_list_;
-};
-arrow::Status AppendToCacheArrayListKernel::Make(arrow::compute::FunctionContext* ctx,
-                                                 std::shared_ptr<KernalBase>* out) {
-  *out = std::make_shared<AppendToCacheArrayListKernel>(ctx);
-  return arrow::Status::OK();
-}
-
-AppendToCacheArrayListKernel::AppendToCacheArrayListKernel(
-    arrow::compute::FunctionContext* ctx) {
-  impl_.reset(new Impl(ctx));
-}
-
-arrow::Status AppendToCacheArrayListKernel::Evaluate(const ArrayList& in) {
-  return impl_->Evaluate(in);
-}
-
-arrow::Status AppendToCacheArrayListKernel::Finish(ArrayList* out) {
-  return impl_->Finish(out);
-}
-
-///////////////  AppendToCacheArray  ////////////////
-class AppendToCacheArrayKernel::Impl {
- public:
-  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
-  ~Impl() {}
-  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in, int group_id) {
-    auto visitor = std::make_shared<appender::ArrayVisitorImpl>(ctx_);
-    RETURN_NOT_OK(in->Accept(&(*visitor.get())));
-
-    if (!builder) {
-      RETURN_NOT_OK(visitor->GetBuilder(&builder));
-    }
-    RETURN_NOT_OK(visitor->Eval(builder, group_id));
-
-    return arrow::Status::OK();
-  }
-
-  arrow::Status Finish(ArrayList* out) {
-    RETURN_NOT_OK(builder->Finish(out));
-    return arrow::Status::OK();
-  }
-
-  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
-    RETURN_NOT_OK(builder->Finish(out));
-    return arrow::Status::OK();
-  }
-
- private:
-  arrow::compute::FunctionContext* ctx_;
-  std::shared_ptr<ArrayBuilderImplBase> builder;
-};
-arrow::Status AppendToCacheArrayKernel::Make(arrow::compute::FunctionContext* ctx,
-                                             std::shared_ptr<KernalBase>* out) {
-  *out = std::make_shared<AppendToCacheArrayKernel>(ctx);
-  return arrow::Status::OK();
-}
-
-AppendToCacheArrayKernel::AppendToCacheArrayKernel(arrow::compute::FunctionContext* ctx) {
-  impl_.reset(new Impl(ctx));
-}
-
-arrow::Status AppendToCacheArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in,
-                                                 int group_id) {
-  return impl_->Evaluate(in, group_id);
-}
-
-arrow::Status AppendToCacheArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
-  return impl_->Finish(out);
-}
-
-arrow::Status AppendToCacheArrayKernel::Finish(ArrayList* out) {
-  return impl_->Finish(out);
-}
 
 }  // namespace extra
 }  // namespace arrowcompute

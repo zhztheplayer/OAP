@@ -175,5 +175,46 @@ TEST(TestArrowCompute, GroupByAggregateWithMultipleBatchTest) {
   ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
 }
 
+TEST(TestArrowCompute, SortWithMultipleBatchTest) {
+  ////////////////////// prepare expr_vector ///////////////////////
+  auto f0 = field("f0", uint32());
+  auto f1 = field("f1", uint32());
+  auto arg_0 = TreeExprBuilder::MakeField(f0);
+  auto arg_1 = TreeExprBuilder::MakeField(f1);
+  auto n_sort_to_indices =
+      TreeExprBuilder::MakeFunction("sortArraysToIndices", {arg_0}, uint32());
+  auto n_sort = TreeExprBuilder::MakeFunction(
+      "shuffleArrayList", {n_sort_to_indices, arg_0, arg_1}, uint32());
+
+  auto sort_expr = TreeExprBuilder::MakeExpression(n_sort, f0);
+  std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {sort_expr};
+  auto sch = arrow::schema({f0, f1});
+  std::vector<std::shared_ptr<Field>> ret_types = {f0, f1};
+  ///////////////////// Calculation //////////////////
+  std::shared_ptr<CodeGenerator> expr;
+  ASSERT_NOT_OK(CreateCodeGenerator(sch, expr_vector, ret_types, &expr, true));
+  std::shared_ptr<arrow::RecordBatch> input_batch;
+  std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch;
+
+  std::vector<std::string> input_data_string = {"[10, 12, 4, 50, 52, 32, 11]",
+                                                "[11, 13, 5, 51, null, 33, 12]"};
+  MakeInputBatch(input_data_string, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_2 = {"[1, 14, 43, 42, 6, null, 2]",
+                                                  "[2, null, 44, 43, 7, 34, 3]"};
+  MakeInputBatch(input_data_string_2, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  ASSERT_NOT_OK(expr->finish(&result_batch));
+
+  std::shared_ptr<arrow::RecordBatch> expected_result;
+  std::vector<std::string> expected_result_string = {
+      "[1, 2, 4, 6, 10, 11, 12, 14, 32, 42, 43, 50, 52, null]",
+      "[2, 3, 5, 7, 11, 12, 13, null, 33, 43, 44, 51, null, 34]"};
+  MakeInputBatch(expected_result_string, sch, &expected_result);
+  ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
+}
+
 }  // namespace codegen
 }  // namespace sparkcolumnarplugin

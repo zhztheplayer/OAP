@@ -34,15 +34,16 @@ class KernalBase {
   virtual arrow::Status Finish(ArrayList* out) {
     return arrow::Status::NotImplemented("KernalBase abstract interface.");
   }
+  virtual arrow::Status Finish(std::vector<ArrayList>* out) {
+    return arrow::Status::NotImplemented("KernalBase abstract interface.");
+  }
   virtual arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
     return arrow::Status::NotImplemented("KernalBase abstract interface.");
   }
+  virtual arrow::Status SetDependencyInput(const std::shared_ptr<arrow::Array>& in) {
+    return arrow::Status::NotImplemented("KernalBase abstract interface.");
+  }
 };
-
-arrow::Status SplitArrayList(arrow::compute::FunctionContext* ctx, const ArrayList& in,
-                             const std::shared_ptr<arrow::Array>& dict,
-                             std::vector<ArrayList>* out, std::vector<int>* out_sizes,
-                             std::vector<int>* group_indices);
 
 class SplitArrayListWithActionKernel : public KernalBase {
  public:
@@ -54,6 +55,23 @@ class SplitArrayListWithActionKernel : public KernalBase {
   arrow::Status Evaluate(const ArrayList& in,
                          const std::shared_ptr<arrow::Array>& dict) override;
   arrow::Status Finish(ArrayList* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class ShuffleArrayListKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::vector<std::shared_ptr<arrow::DataType>> type_list,
+                            std::shared_ptr<KernalBase>* out);
+  ShuffleArrayListKernel(arrow::compute::FunctionContext* ctx,
+                         std::vector<std::shared_ptr<arrow::DataType>> type_list);
+  arrow::Status Evaluate(const ArrayList& in) override;
+  arrow::Status Finish(ArrayList* out) override;
+  arrow::Status SetDependencyInput(const std::shared_ptr<arrow::Array>& in) override;
 
  private:
   class Impl;
@@ -94,6 +112,20 @@ class CountArrayKernel : public KernalBase {
   static arrow::Status Make(arrow::compute::FunctionContext* ctx,
                             std::shared_ptr<KernalBase>* out);
   CountArrayKernel(arrow::compute::FunctionContext* ctx);
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class SortArraysToIndicesKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<KernalBase>* out);
+  SortArraysToIndicesKernel(arrow::compute::FunctionContext* ctx);
   arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
   arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override;
 

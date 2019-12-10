@@ -18,7 +18,7 @@ class ArrayBuilderImplBase {
   virtual arrow::Status AppendScalar(const std::shared_ptr<arrow::Scalar>& in,
                                      int group_id = 0) = 0;
   virtual arrow::Status AppendArray(arrow::Array* in, int group_id = 0) = 0;
-  virtual arrow::Status AppendArray(arrow::Array* in, int group_id, int row_id) = 0;
+  virtual arrow::Status AppendArrayItem(arrow::Array* in, int group_id, int row_id) = 0;
   virtual arrow::Status Finish(ArrayList* out) = 0;
   virtual arrow::Status Finish(std::shared_ptr<arrow::Array>* out) = 0;
 };
@@ -64,7 +64,7 @@ class ArrayBuilderImpl : public ArrayBuilderImplBase {
     return arrow::Status::OK();
   }
 
-  arrow::Status AppendArray(arrow::Array* in, int group_id, int row_id) {
+  arrow::Status AppendArrayItem(arrow::Array* in, int group_id, int row_id) {
     std::shared_ptr<BuilderType> builder;
     RETURN_NOT_OK(GetOrCreateBuilder(group_id, &builder));
     RETURN_NOT_OK(builder->Reserve(1));
@@ -74,7 +74,7 @@ class ArrayBuilderImpl : public ArrayBuilderImplBase {
     } else {
       auto value = in_->GetView(row_id);
 #ifdef DEBUG_DATA
-      std::cout << "AppendArray group_id is " << group_id << ", data is " << value
+      std::cout << "AppendArrayItem group_id is " << group_id << ", data is " << value
                 << std::endl;
 #endif
       UnsafeAppend<T>(builder, value);
