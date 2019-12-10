@@ -10,6 +10,7 @@ class CodeGenerator {
  public:
   explicit CodeGenerator() = default;
   virtual arrow::Status getSchema(std::shared_ptr<arrow::Schema>* out) = 0;
+  virtual arrow::Status getResSchema(std::shared_ptr<arrow::Schema>* out) = 0;
   virtual arrow::Status evaluate(
       const std::shared_ptr<arrow::RecordBatch>& in,
       std::vector<std::shared_ptr<arrow::RecordBatch>>* out) = 0;
