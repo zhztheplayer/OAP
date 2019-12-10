@@ -49,9 +49,11 @@ class SplitArrayListWithActionKernel : public KernalBase {
  public:
   static arrow::Status Make(arrow::compute::FunctionContext* ctx,
                             std::vector<std::string> action_name_list,
+                            std::vector<std::shared_ptr<arrow::DataType>> type_list,
                             std::shared_ptr<KernalBase>* out);
   SplitArrayListWithActionKernel(arrow::compute::FunctionContext* ctx,
-                                 std::vector<std::string> action_name_list);
+                                 std::vector<std::string> action_name_list,
+                                 std::vector<std::shared_ptr<arrow::DataType>> type_list);
   arrow::Status Evaluate(const ArrayList& in,
                          const std::shared_ptr<arrow::Array>& dict) override;
   arrow::Status Finish(ArrayList* out) override;

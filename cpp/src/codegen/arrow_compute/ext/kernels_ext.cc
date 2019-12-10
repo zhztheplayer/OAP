@@ -25,23 +25,30 @@ namespace extra {
 ///////////////  SplitArrayListWithAction  ////////////////
 class SplitArrayListWithActionKernel::Impl {
  public:
-  Impl(arrow::compute::FunctionContext* ctx, std::vector<std::string> action_name_list)
-      : ctx_(ctx), action_name_list_(action_name_list) {}
+  Impl(arrow::compute::FunctionContext* ctx, std::vector<std::string> action_name_list,
+       std::vector<std::shared_ptr<arrow::DataType>> type_list)
+      : ctx_(ctx), action_name_list_(action_name_list) {
+    InitActionList(type_list);
+  }
   ~Impl() {}
 
-  arrow::Status InitActionList(const ArrayList& in) {
-    int col_id = 0;
-    for (auto action_name : action_name_list_) {
-      auto col = in[col_id++];
+  arrow::Status InitActionList(std::vector<std::shared_ptr<arrow::DataType>> type_list) {
+    if (action_name_list_.size() != type_list.size()) {
+      return arrow::Status::Invalid(
+          "SplitArrayListWithActionKernel Init expects same size action list and array "
+          "type list.");
+    }
+    for (int col_id = 0; col_id < type_list.size(); col_id++) {
       std::shared_ptr<ActionBase> action;
-      if (action_name.compare("action_unique") == 0) {
-        RETURN_NOT_OK(MakeUniqueAction(ctx_, col->type(), &action));
-      } else if (action_name.compare("action_count") == 0) {
+      if (action_name_list_[col_id].compare("action_unique") == 0) {
+        RETURN_NOT_OK(MakeUniqueAction(ctx_, type_list[col_id], &action));
+      } else if (action_name_list_[col_id].compare("action_count") == 0) {
         RETURN_NOT_OK(MakeCountAction(ctx_, &action));
-      } else if (action_name.compare("action_sum") == 0) {
-        RETURN_NOT_OK(MakeSumAction(ctx_, col->type(), &action));
+      } else if (action_name_list_[col_id].compare("action_sum") == 0) {
+        RETURN_NOT_OK(MakeSumAction(ctx_, type_list[col_id], &action));
       } else {
-        return arrow::Status::NotImplemented(action_name, " is not implementetd.");
+        return arrow::Status::NotImplemented(action_name_list_[col_id],
+                                             " is not implementetd.");
       }
       action_list_.push_back(action);
     }
@@ -52,10 +59,6 @@ class SplitArrayListWithActionKernel::Impl {
                          const std::shared_ptr<arrow::Array>& in_dict) {
     if (!in_dict) {
       return arrow::Status::Invalid("input data is invalid");
-    }
-
-    if (action_list_.empty()) {
-      RETURN_NOT_OK(InitActionList(in));
     }
 
     if (in.size() != action_list_.size()) {
@@ -118,14 +121,17 @@ class SplitArrayListWithActionKernel::Impl {
 
 arrow::Status SplitArrayListWithActionKernel::Make(
     arrow::compute::FunctionContext* ctx, std::vector<std::string> action_name_list,
+    std::vector<std::shared_ptr<arrow::DataType>> type_list,
     std::shared_ptr<KernalBase>* out) {
-  *out = std::make_shared<SplitArrayListWithActionKernel>(ctx, action_name_list);
+  *out =
+      std::make_shared<SplitArrayListWithActionKernel>(ctx, action_name_list, type_list);
   return arrow::Status::OK();
 }
 
 SplitArrayListWithActionKernel::SplitArrayListWithActionKernel(
-    arrow::compute::FunctionContext* ctx, std::vector<std::string> action_name_list) {
-  impl_.reset(new Impl(ctx, action_name_list));
+    arrow::compute::FunctionContext* ctx, std::vector<std::string> action_name_list,
+    std::vector<std::shared_ptr<arrow::DataType>> type_list) {
+  impl_.reset(new Impl(ctx, action_name_list, type_list));
 }
 
 arrow::Status SplitArrayListWithActionKernel::Evaluate(

@@ -83,16 +83,18 @@ class SplitArrayListWithActionVisitorImpl : public ExprVisitorImpl {
           "this "
           "is invalid.");
     }
-    RETURN_NOT_OK(extra::SplitArrayListWithActionKernel::Make(
-        &p_->ctx_, p_->action_name_list_, &kernel_));
 
+    std::vector<std::shared_ptr<arrow::DataType>> type_list;
     for (auto col_name : p_->action_param_list_) {
       std::shared_ptr<arrow::Field> field;
       int col_id;
       RETURN_NOT_OK(GetColumnIdAndFieldByName(p_->schema_, col_name, &col_id, &field));
       p_->result_fields_.push_back(field);
       col_id_list_.push_back(col_id);
+      type_list.push_back(field->type());
     }
+    RETURN_NOT_OK(extra::SplitArrayListWithActionKernel::Make(
+        &p_->ctx_, p_->action_name_list_, type_list, &kernel_));
     initialized_ = true;
     return arrow::Status::OK();
   }
