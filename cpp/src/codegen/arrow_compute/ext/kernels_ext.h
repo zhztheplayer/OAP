@@ -95,6 +95,20 @@ class EncodeArrayKernel : public KernalBase {
   arrow::compute::FunctionContext* ctx_;
 };
 
+class AppendArrayKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<KernalBase>* out);
+  AppendArrayKernel(arrow::compute::FunctionContext* ctx);
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
 class SumArrayKernel : public KernalBase {
  public:
   static arrow::Status Make(arrow::compute::FunctionContext* ctx,

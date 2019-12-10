@@ -17,10 +17,6 @@ set(CMAKE_BUILD_TYPE  "Release")
 option(TESTS "Build the tests" OFF)
 option(DEBUG "Enable Debug Info" OFF)
 
-find_package(Arrow)
-if(NOT Arrow_FOUND)
-  message(FATAL_ERROR "arrow is not found")
-endif()
 find_package(JNI REQUIRED)
 
 set(source_root_directory ${CMAKE_CURRENT_SOURCE_DIR})
@@ -29,7 +25,7 @@ if(TESTS)
   find_package(GTest)
 macro(package_add_test TESTNAME)
   add_executable(${TESTNAME} ${ARGN})
-  target_link_libraries(${TESTNAME} gtest gmock gtest_main spark_columnar_jni)
+  target_link_libraries(${TESTNAME} gtest gmock gtest_main spark_columnar_jni ${CMAKE_THREAD_LIBS_INIT})
   target_include_directories(${TESTNAME} PUBLIC ${source_root_directory})
   gtest_discover_tests(${TESTNAME}
     WORKING_DIRECTORY ${PROJECT_DIR}
@@ -39,12 +35,13 @@ macro(package_add_test TESTNAME)
 endmacro()
   include(GoogleTest)
   ENABLE_TESTING()
-  add_custom_target(test ${CMAKE_CTEST_COMMAND} --output-on-failure)
+  #add_custom_target(test ${CMAKE_CTEST_COMMAND} --output-on-failure)
   add_subdirectory(tests)
 endif()
 
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -mtune=native")
 if(DEBUG)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDEBUG -DDEBUG_LEVEL_1 -DDEBUG_LEVEL_2")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0 -DDEBUG -DDEBUG_LEVEL_1 -DDEBUG_LEVEL_2")
 endif()
 find_library(ARROW_LIB arrow)
 find_library(GANDIVA_LIB gandiva)
@@ -72,10 +69,6 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
         codegen/expr_visitor.cc
         codegen/arrow_compute/expr_visitor.cc
         codegen/arrow_compute/ext/kernels_ext.cc
-        )
-
-set(SPARK_COLUMNAR_PLUGIN_TESTS
-        codegen/test.cc
         )
 
 file(MAKE_DIRECTORY ${root_directory}/releases)
