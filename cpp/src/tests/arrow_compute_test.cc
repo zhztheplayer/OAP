@@ -65,6 +65,43 @@ TEST(TestArrowCompute, AggregateTest) {
   ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
 }
 
+TEST(TestArrowCompute, AppendTest) {
+  ////////////////////// prepare expr_vector ///////////////////////
+  auto f0 = field("f0", uint32());
+  auto f_sum = field("append", uint64());
+  auto f_res = field("res", uint64());
+  auto arg_0 = TreeExprBuilder::MakeField(f0);
+  auto n_sum = TreeExprBuilder::MakeFunction("append", {arg_0}, uint64());
+
+  auto sum_expr = TreeExprBuilder::MakeExpression(n_sum, f_res);
+
+  std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {sum_expr};
+  auto sch = arrow::schema({f0});
+  std::vector<std::shared_ptr<Field>> ret_types = {f_sum};
+  ///////////////////// Calculation //////////////////
+  std::shared_ptr<CodeGenerator> expr;
+  ASSERT_NOT_OK(CreateCodeGenerator(sch, expr_vector, ret_types, &expr, true));
+  std::shared_ptr<arrow::RecordBatch> input_batch;
+
+  std::vector<std::string> input_data_string = {"[8, 10, 9]"};
+  MakeInputBatch(input_data_string, sch, &input_batch);
+  std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch;
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  input_data_string = {"[1, 2, 3]"};
+  MakeInputBatch(input_data_string, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+
+  ASSERT_NOT_OK(expr->finish(&result_batch));
+
+  std::shared_ptr<arrow::RecordBatch> expected_result;
+  std::vector<std::string> expected_result_string = {"[8, 10, 9, 1, 2, 3]"};
+  auto res_sch = arrow::schema({f_sum});
+  MakeInputBatch(expected_result_string, res_sch, &expected_result);
+  ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
+}
+
 TEST(TestArrowCompute, AggregatewithMultipleBatchTest) {
   ////////////////////// prepare expr_vector ///////////////////////
   auto f0 = field("f0", uint32());

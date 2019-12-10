@@ -248,6 +248,48 @@ arrow::Status UniqueArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
   return impl_->Finish(out);
 }
 
+///////////////  AppendArray  ////////////////
+class AppendArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  ~Impl() {}
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
+    if (!builder) {
+      RETURN_NOT_OK(MakeArrayBuilder(in->type(), ctx_->memory_pool(), &builder));
+    }
+    RETURN_NOT_OK(builder->AppendArray(&(*in.get()), 0));
+
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
+    RETURN_NOT_OK(builder->Finish(out));
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<ArrayBuilderImplBase> builder;
+};
+
+arrow::Status AppendArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                   std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<AppendArrayKernel>(ctx);
+  return arrow::Status::OK();
+}
+
+AppendArrayKernel::AppendArrayKernel(arrow::compute::FunctionContext* ctx) {
+  impl_.reset(new Impl(ctx));
+}
+
+arrow::Status AppendArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
+  return impl_->Evaluate(in);
+}
+
+arrow::Status AppendArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
+  return impl_->Finish(out);
+}
+
 ///////////////  SumArray  ////////////////
 class SumArrayKernel::Impl {
  public:

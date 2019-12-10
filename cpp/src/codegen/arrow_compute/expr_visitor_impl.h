@@ -135,6 +135,8 @@ class AggregateVisitorImpl : public ExprVisitorImpl {
     }
     if (func_name_.compare("sum") == 0) {
       RETURN_NOT_OK(extra::SumArrayKernel::Make(&p_->ctx_, &kernel_));
+    } else if (func_name_.compare("append") == 0) {
+      RETURN_NOT_OK(extra::AppendArrayKernel::Make(&p_->ctx_, &kernel_));
     } else if (func_name_.compare("count") == 0) {
       RETURN_NOT_OK(extra::CountArrayKernel::Make(&p_->ctx_, &kernel_));
     } else if (func_name_.compare("unique") == 0) {
