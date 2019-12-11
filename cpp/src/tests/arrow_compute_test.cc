@@ -92,7 +92,6 @@ TEST(TestArrowCompute, AppendTest) {
   MakeInputBatch(input_data_string, sch, &input_batch);
   ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
 
-
   ASSERT_NOT_OK(expr->finish(&result_batch));
 
   std::shared_ptr<arrow::RecordBatch> expected_result;
@@ -113,17 +112,22 @@ TEST(TestArrowCompute, AggregatewithMultipleBatchTest) {
   auto arg_1 = TreeExprBuilder::MakeField(f1);
   auto n_sum = TreeExprBuilder::MakeFunction("sum", {arg_0}, uint64());
   auto n_count = TreeExprBuilder::MakeFunction("count", {arg_1}, uint64());
+  auto n_sum_count = TreeExprBuilder::MakeFunction("sum", {arg_1}, uint64());
 
   auto sum_expr = TreeExprBuilder::MakeExpression(n_sum, f_res);
   auto count_expr = TreeExprBuilder::MakeExpression(n_count, f_res);
+  auto sum_count_expr = TreeExprBuilder::MakeExpression(n_sum_count, f_res);
 
   std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {sum_expr,
                                                                      count_expr};
+  std::vector<std::shared_ptr<::gandiva::Expression>> finish_expr_vector = {
+      sum_expr, sum_count_expr};
   auto sch = arrow::schema({f0, f1});
   std::vector<std::shared_ptr<Field>> ret_types = {f_sum, f_count};
   ///////////////////// Calculation //////////////////
   std::shared_ptr<CodeGenerator> expr;
-  ASSERT_NOT_OK(CreateCodeGenerator(sch, expr_vector, ret_types, &expr, true));
+  ASSERT_NOT_OK(
+      CreateCodeGenerator(sch, expr_vector, ret_types, &expr, true, finish_expr_vector));
   std::shared_ptr<arrow::RecordBatch> input_batch;
   std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch;
   std::vector<std::string> input_data_string = {"[8, 10, 9, 20, 55, 42, 28, 32, 54, 70]",
@@ -137,7 +141,7 @@ TEST(TestArrowCompute, AggregatewithMultipleBatchTest) {
   ASSERT_NOT_OK(expr->finish(&result_batch));
 
   std::shared_ptr<arrow::RecordBatch> expected_result;
-  std::vector<std::string> expected_result_string = {"[328, 273]", "[10, 9]"};
+  std::vector<std::string> expected_result_string = {"[601]", "[19]"};
   auto res_sch = arrow::schema({f_sum, f_count});
   MakeInputBatch(expected_result_string, res_sch, &expected_result);
   ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));

@@ -76,7 +76,8 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
 
   ~ExprVisitor() {
 #ifdef DEBUG
-    std::cout << "Destruct " << func_name_ << " ExprVisitor." << std::endl;
+    std::cout << "Destruct " << func_name_ << " ExprVisitor, ptr is " << this
+              << std::endl;
 #endif
   }
   arrow::Status MakeExprVisitorImpl(const std::string& func_name, ExprVisitor* p);
@@ -144,6 +145,8 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   // Long live variables
   arrow::compute::FunctionContext ctx_;
   std::shared_ptr<ExprVisitorImpl> impl_;
+  std::shared_ptr<ExprVisitor> finish_visitor_;
+  bool initialized_ = false;
 
   // metrics, in microseconds
   uint64_t elapse_time_ = 0;

@@ -303,39 +303,53 @@ arrow::Status ExprVisitor::Reset() {
       break;
   }
   result_fields_.clear();
-
+#ifdef DEBUG
+  std::cout << "ExprVisitor::Reset " << func_name_ << " ,ptr is " << this << std::endl;
+#endif
   return_type_ = ArrowComputeResultType::None;
   return arrow::Status::OK();
 }
 
 arrow::Status ExprVisitor::Init() {
+  if (initialized_) {
+    return arrow::Status::OK();
+  }
   if (dependency_) {
     RETURN_NOT_OK(dependency_->Init());
   }
+#ifdef DEBUG
+  std::cout << "ExprVisitor::Init " << func_name_ << " ,ptr is " << this << std::endl;
+#endif
   RETURN_NOT_OK(impl_->Init());
-  return arrow::Status::OK();
-}
-
-arrow::Status ExprVisitor::Finish(std::shared_ptr<ExprVisitor>* finish_visitor) {
-  if (dependency_) {
-    std::shared_ptr<ExprVisitor> dummy;
-    RETURN_NOT_OK(dependency_->Finish(&dummy));
-    RETURN_NOT_OK(GetResultFromDependency());
-  }
-  RETURN_NOT_OK(impl_->Finish());
-  // call finish_func_ here.
+  initialized_ = true;
   if (finish_func_) {
     std::string finish_func_name =
         std::dynamic_pointer_cast<gandiva::FunctionNode>(finish_func_)
             ->descriptor()
             ->name();
     RETURN_NOT_OK(ExprVisitor::Make(schema_, finish_func_name, param_field_names_,
-                                    shared_from_this(), nullptr, finish_visitor));
-    RETURN_NOT_OK((*finish_visitor)->Eval());
-    std::shared_ptr<ExprVisitor> dummy;
-    RETURN_NOT_OK((*finish_visitor)->Finish(&dummy));
+                                    shared_from_this(), nullptr, &finish_visitor_));
+    RETURN_NOT_OK(finish_visitor_->Init());
   }
+  return arrow::Status::OK();
+}
 
+arrow::Status ExprVisitor::Finish(std::shared_ptr<ExprVisitor>* finish_visitor) {
+  if (return_type_ != ArrowComputeResultType::None) {
+    return arrow::Status::OK();
+  }
+  if (dependency_) {
+    std::shared_ptr<ExprVisitor> dummy;
+    RETURN_NOT_OK(dependency_->Finish(&dummy));
+    RETURN_NOT_OK(GetResultFromDependency());
+  }
+  RETURN_NOT_OK(impl_->Finish());
+  if (finish_visitor_) {
+    RETURN_NOT_OK(finish_visitor_->Eval());
+    std::shared_ptr<ExprVisitor> dummy;
+    RETURN_NOT_OK(finish_visitor_->Finish(&dummy));
+    *finish_visitor = finish_visitor_;
+  }
   return arrow::Status::OK();
 }
 

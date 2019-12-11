@@ -21,32 +21,10 @@ class ExprVisitorImpl {
   }
 
   virtual arrow::Status Finish() {
-    if (kernel_ && p_->return_type_ == ArrowComputeResultType::None) {
 #ifdef DEBUG
-      std::cout << "ExprVisitorImpl::Finish visitor is " << p_->func_name_ << ", ptr is "
-                << p_ << std::endl;
+    std::cout << "ExprVisitorImpl::Finish visitor is " << p_->func_name_ << ", ptr is "
+              << p_ << std::endl;
 #endif
-      switch (finish_return_type_) {
-        case ArrowComputeResultType::Batch: {
-          RETURN_NOT_OK(kernel_->Finish(&p_->result_batch_));
-          p_->return_type_ = ArrowComputeResultType::Batch;
-        } break;
-        case ArrowComputeResultType::Array: {
-          RETURN_NOT_OK(kernel_->Finish(&p_->result_array_));
-          p_->return_type_ = ArrowComputeResultType::Array;
-        } break;
-        case ArrowComputeResultType::ArrayList: {
-          RETURN_NOT_OK(kernel_->Finish(&p_->result_array_list_));
-          p_->return_type_ = ArrowComputeResultType::ArrayList;
-        } break;
-        case ArrowComputeResultType::BatchList: {
-          return arrow::Status::NotImplemented(
-              "ExprVisitor Finish not support BatchList");
-        } break;
-        default:
-          break;
-      }
-    }
     return arrow::Status::OK();
   }
 
@@ -98,6 +76,7 @@ class SplitArrayListWithActionVisitorImpl : public ExprVisitorImpl {
     initialized_ = true;
     return arrow::Status::OK();
   }
+
   arrow::Status Eval() override {
     switch (p_->dependency_result_type_) {
       case ArrowComputeResultType::Array: {
@@ -117,6 +96,23 @@ class SplitArrayListWithActionVisitorImpl : public ExprVisitorImpl {
       default:
         return arrow::Status::NotImplemented(
             "SplitArrayListWithActionVisitorImpl: Does not support this type of input.");
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish() override {
+    RETURN_NOT_OK(ExprVisitorImpl::Finish());
+    switch (finish_return_type_) {
+      case ArrowComputeResultType::Batch: {
+        RETURN_NOT_OK(kernel_->Finish(&p_->result_batch_));
+        p_->return_type_ = ArrowComputeResultType::Batch;
+      } break;
+      default: {
+        return arrow::Status::NotImplemented(
+            "SplitArrayListWithActionVisitorImpl only support finish_return_type as "
+            "Batch.");
+        break;
+      }
     }
     return arrow::Status::OK();
   }
@@ -161,6 +157,7 @@ class AggregateVisitorImpl : public ExprVisitorImpl {
     initialized_ = true;
     return arrow::Status::OK();
   }
+
   arrow::Status Eval() override {
     switch (p_->dependency_result_type_) {
       case ArrowComputeResultType::None: {
@@ -193,6 +190,23 @@ class AggregateVisitorImpl : public ExprVisitorImpl {
     return arrow::Status::OK();
   }
 
+  arrow::Status Finish() override {
+    RETURN_NOT_OK(ExprVisitorImpl::Finish());
+    switch (finish_return_type_) {
+      case ArrowComputeResultType::Array: {
+        RETURN_NOT_OK(kernel_->Finish(&p_->result_array_));
+        p_->return_type_ = ArrowComputeResultType::Array;
+      } break;
+      default: {
+        return arrow::Status::NotImplemented(
+            "AggregateVisitorImpl only support finish_return_type as "
+            "Array.");
+        break;
+      }
+    }
+    return arrow::Status::OK();
+  }
+
  private:
   int col_id_;
   std::string func_name_;
@@ -207,6 +221,7 @@ class EncodeVisitorImpl : public ExprVisitorImpl {
     *out = impl;
     return arrow::Status::OK();
   }
+
   arrow::Status Init() override {
     if (initialized_) {
       return arrow::Status::OK();
@@ -224,6 +239,7 @@ class EncodeVisitorImpl : public ExprVisitorImpl {
     initialized_ = true;
     return arrow::Status::OK();
   }
+
   arrow::Status Eval() override {
     switch (p_->dependency_result_type_) {
       case ArrowComputeResultType::None: {
@@ -291,6 +307,23 @@ class SortArraysToIndicesVisitorImpl : public ExprVisitorImpl {
     return arrow::Status::OK();
   }
 
+  arrow::Status Finish() override {
+    RETURN_NOT_OK(ExprVisitorImpl::Finish());
+    switch (finish_return_type_) {
+      case ArrowComputeResultType::Array: {
+        RETURN_NOT_OK(kernel_->Finish(&p_->result_array_));
+        p_->return_type_ = ArrowComputeResultType::Array;
+      } break;
+      default: {
+        return arrow::Status::NotImplemented(
+            "SortArraysToIndicesVisitorImpl only support finish_return_type as "
+            "Array.");
+        break;
+      }
+    }
+    return arrow::Status::OK();
+  }
+
  private:
   int col_id_;
 };
@@ -350,16 +383,13 @@ class ShuffleArrayListVisitorImpl : public ExprVisitorImpl {
   }
 
   arrow::Status Finish() override {
+    RETURN_NOT_OK(ExprVisitorImpl::Finish());
     // override ExprVisitorImpl Finish
     if (!p_->in_array_) {
       return arrow::Status::Invalid(
           "ShuffleArrayListVisitorImpl depends on an indices array to indicate shuffle, "
           "while input_array is invalid.");
     }
-#ifdef DEBUG
-    std::cout << "ExprVisitorImpl::Finish visitor is " << p_->func_name_ << ", ptr is "
-              << p_ << std::endl;
-#endif
     RETURN_NOT_OK(kernel_->SetDependencyInput(p_->in_array_));
     switch (finish_return_type_) {
       case ArrowComputeResultType::Batch: {
