@@ -254,11 +254,13 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
     env->ThrowNew(io_exception_class, error_message.c_str());
   }
 
+  std::shared_ptr<arrow::Schema> res_schema;
+  status = handler->getResSchema(&res_schema);
   jobjectArray record_batch_builder_array =
       env->NewObjectArray(out.size(), arrow_record_batch_builder_class, nullptr);
   int i = 0;
   for (auto record_batch : out) {
-    jobject record_batch_builder = MakeRecordBatchBuilder(env, schema, record_batch);
+    jobject record_batch_builder = MakeRecordBatchBuilder(env, res_schema, record_batch);
     env->SetObjectArrayElement(record_batch_builder_array, i++, record_batch_builder);
   }
 
@@ -283,7 +285,7 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
   }
 
   std::shared_ptr<arrow::Schema> schema;
-  status = handler->getSchema(&schema);
+  status = handler->getResSchema(&schema);
 
   jobjectArray record_batch_builder_array =
       env->NewObjectArray(out.size(), arrow_record_batch_builder_class, nullptr);

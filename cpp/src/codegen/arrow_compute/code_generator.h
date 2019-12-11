@@ -60,6 +60,11 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     return arrow::Status::OK();
   }
 
+  arrow::Status getResSchema(std::shared_ptr<arrow::Schema>* out) {
+    *out = res_schema_;
+    return arrow::Status::OK();
+  }
+
   arrow::Status evaluate(const std::shared_ptr<arrow::RecordBatch>& in,
                          std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
     arrow::Status status = arrow::Status::OK();
@@ -79,15 +84,10 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     }
 
     if (!return_when_finish_) {
-      std::shared_ptr<arrow::Schema> res_schema;
-      if (ret_types_.size() < fields.size()) {
-        res_schema = arrow::schema(fields);
-      } else {
-        res_schema = arrow::schema(ret_types_);
-      }
+      res_schema_ = arrow::schema(ret_types_);
       for (int i = 0; i < batch_array.size(); i++) {
         auto record_batch =
-            arrow::RecordBatch::Make(res_schema, batch_size_array[i], batch_array[i]);
+            arrow::RecordBatch::Make(res_schema_, batch_size_array[i], batch_array[i]);
 #ifdef DEBUG_LEVEL_1
         std::cout << "ArrowCompute Evaluate func get output recordBatch as " << std::endl;
         auto status = arrow::PrettyPrint(*record_batch.get(), 2, &std::cout);
@@ -127,15 +127,10 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
       std::cout << std::endl;
     }
 
-    std::shared_ptr<arrow::Schema> res_schema;
-    if (ret_types_.size() < fields.size()) {
-      res_schema = arrow::schema(fields);
-    } else {
-      res_schema = arrow::schema(ret_types_);
-    }
+    res_schema_ = arrow::schema(ret_types_);
     for (int i = 0; i < batch_array.size(); i++) {
       auto record_batch =
-          arrow::RecordBatch::Make(res_schema, batch_size_array[i], batch_array[i]);
+          arrow::RecordBatch::Make(res_schema_, batch_size_array[i], batch_array[i]);
 #ifdef DEBUG_LEVEL_1
       std::cout << "ArrowCompute Finish func get output recordBatch as " << std::endl;
       auto status = arrow::PrettyPrint(*record_batch.get(), 2, &std::cout);
@@ -162,6 +157,7 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
  private:
   std::vector<std::shared_ptr<ExprVisitor>> visitor_list_;
   std::shared_ptr<arrow::Schema> schema_;
+  std::shared_ptr<arrow::Schema> res_schema_;
   std::vector<std::shared_ptr<arrow::Field>> ret_types_;
   // metrics
   uint64_t eval_elapse_time_ = 0;

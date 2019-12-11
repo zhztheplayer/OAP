@@ -19,6 +19,10 @@ class ComputeExtCodeGenerator : public CodeGenerator {
     return arrow::Status::OK();
   }
 
+  arrow::Status getResSchema(std::shared_ptr<arrow::Schema>* out) {
+    return arrow::Status::OK();
+  }
+
   arrow::Status evaluate(const std::shared_ptr<arrow::RecordBatch>& in,
                          std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
     arrow::Status status = arrow::Status::OK();

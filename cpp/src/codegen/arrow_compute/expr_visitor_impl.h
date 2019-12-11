@@ -38,6 +38,10 @@ class ExprVisitorImpl {
                                           std::shared_ptr<arrow::Field>* out_field) {
     *id = schema->GetFieldIndex(col_name);
     *out_field = schema->GetFieldByName(col_name);
+    if (*id < 0) {
+      return arrow::Status::Invalid("GetColumnIdAndFieldByName doesn't found col_name ",
+                                    col_name);
+    }
     return arrow::Status::OK();
   }
 };
@@ -82,6 +86,11 @@ class SplitArrayListWithActionVisitorImpl : public ExprVisitorImpl {
       case ArrowComputeResultType::Array: {
         ArrayList col_list;
         for (auto col_id : col_id_list_) {
+          if (col_id >= p_->in_record_batch_->num_columns()) {
+            return arrow::Status::Invalid(
+                "SplitArrayListWithActionVisitorImpl Eval col_id is bigger than input "
+                "batch numColumns.");
+          }
           auto col = p_->in_record_batch_->column(col_id);
           col_list.push_back(col);
         }
@@ -161,6 +170,11 @@ class AggregateVisitorImpl : public ExprVisitorImpl {
   arrow::Status Eval() override {
     switch (p_->dependency_result_type_) {
       case ArrowComputeResultType::None: {
+        if (col_id_ >= p_->in_record_batch_->num_columns()) {
+          return arrow::Status::Invalid(
+              "AggregateVisitorImpl Eval col_id is bigger than input "
+              "batch numColumns.");
+        }
         auto col = p_->in_record_batch_->column(col_id_);
         RETURN_NOT_OK(kernel_->Evaluate(col));
         finish_return_type_ = ArrowComputeResultType::Array;
@@ -243,6 +257,11 @@ class EncodeVisitorImpl : public ExprVisitorImpl {
   arrow::Status Eval() override {
     switch (p_->dependency_result_type_) {
       case ArrowComputeResultType::None: {
+        if (col_id_ >= p_->in_record_batch_->num_columns()) {
+          return arrow::Status::Invalid(
+              "EncodeVisitorImpl Eval col_id is bigger than input "
+              "batch numColumns.");
+        }
         auto col = p_->in_record_batch_->column(col_id_);
         auto start = std::chrono::steady_clock::now();
         RETURN_NOT_OK(kernel_->Evaluate(col, &p_->result_array_));
@@ -278,7 +297,8 @@ class SortArraysToIndicesVisitorImpl : public ExprVisitorImpl {
     RETURN_NOT_OK(extra::SortArraysToIndicesKernel::Make(&p_->ctx_, &kernel_));
     if (p_->param_field_names_.size() != 1) {
       return arrow::Status::Invalid(
-          "SortArraysToIndicesVisitorImpl expects param_field_name_list only contains "
+          "SortArraysToIndicesVisitorImpl expects param_field_name_list only "
+          "contains "
           "one element.");
     }
     auto col_name = p_->param_field_names_[0];
@@ -292,6 +312,11 @@ class SortArraysToIndicesVisitorImpl : public ExprVisitorImpl {
   arrow::Status Eval() override {
     switch (p_->dependency_result_type_) {
       case ArrowComputeResultType::None: {
+        if (col_id_ >= p_->in_record_batch_->num_columns()) {
+          return arrow::Status::Invalid(
+              "SortArraysToIndicesVisitorImpl Eval col_id is bigger than input "
+              "batch numColumns.");
+        }
         auto col = p_->in_record_batch_->column(col_id_);
         auto start = std::chrono::steady_clock::now();
         RETURN_NOT_OK(kernel_->Evaluate(col));
@@ -365,6 +390,11 @@ class ShuffleArrayListVisitorImpl : public ExprVisitorImpl {
         // This indicates shuffle indices was not cooked yet.
         ArrayList col_list;
         for (auto col_id : col_id_list_) {
+          if (col_id >= p_->in_record_batch_->num_columns()) {
+            return arrow::Status::Invalid(
+                "ShuffleArrayListVisitorImpl Eval col_id is bigger than input "
+                "batch numColumns.");
+          }
           auto col = p_->in_record_batch_->column(col_id);
           col_list.push_back(col);
         }
@@ -387,7 +417,8 @@ class ShuffleArrayListVisitorImpl : public ExprVisitorImpl {
     // override ExprVisitorImpl Finish
     if (!p_->in_array_) {
       return arrow::Status::Invalid(
-          "ShuffleArrayListVisitorImpl depends on an indices array to indicate shuffle, "
+          "ShuffleArrayListVisitorImpl depends on an indices array to indicate "
+          "shuffle, "
           "while input_array is invalid.");
     }
     RETURN_NOT_OK(kernel_->SetDependencyInput(p_->in_array_));
@@ -398,7 +429,8 @@ class ShuffleArrayListVisitorImpl : public ExprVisitorImpl {
       } break;
       default:
         return arrow::Status::Invalid(
-            "ShuffleArrayListVisitorImpl Finish does not support dependency type other "
+            "ShuffleArrayListVisitorImpl Finish does not support dependency type "
+            "other "
             "than Batch and BatchList.");
     }
     return arrow::Status::OK();
