@@ -132,6 +132,7 @@ SplitArrayListWithActionKernel::SplitArrayListWithActionKernel(
     arrow::compute::FunctionContext* ctx, std::vector<std::string> action_name_list,
     std::vector<std::shared_ptr<arrow::DataType>> type_list) {
   impl_.reset(new Impl(ctx, action_name_list, type_list));
+  kernel_name_ = "SplitArrayListWithActionKernel";
 }
 
 arrow::Status SplitArrayListWithActionKernel::Evaluate(
@@ -235,6 +236,7 @@ ShuffleArrayListKernel::ShuffleArrayListKernel(
     arrow::compute::FunctionContext* ctx,
     std::vector<std::shared_ptr<arrow::DataType>> type_list) {
   impl_.reset(new Impl(ctx, type_list));
+  kernel_name_ = "ShuffleArrayListKernel";
 }
 
 arrow::Status ShuffleArrayListKernel::Evaluate(const ArrayList& in) {
@@ -282,6 +284,7 @@ arrow::Status SortArraysToIndicesKernel::Make(arrow::compute::FunctionContext* c
 SortArraysToIndicesKernel::SortArraysToIndicesKernel(
     arrow::compute::FunctionContext* ctx) {
   impl_.reset(new Impl(ctx));
+  kernel_name_ = "SortArraysToIndicesKernelKernel";
 }
 
 arrow::Status SortArraysToIndicesKernel::Evaluate(
@@ -332,6 +335,7 @@ arrow::Status UniqueArrayKernel::Make(arrow::compute::FunctionContext* ctx,
 
 UniqueArrayKernel::UniqueArrayKernel(arrow::compute::FunctionContext* ctx) {
   impl_.reset(new Impl(ctx));
+  kernel_name_ = "UniqueArrayKernel";
 }
 
 arrow::Status UniqueArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
@@ -367,13 +371,14 @@ class AppendArrayKernel::Impl {
 };
 
 arrow::Status AppendArrayKernel::Make(arrow::compute::FunctionContext* ctx,
-                                   std::shared_ptr<KernalBase>* out) {
+                                      std::shared_ptr<KernalBase>* out) {
   *out = std::make_shared<AppendArrayKernel>(ctx);
   return arrow::Status::OK();
 }
 
 AppendArrayKernel::AppendArrayKernel(arrow::compute::FunctionContext* ctx) {
   impl_.reset(new Impl(ctx));
+  kernel_name_ = "AppendArrayKernel";
 }
 
 arrow::Status AppendArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
@@ -427,6 +432,7 @@ arrow::Status SumArrayKernel::Make(arrow::compute::FunctionContext* ctx,
 
 SumArrayKernel::SumArrayKernel(arrow::compute::FunctionContext* ctx) {
   impl_.reset(new Impl(ctx));
+  kernel_name_ = "SumArrayKernel";
 }
 
 arrow::Status SumArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
@@ -479,6 +485,7 @@ arrow::Status CountArrayKernel::Make(arrow::compute::FunctionContext* ctx,
 
 CountArrayKernel::CountArrayKernel(arrow::compute::FunctionContext* ctx) {
   impl_.reset(new Impl(ctx));
+  kernel_name_ = "CountArrayKernel";
 }
 
 arrow::Status CountArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
@@ -523,7 +530,10 @@ arrow::Status EncodeArrayKernel::Make(arrow::compute::FunctionContext* ctx,
   return arrow::Status::OK();
 }
 
-EncodeArrayKernel::EncodeArrayKernel(arrow::compute::FunctionContext* ctx) { ctx_ = ctx; }
+EncodeArrayKernel::EncodeArrayKernel(arrow::compute::FunctionContext* ctx) {
+  ctx_ = ctx;
+  kernel_name_ = "EncodeArrayKernel";
+}
 
 #define PROCESS_SUPPORTED_TYPES(PROCESS) \
   PROCESS(arrow::BooleanType)            \

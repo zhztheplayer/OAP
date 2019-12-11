@@ -106,19 +106,19 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
       CreateGlobalClassReference(env, "Ljava/lang/IllegalArgumentException;");
 
   arrow_record_batch_builder_class = CreateGlobalClassReference(
-      env, "Lorg/apache/arrow/adapter/parquet/ArrowRecordBatchBuilder;");
+      env, "Lcom/intel/sparkColumnarPlugin/vectorized/ArrowRecordBatchBuilder;");
   arrow_record_batch_builder_constructor =
       GetMethodID(env, arrow_record_batch_builder_class, "<init>",
-                  "(I[Lorg/apache/arrow/adapter/parquet/ArrowFieldNodeBuilder;"
-                  "[Lorg/apache/arrow/adapter/parquet/ArrowBufBuilder;)V");
+                  "(I[Lcom/intel/sparkColumnarPlugin/vectorized/ArrowFieldNodeBuilder;"
+                  "[Lcom/intel/sparkColumnarPlugin/vectorized/ArrowBufBuilder;)V");
 
   arrow_field_node_builder_class = CreateGlobalClassReference(
-      env, "Lorg/apache/arrow/adapter/parquet/ArrowFieldNodeBuilder;");
+      env, "Lcom/intel/sparkColumnarPlugin/vectorized/ArrowFieldNodeBuilder;");
   arrow_field_node_builder_constructor =
       GetMethodID(env, arrow_field_node_builder_class, "<init>", "(II)V");
 
   arrowbuf_builder_class = CreateGlobalClassReference(
-      env, "Lorg/apache/arrow/adapter/parquet/ArrowBufBuilder;");
+      env, "Lcom/intel/sparkColumnarPlugin/vectorized/ArrowBufBuilder;");
   arrowbuf_builder_constructor =
       GetMethodID(env, arrowbuf_builder_class, "<init>", "(JJIJ)V");
 
