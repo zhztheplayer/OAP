@@ -68,6 +68,13 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     return arrow::Status::OK();
   }
 
+  arrow::Status SetMember(const std::shared_ptr<arrow::RecordBatch>& member_set) {
+    for (auto visitor : visitor_list_) {
+      RETURN_NOT_OK(visitor->SetMember(member_set));
+    }
+    return arrow::Status::OK();
+  }
+
   arrow::Status evaluate(const std::shared_ptr<arrow::RecordBatch>& in,
                          std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
     arrow::Status status = arrow::Status::OK();

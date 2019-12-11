@@ -22,6 +22,10 @@ class ExprVisitorImpl {
     return arrow::Status::NotImplemented("ExprVisitorImpl Init is abstract.");
   }
 
+  virtual arrow::Status SetMember() {
+    return arrow::Status::NotImplemented("ExprVisitorImpl Init is abstract.");
+  }
+
   virtual arrow::Status Finish() {
 #ifdef DEBUG
     std::cout << "ExprVisitorImpl::Finish visitor is " << p_->func_name_ << ", ptr is "
@@ -282,6 +286,220 @@ class EncodeVisitorImpl : public ExprVisitorImpl {
   int col_id_;
 };
 
+////////////////////////// ProbeVisitorImpl ///////////////////////
+class ProbeVisitorImpl : public ExprVisitorImpl {
+ public:
+  ProbeVisitorImpl(ExprVisitor* p) : ExprVisitorImpl(p) {}
+  static arrow::Status Make(ExprVisitor* p, std::shared_ptr<ExprVisitorImpl>* out) {
+    auto impl = std::make_shared<ProbeVisitorImpl>(p);
+    *out = impl;
+    return arrow::Status::OK();
+  }
+  arrow::Status Init() override {
+    if (initialized_) {
+      return arrow::Status::OK();
+    }
+    RETURN_NOT_OK(extra::ProbeArrayKernel::Make(&p_->ctx_, &kernel_));
+    if (p_->param_field_names_.size() != 1) {
+      return arrow::Status::Invalid(
+          "EncodeVisitorImpl expects param_field_name_list only contains one "
+          "element.");
+    }
+    auto col_name = p_->param_field_names_[0];
+    std::shared_ptr<arrow::Field> field;
+    RETURN_NOT_OK(GetColumnIdAndFieldByName(p_->schema_, col_name, &col_id_, &field));
+    p_->result_fields_.push_back(field);
+    initialized_ = true;
+    return arrow::Status::OK();
+  }
+  arrow::Status Eval() override {
+    switch (p_->dependency_result_type_) {
+      case ArrowComputeResultType::None: {
+        auto col = p_->in_record_batch_->column(col_id_);
+        auto start = std::chrono::steady_clock::now();
+        RETURN_NOT_OK(kernel_->Evaluate(col));
+        auto end = std::chrono::steady_clock::now();
+        p_->elapse_time_ +=
+            std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        finish_return_type_ = ArrowComputeResultType::Array;
+      } break;
+      default:
+        return arrow::Status::NotImplemented(
+            "EncodeVisitorImpl: Does not support this type of input.");
+    }
+    return arrow::Status::OK();
+  }
+  arrow::Status SetMember() override {
+    if (!initialized_) {
+      return arrow::Status::Invalid("Kernel is not initialized");
+    }
+    RETURN_NOT_OK(kernel_->SetMember(p_->member_record_batch_));
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish() override {
+    RETURN_NOT_OK(ExprVisitorImpl::Finish());
+    switch (finish_return_type_) {
+      case ArrowComputeResultType::Array: {
+        RETURN_NOT_OK(kernel_->Finish(&p_->result_array_));
+        p_->return_type_ = ArrowComputeResultType::Array;
+      } break;
+      default: {
+        return arrow::Status::NotImplemented(
+            "AggregateVisitorImpl only support finish_return_type as "
+            "Array.");
+        break;
+      }
+    }
+    return arrow::Status::OK();
+  }
+
+ private:
+  int col_id_;
+};
+
+////////////////////////// TakeVisitorImpl ///////////////////////
+class TakeVisitorImpl : public ExprVisitorImpl {
+ public:
+  TakeVisitorImpl(ExprVisitor* p) : ExprVisitorImpl(p) {}
+  static arrow::Status Make(ExprVisitor* p, std::shared_ptr<ExprVisitorImpl>* out) {
+    auto impl = std::make_shared<TakeVisitorImpl>(p);
+    *out = impl;
+    return arrow::Status::OK();
+  }
+  arrow::Status Init() override {
+    if (initialized_) {
+      return arrow::Status::OK();
+    }
+    RETURN_NOT_OK(extra::TakeArrayKernel::Make(&p_->ctx_, &kernel_));
+    if (p_->param_field_names_.size() != 1) {
+      return arrow::Status::Invalid(
+          "EncodeVisitorImpl expects param_field_name_list only contains one "
+          "element.");
+    }
+    auto col_name = p_->param_field_names_[0];
+    std::shared_ptr<arrow::Field> field;
+    RETURN_NOT_OK(GetColumnIdAndFieldByName(p_->schema_, col_name, &col_id_, &field));
+    p_->result_fields_.push_back(field);
+    initialized_ = true;
+    return arrow::Status::OK();
+  }
+  arrow::Status Eval() override {
+    switch (p_->dependency_result_type_) {
+      case ArrowComputeResultType::None: {
+        auto col = p_->in_record_batch_->column(col_id_);
+        auto start = std::chrono::steady_clock::now();
+        RETURN_NOT_OK(kernel_->Evaluate(col));
+        auto end = std::chrono::steady_clock::now();
+        p_->elapse_time_ +=
+            std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        finish_return_type_ = ArrowComputeResultType::Array;
+      } break;
+      default:
+        return arrow::Status::NotImplemented(
+            "EncodeVisitorImpl: Does not support this type of input.");
+    }
+    return arrow::Status::OK();
+  }
+  arrow::Status SetMember() override {
+    if (!initialized_) {
+      return arrow::Status::Invalid("Kernel is not initialized");
+    }
+    RETURN_NOT_OK(kernel_->SetMember(p_->member_record_batch_));
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish() override {
+    RETURN_NOT_OK(ExprVisitorImpl::Finish());
+    switch (finish_return_type_) {
+      case ArrowComputeResultType::Array: {
+        RETURN_NOT_OK(kernel_->Finish(&p_->result_array_));
+        p_->return_type_ = ArrowComputeResultType::Array;
+      } break;
+      default: {
+        return arrow::Status::NotImplemented(
+            "AggregateVisitorImpl only support finish_return_type as "
+            "Array.");
+        break;
+      }
+    }
+    return arrow::Status::OK();
+  }
+
+ private:
+  int col_id_;
+};
+////////////////////////// NTakeVisitorImpl ///////////////////////
+class NTakeVisitorImpl : public ExprVisitorImpl {
+ public:
+  NTakeVisitorImpl(ExprVisitor* p) : ExprVisitorImpl(p) {}
+  static arrow::Status Make(ExprVisitor* p, std::shared_ptr<ExprVisitorImpl>* out) {
+    auto impl = std::make_shared<NTakeVisitorImpl>(p);
+    *out = impl;
+    return arrow::Status::OK();
+  }
+  arrow::Status Init() override {
+    if (initialized_) {
+      return arrow::Status::OK();
+    }
+    RETURN_NOT_OK(extra::NTakeArrayKernel::Make(&p_->ctx_, &kernel_));
+    if (p_->param_field_names_.size() != 1) {
+      return arrow::Status::Invalid(
+          "EncodeVisitorImpl expects param_field_name_list only contains one "
+          "element.");
+    }
+    auto col_name = p_->param_field_names_[0];
+    std::shared_ptr<arrow::Field> field;
+    RETURN_NOT_OK(GetColumnIdAndFieldByName(p_->schema_, col_name, &col_id_, &field));
+    p_->result_fields_.push_back(field);
+    initialized_ = true;
+    return arrow::Status::OK();
+  }
+  arrow::Status Eval() override {
+    switch (p_->dependency_result_type_) {
+      case ArrowComputeResultType::None: {
+        auto col = p_->in_record_batch_->column(col_id_);
+        auto start = std::chrono::steady_clock::now();
+        RETURN_NOT_OK(kernel_->Evaluate(col));
+        auto end = std::chrono::steady_clock::now();
+        p_->elapse_time_ +=
+            std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        finish_return_type_ = ArrowComputeResultType::Array;
+      } break;
+      default:
+        return arrow::Status::NotImplemented(
+            "EncodeVisitorImpl: Does not support this type of input.");
+    }
+    return arrow::Status::OK();
+  }
+  arrow::Status SetMember() override {
+    if (!initialized_) {
+      return arrow::Status::Invalid("Kernel is not initialized");
+    }
+    RETURN_NOT_OK(kernel_->SetMember(p_->member_record_batch_));
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish() override {
+    RETURN_NOT_OK(ExprVisitorImpl::Finish());
+    switch (finish_return_type_) {
+      case ArrowComputeResultType::Array: {
+        RETURN_NOT_OK(kernel_->Finish(&p_->result_array_));
+        p_->return_type_ = ArrowComputeResultType::Array;
+      } break;
+      default: {
+        return arrow::Status::NotImplemented(
+            "AggregateVisitorImpl only support finish_return_type as "
+            "Array.");
+        break;
+      }
+    }
+    return arrow::Status::OK();
+  }
+
+ private:
+  int col_id_;
+};
 ////////////////////////// SortArraysToIndicesVisitorImpl ///////////////////////
 class SortArraysToIndicesVisitorImpl : public ExprVisitorImpl {
  public:

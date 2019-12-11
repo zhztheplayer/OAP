@@ -178,6 +178,18 @@ arrow::Status ExprVisitor::MakeExprVisitorImpl(const std::string& func_name,
     RETURN_NOT_OK(EncodeVisitorImpl::Make(p, &impl_));
     goto finish;
   }
+  if (func_name.compare("probeArray") == 0) {
+    RETURN_NOT_OK(ProbeVisitorImpl::Make(p, &impl_));
+    goto finish;
+  }
+  if (func_name.compare("ntakeArray") == 0) {
+    RETURN_NOT_OK(NTakeVisitorImpl::Make(p, &impl_));
+    goto finish;
+  }
+  if (func_name.compare("takeArray") == 0) {
+    RETURN_NOT_OK(TakeVisitorImpl::Make(p, &impl_));
+    goto finish;
+  }
   if (func_name.compare("sortArraysToIndices") == 0) {
     RETURN_NOT_OK(SortArraysToIndicesVisitorImpl::Make(p, &impl_));
     goto finish;
@@ -195,6 +207,16 @@ arrow::Status ExprVisitor::AppendAction(const std::string& func_name,
                                         const std::string& param_name) {
   action_name_list_.push_back(func_name);
   action_param_list_.push_back(param_name);
+  return arrow::Status::OK();
+}
+
+arrow::Status ExprVisitor::SetMember(const std::shared_ptr<arrow::RecordBatch>& ms) {
+#ifdef DEBUG_LEVEL_2
+    std::cout << typeid(*this).name() <<  __func__
+              << "memberset: " << ms << std::endl;
+#endif
+  member_record_batch_ = ms;
+  impl_->SetMember();
   return arrow::Status::OK();
 }
 

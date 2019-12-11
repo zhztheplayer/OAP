@@ -74,6 +74,26 @@ public class ExpressionEvaluator {
     return recordBatchList;
   }
 
+  /** Evaluate input data using builded native function, and output as recordBatch. */
+  public void SetMember(ArrowRecordBatch recordBatch)
+      throws RuntimeException, IOException {
+    List<ArrowBuf> buffers = recordBatch.getBuffers();
+    List<ArrowBuffer> buffersLayout = recordBatch.getBuffersLayout();
+    long[] bufAddrs = new long[buffers.size()];
+    long[] bufSizes = new long[buffers.size()];
+    int idx = 0;
+    for (ArrowBuf buf : buffers) {
+      bufAddrs[idx++] = buf.memoryAddress();
+    }
+
+    idx = 0;
+    for (ArrowBuffer bufLayout : buffersLayout) {
+      bufSizes[idx++] = bufLayout.getSize();
+    }
+
+    jniWrapper.nativeSetMember(nativeHandler, recordBatch.getLength(), bufAddrs, bufSizes);
+  }
+
   public ArrowRecordBatch[] finish() throws RuntimeException, IOException {
     ArrowRecordBatchBuilder[] resRecordBatchBuilderList = jniWrapper.nativeFinish(nativeHandler);
     ArrowRecordBatch[] recordBatchList = new ArrowRecordBatch[resRecordBatchBuilderList.length];

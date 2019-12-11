@@ -7,6 +7,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.HashAggregateExec
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
+import org.apache.spark.sql.execution.joins.ShuffledHashJoinExec
 import org.apache.spark.sql.{SparkSession, SparkSessionExtensions}
 
 case class ColumnarOverrides() extends Rule[SparkPlan] {
@@ -43,7 +44,17 @@ case class ColumnarOverrides() extends Rule[SparkPlan] {
       new ColumnarShuffleExchangeExec(
         plan.outputPartitioning,
         replaceWithColumnarPlan(plan.child),
-        plan.canChangeNumPartitions)*/
+        plan.canChangeNumPartitions)
+    case plan: ShuffledHashJoinExec =>
+      logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
+      new ColumnarShuffledHashJoinExec(
+        plan.leftKeys,
+        plan.rightKeys,
+        plan.joinType,
+        plan.buildSide,
+        plan.condition,
+        plan.left,
+        plan.right)*/
     case p =>
       logWarning(s"Columnar Processing for ${p.getClass} is not currently supported.")
       p.withNewChildren(p.children.map(replaceWithColumnarPlan))
