@@ -9,6 +9,7 @@
 #include <memory>
 #include <unordered_map>
 #include "codegen/common/visitor_base.h"
+#include "utils/macros.h"
 
 namespace sparkcolumnarplugin {
 namespace codegen {
@@ -104,7 +105,7 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
     if (dependency_) {
       dependency_->PrintMetrics();
     }
-    std::cout << func_name_ << " took " << elapse_time_ / 1000 << "ms, ";
+    std::cout << func_name_ << " took " << TIME_TO_STRING(elapse_time_) << ", ";
   }
 
   // Input data holder.
