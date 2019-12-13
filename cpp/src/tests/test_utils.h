@@ -11,6 +11,7 @@
 #include <iostream>
 #include <memory>
 #include <sstream>
+#include "utils/macros.h"
 using namespace arrow;
 
 using TreeExprBuilder = gandiva::TreeExprBuilder;
@@ -23,6 +24,20 @@ using FunctionNode = gandiva::FunctionNode;
       throw std::runtime_error(__s.message()); \
     }                                          \
   } while (false);
+
+#define ARROW_ASSIGN_OR_THROW_IMPL(status_name, lhs, rexpr) \
+  auto status_name = (rexpr);                               \
+  auto __s = status_name.status();                          \
+  if (!__s.ok()) {                                          \
+    throw std::runtime_error(__s.message());                \
+  }                                                         \
+  lhs = std::move(status_name).ValueOrDie();
+
+#define ARROW_ASSIGN_OR_THROW_NAME(x, y) ARROW_CONCAT(x, y)
+
+#define ARROW_ASSIGN_OR_THROW(lhs, rexpr)                                              \
+  ARROW_ASSIGN_OR_THROW_IMPL(ARROW_ASSIGN_OR_THROW_NAME(_error_or_value, __COUNTER__), \
+                             lhs, rexpr);
 
 template <typename T>
 Status Equals(const T& expected, const T& actual) {

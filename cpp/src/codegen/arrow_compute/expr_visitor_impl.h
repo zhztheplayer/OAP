@@ -4,6 +4,7 @@
 #include <chrono>
 #include <memory>
 #include "codegen/arrow_compute/ext/kernels_ext.h"
+#include "utils/macros.h"
 
 namespace sparkcolumnarplugin {
 namespace codegen {
@@ -94,11 +95,7 @@ class SplitArrayListWithActionVisitorImpl : public ExprVisitorImpl {
           auto col = p_->in_record_batch_->column(col_id);
           col_list.push_back(col);
         }
-        auto start = std::chrono::steady_clock::now();
-        RETURN_NOT_OK(kernel_->Evaluate(col_list, p_->in_array_));
-        auto end = std::chrono::steady_clock::now();
-        p_->elapse_time_ +=
-            std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        TIME_MICRO_OR_RAISE(p_->elapse_time_, kernel_->Evaluate(col_list, p_->in_array_));
         finish_return_type_ = ArrowComputeResultType::Batch;
         p_->dependency_result_type_ = ArrowComputeResultType::None;
       } break;
@@ -263,11 +260,7 @@ class EncodeVisitorImpl : public ExprVisitorImpl {
               "batch numColumns.");
         }
         auto col = p_->in_record_batch_->column(col_id_);
-        auto start = std::chrono::steady_clock::now();
-        RETURN_NOT_OK(kernel_->Evaluate(col, &p_->result_array_));
-        auto end = std::chrono::steady_clock::now();
-        p_->elapse_time_ +=
-            std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        TIME_MICRO_OR_RAISE(p_->elapse_time_, kernel_->Evaluate(col, &p_->result_array_));
         p_->return_type_ = ArrowComputeResultType::Array;
       } break;
       default:
@@ -318,11 +311,7 @@ class SortArraysToIndicesVisitorImpl : public ExprVisitorImpl {
               "batch numColumns.");
         }
         auto col = p_->in_record_batch_->column(col_id_);
-        auto start = std::chrono::steady_clock::now();
         RETURN_NOT_OK(kernel_->Evaluate(col));
-        auto end = std::chrono::steady_clock::now();
-        p_->elapse_time_ +=
-            std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         finish_return_type_ = ArrowComputeResultType::Array;
       } break;
       default:
@@ -336,7 +325,7 @@ class SortArraysToIndicesVisitorImpl : public ExprVisitorImpl {
     RETURN_NOT_OK(ExprVisitorImpl::Finish());
     switch (finish_return_type_) {
       case ArrowComputeResultType::Array: {
-        RETURN_NOT_OK(kernel_->Finish(&p_->result_array_));
+        TIME_MICRO_OR_RAISE(p_->elapse_time_, kernel_->Finish(&p_->result_array_));
         p_->return_type_ = ArrowComputeResultType::Array;
       } break;
       default: {
@@ -398,11 +387,7 @@ class ShuffleArrayListVisitorImpl : public ExprVisitorImpl {
           auto col = p_->in_record_batch_->column(col_id);
           col_list.push_back(col);
         }
-        auto start = std::chrono::steady_clock::now();
         RETURN_NOT_OK(kernel_->Evaluate(col_list));
-        auto end = std::chrono::steady_clock::now();
-        p_->elapse_time_ +=
-            std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         finish_return_type_ = ArrowComputeResultType::Batch;
       } break;
       default:
@@ -424,7 +409,7 @@ class ShuffleArrayListVisitorImpl : public ExprVisitorImpl {
     RETURN_NOT_OK(kernel_->SetDependencyInput(p_->in_array_));
     switch (finish_return_type_) {
       case ArrowComputeResultType::Batch: {
-        RETURN_NOT_OK(kernel_->Finish(&p_->result_batch_));
+        TIME_MICRO_OR_RAISE(p_->elapse_time_, kernel_->Finish(&p_->result_batch_));
         p_->return_type_ = ArrowComputeResultType::Batch;
       } break;
       default:

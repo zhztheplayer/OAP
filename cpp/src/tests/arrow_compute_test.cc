@@ -291,9 +291,15 @@ TEST(TestArrowCompute, SortWithMultipleBatchTest) {
       TreeExprBuilder::MakeFunction("sortArraysToIndices", {arg_0}, uint32());
   auto n_sort = TreeExprBuilder::MakeFunction(
       "shuffleArrayList", {n_sort_to_indices, arg_0, arg_1}, uint32());
+  auto n_action_0 =
+      TreeExprBuilder::MakeFunction("action_dono", {n_sort, arg_0}, uint32());
+  auto n_action_1 =
+      TreeExprBuilder::MakeFunction("action_dono", {n_sort, arg_1}, uint32());
 
-  auto sort_expr = TreeExprBuilder::MakeExpression(n_sort, f0);
-  std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {sort_expr};
+  auto sort_expr_0 = TreeExprBuilder::MakeExpression(n_action_0, f0);
+  auto sort_expr_1 = TreeExprBuilder::MakeExpression(n_action_1, f1);
+  std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {sort_expr_0,
+                                                                     sort_expr_1};
   auto sch = arrow::schema({f0, f1});
   std::vector<std::shared_ptr<Field>> ret_types = {f0, f1};
   ///////////////////// Calculation //////////////////

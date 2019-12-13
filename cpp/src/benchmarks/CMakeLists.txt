@@ -1,0 +1,1 @@
+package_add_benchmark(BenchmarkArrowCompute arrow_compute_benchmark.cc)
