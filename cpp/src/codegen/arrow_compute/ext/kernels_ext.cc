@@ -191,7 +191,7 @@ class ShuffleArrayListKernel::Impl {
       auto col_list = input_cache_[i];
       auto action = action_list_[i];
       std::function<arrow::Status(uint64_t, uint64_t)> func;
-      action->Submit(col_list, &func);
+      action->Submit(col_list, in_indices_->length(), &func);
       eval_func_list.push_back(func);
     }
 

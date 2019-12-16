@@ -318,12 +318,29 @@ TEST(TestArrowCompute, SortWithMultipleBatchTest) {
   MakeInputBatch(input_data_string_2, sch, &input_batch);
   ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
 
+  std::vector<std::string> input_data_string_3 = {"[3, 64, 15, 7, 9, 19, 33]",
+                                                  "[4, 65, 16, 8, 10, 20, 34]"};
+  MakeInputBatch(input_data_string_3, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_4 = {"[23, 17, 41, 18, 20, 35, 30]",
+                                                  "[24, 18, 42, 19, 21, 36, 31]"};
+  MakeInputBatch(input_data_string_4, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_5 = {"[37, null, 22, 13, 8, 59, 21]",
+                                                  "[38, 67, 23, 14, 9, 60, 22]"};
+  MakeInputBatch(input_data_string_5, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
   ASSERT_NOT_OK(expr->finish(&result_batch));
 
   std::shared_ptr<arrow::RecordBatch> expected_result;
   std::vector<std::string> expected_result_string = {
-      "[1, 2, 4, 6, 10, 11, 12, 14, 32, 42, 43, 50, 52, null]",
-      "[2, 3, 5, 7, 11, 12, 13, null, 33, 43, 44, 51, null, 34]"};
+      "[1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 30, "
+      "32, 33, 35, 37, 41, 42, 43, 50, 52, 59, 64, null, null]",
+      "[2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, null, 16, 18, 19, 20, 21, 22, 23, 24, "
+      "31, 33, 34, 36, 38, 42, 43, 44, 51, null, 60, 65, 67, 34]"};
   MakeInputBatch(expected_result_string, sch, &expected_result);
   ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
 }
