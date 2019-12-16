@@ -132,7 +132,7 @@ TEST_F(BenchmarkArrowCompute, GroupByAggregateBenchmark) {
   Start();
 }
 
-/*TEST_F(BenchmarkArrowCompute, SortBenchmark) {
+TEST_F(BenchmarkArrowCompute, SortBenchmark) {
   // prepare expression
   std::vector<std::shared_ptr<::gandiva::Node>> field_node_list;
   for (auto field : field_list) {
@@ -155,13 +155,9 @@ TEST_F(BenchmarkArrowCompute, GroupByAggregateBenchmark) {
     ret_field_list.push_back(field);
   }
 
-  //auto sort_expr = TreeExprBuilder::MakeExpression(n_sort_to_indices,
-  //field_list[0]); expr_vector.push_back(sort_expr);
-  //ret_field_list.push_back(field_list[0]);
-
-///////////////////// Calculation //////////////////
-Start();
-}*/
+  ///////////////////// Calculation //////////////////
+  Start();
+}
 
 }  // namespace codegen
 }  // namespace sparkcolumnarplugin

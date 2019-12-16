@@ -39,6 +39,7 @@ class ActionBase {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
   }
   virtual arrow::Status Submit(std::vector<std::shared_ptr<arrow::Array>> in,
+                               uint64_t reserved_length,
                                std::function<arrow::Status(uint64_t, uint64_t)>* out) {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
   }
@@ -267,10 +268,7 @@ class SumAction : public ActionBase {
 template <typename DataType>
 class ShuffleAction : public ActionBase {
  public:
-  ShuffleAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
-    MakeArrayBuilder<ResArrayType, ResDataType>(
-        arrow::TypeTraits<ResDataType>::type_singleton(), ctx_->memory_pool(), &builder_);
-  }
+  ShuffleAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
   ~ShuffleAction() {
 #ifdef DEBUG
     std::cout << "Destruct ShuffleAction" << std::endl;
@@ -278,10 +276,23 @@ class ShuffleAction : public ActionBase {
   }
 
   arrow::Status Submit(std::vector<std::shared_ptr<arrow::Array>> in,
+                       uint64_t reserved_length,
                        std::function<arrow::Status(uint64_t, uint64_t)>* out) override {
+    for (auto array : in) {
+      typed_arrays_.push_back(std::dynamic_pointer_cast<ResArrayType>(array));
+    }
+    std::unique_ptr<arrow::ArrayBuilder> builder;
+    RETURN_NOT_OK(arrow::MakeBuilder(
+        ctx_->memory_pool(), arrow::TypeTraits<ResDataType>::type_singleton(), &builder));
+    builder_.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
+    builder_->Reserve(reserved_length);
     // prepare evaluate lambda
-    *out = [this, in](uint64_t array_id, uint64_t id) {
-      builder_->AppendArrayItem(in[array_id].get(), 0, id);
+    *out = [this](uint64_t array_id, uint64_t id) {
+      if (typed_arrays_[array_id]->IsNull(id)) {
+        builder_->UnsafeAppendNull();
+      } else {
+        builder_->UnsafeAppend(typed_arrays_[array_id]->Value(id));
+      }
       return arrow::Status::OK();
     };
     return arrow::Status::OK();
@@ -295,10 +306,12 @@ class ShuffleAction : public ActionBase {
  private:
   using ResDataType = DataType;
   using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
+  using BuilderType = typename arrow::TypeTraits<ResDataType>::BuilderType;
   // input
   arrow::compute::FunctionContext* ctx_;
+  std::vector<std::shared_ptr<ResArrayType>> typed_arrays_;
   // result
-  std::shared_ptr<ArrayBuilderImpl<ResArrayType, ResDataType>> builder_;
+  std::shared_ptr<BuilderType> builder_;
 };
 
 ///////////////////// Public Functions //////////////////
