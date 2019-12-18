@@ -1,1 +1,2 @@
 package_add_benchmark(BenchmarkArrowCompute arrow_compute_benchmark.cc)
+package_add_benchmark(BenchmarkArrowComputeBigScale arrow_compute_benchmark_big_scale.cc)
