@@ -1,10 +1,12 @@
 #pragma once
 
 #include <arrow/pretty_print.h>
+#include <arrow/record_batch.h>
 #include <arrow/type.h>
 #include <chrono>
 #include "codegen/arrow_compute/expr_visitor.h"
 #include "codegen/code_generator.h"
+#include "codegen/common/result_iterator.h"
 #include "utils/macros.h"
 
 namespace sparkcolumnarplugin {
@@ -144,6 +146,17 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     return status;
   }
 
+  arrow::Status finish(
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) override {
+    for (auto visitor : visitor_list_) {
+      TIME_MICRO_OR_RAISE(finish_elapse_time_,
+                          visitor->MakeResultIterator(arrow::schema(ret_types_), out));
+      visitor->PrintMetrics();
+      std::cout << std::endl;
+    }
+    return arrow::Status::OK();
+  }
+
  private:
   std::vector<std::shared_ptr<ExprVisitor>> visitor_list_;
   std::shared_ptr<arrow::Schema> schema_;
@@ -241,7 +254,7 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     fields->insert(fields->end(), return_fields.begin(), return_fields.end());
     return status;
   }
-};
+};  // namespace arrowcompute
 }  // namespace arrowcompute
 }  // namespace codegen
 }  // namespace sparkcolumnarplugin

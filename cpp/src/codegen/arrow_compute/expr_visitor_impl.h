@@ -4,6 +4,7 @@
 #include <chrono>
 #include <memory>
 #include "codegen/arrow_compute/ext/kernels_ext.h"
+#include "codegen/common/result_iterator.h"
 #include "utils/macros.h"
 
 namespace sparkcolumnarplugin {
@@ -27,6 +28,13 @@ class ExprVisitorImpl {
               << p_ << std::endl;
 #endif
     return arrow::Status::OK();
+  }
+
+  virtual arrow::Status MakeResultIterator(
+      std::shared_ptr<arrow::Schema> schema,
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) {
+    return arrow::Status::NotImplemented("ExprVisitorImpl ", p_->func_name_,
+                                         " MakeResultIterator is abstract.");
   }
 
  protected:
@@ -411,6 +419,30 @@ class ShuffleArrayListVisitorImpl : public ExprVisitorImpl {
       case ArrowComputeResultType::Batch: {
         TIME_MICRO_OR_RAISE(p_->elapse_time_, kernel_->Finish(&p_->result_batch_));
         p_->return_type_ = ArrowComputeResultType::Batch;
+      } break;
+      default:
+        return arrow::Status::Invalid(
+            "ShuffleArrayListVisitorImpl Finish does not support dependency type "
+            "other "
+            "than Batch and BatchList.");
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status MakeResultIterator(
+      std::shared_ptr<arrow::Schema> schema,
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) override {
+    if (!p_->in_array_) {
+      return arrow::Status::Invalid(
+          "ShuffleArrayListVisitorImpl depends on an indices array to indicate "
+          "shuffle, "
+          "while input_array is invalid.");
+    }
+    RETURN_NOT_OK(kernel_->SetDependencyInput(p_->in_array_));
+    switch (finish_return_type_) {
+      case ArrowComputeResultType::Batch: {
+        TIME_MICRO_OR_RAISE(p_->elapse_time_, kernel_->MakeResultIterator(schema, out));
+        p_->return_type_ = ArrowComputeResultType::BatchIterator;
       } break;
       default:
         return arrow::Status::Invalid(

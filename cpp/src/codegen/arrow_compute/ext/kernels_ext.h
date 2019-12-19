@@ -3,6 +3,7 @@
 #include <arrow/array.h>
 #include <arrow/compute/context.h>
 #include <arrow/status.h>
+#include "codegen/common/result_iterator.h"
 
 using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
 
@@ -15,43 +16,52 @@ class KernalBase {
   KernalBase() {}
   ~KernalBase() {}
   virtual arrow::Status Evaluate(const ArrayList& in) {
-    return arrow::Status::NotImplemented("This is abstract interface for ", kernel_name_,
-                                         ", input is arrayList.");
+    return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
+                                         kernel_name_, ", input is arrayList.");
   }
   virtual arrow::Status Evaluate(const ArrayList& in,
                                  const std::shared_ptr<arrow::Array>& dict) {
-    return arrow::Status::NotImplemented("This is abstract interface for ", kernel_name_,
-                                         ", input is arrayList and array.");
+    return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
+                                         kernel_name_, ", input is arrayList and array.");
   }
   virtual arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
-    return arrow::Status::NotImplemented("This is abstract interface for ", kernel_name_,
-                                         ", input is array.");
+    return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
+                                         kernel_name_, ", input is array.");
   }
   virtual arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in, int group_id) {
-    return arrow::Status::NotImplemented("This is abstract interface for ", kernel_name_,
-                                         ", input is array and group_id");
+    return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
+                                         kernel_name_, ", input is array and group_id");
   }
   virtual arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in,
                                  std::shared_ptr<arrow::Array>* out) {
-    return arrow::Status::NotImplemented("This is abstract interface for ", kernel_name_,
-                                         ", input is array, putput is array.");
+    return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
+                                         kernel_name_,
+                                         ", input is array, output is array.");
   }
   virtual arrow::Status Finish(ArrayList* out) {
-    return arrow::Status::NotImplemented("This is abstract interface for ", kernel_name_,
-                                         ", output is arrayList");
+    return arrow::Status::NotImplemented("Finish is abstract interface for ",
+                                         kernel_name_, ", output is arrayList");
   }
   virtual arrow::Status Finish(std::vector<ArrayList>* out) {
-    return arrow::Status::NotImplemented("This is abstract interface for ", kernel_name_,
-                                         ", output is batchList");
+    return arrow::Status::NotImplemented("Finish is abstract interface for ",
+                                         kernel_name_, ", output is batchList");
   }
   virtual arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
-    return arrow::Status::NotImplemented("This is abstract interface for ", kernel_name_,
-                                         ", output is array");
+    return arrow::Status::NotImplemented("Finish is abstract interface for ",
+                                         kernel_name_, ", output is array");
   }
   virtual arrow::Status SetDependencyInput(const std::shared_ptr<arrow::Array>& in) {
-    return arrow::Status::NotImplemented("This is abstract interface for ", kernel_name_,
-                                         ", input is array");
+    return arrow::Status::NotImplemented("SetDependencyInput is abstract interface for ",
+                                         kernel_name_, ", input is array");
   }
+
+  virtual arrow::Status MakeResultIterator(
+      std::shared_ptr<arrow::Schema> schema,
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) {
+    return arrow::Status::NotImplemented("MakeResultIterator is abstract interface for ",
+                                         kernel_name_);
+  }
+
   std::string kernel_name_;
 };
 
@@ -84,6 +94,9 @@ class ShuffleArrayListKernel : public KernalBase {
   arrow::Status Evaluate(const ArrayList& in) override;
   arrow::Status Finish(ArrayList* out) override;
   arrow::Status SetDependencyInput(const std::shared_ptr<arrow::Array>& in) override;
+  arrow::Status MakeResultIterator(
+      std::shared_ptr<arrow::Schema> schema,
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) override;
 
  private:
   class Impl;

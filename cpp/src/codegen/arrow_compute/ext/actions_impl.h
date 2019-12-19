@@ -46,6 +46,9 @@ class ActionBase {
   virtual arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
     return arrow::Status::NotImplemented("ActionBase Finish is abstract.");
   }
+  virtual arrow::Status FinishAndReset(std::shared_ptr<arrow::Array>* out) {
+    return arrow::Status::NotImplemented("ActionBase FinishAndReset is abstract.");
+  }
 };
 
 //////////////// UniqueAction ///////////////
@@ -300,6 +303,12 @@ class ShuffleAction : public ActionBase {
 
   arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override {
     RETURN_NOT_OK(builder_->Finish(out));
+    return arrow::Status::OK();
+  }
+
+  arrow::Status FinishAndReset(std::shared_ptr<arrow::Array>* out) override {
+    RETURN_NOT_OK(builder_->Finish(out));
+    builder_->Reset();
     return arrow::Status::OK();
   }
 

@@ -4,6 +4,7 @@ import java.util.concurrent.TimeUnit._
 import com.google.common.collect.Lists
 
 import com.intel.sparkColumnarPlugin.vectorized.ExpressionEvaluator
+import com.intel.sparkColumnarPlugin.vectorized.BatchIterator
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions._
@@ -75,6 +76,12 @@ class ColumnarSorter(
   var sorter = new ExpressionEvaluator()
   val arrowSchema = new Schema(inputFieldList.asJava)
 
+  val resultSchema = StructType(outputAttributes.map(expr => {
+    val attr = ConverterUtils.getAttrFromExpr(expr)
+    StructField(s"${attr.name}", attr.dataType, true)
+  }).toArray)
+  val recordBatchSchema = new Schema(outputFieldList.asJava)
+
   logInfo(s"inputFieldList is ${inputFieldList}, outputFieldList is ${outputFieldList}")
   sorter.build(arrowSchema, gandivaExpressionTree.asJava, true/*return at finish*/)
 
@@ -92,73 +99,79 @@ class ColumnarSorter(
     sorter.evaluate(input_batch)
   }
 
-  def getSorterResult(): ColumnarBatch = {
-    val resultSchema = StructType(outputAttributes.map(expr => {
-      val attr = ConverterUtils.getAttrFromExpr(expr)
-      StructField(s"${attr.name}", attr.dataType, true)
-    }).toArray)
+  def getSorterResultByIterator(): BatchIterator = {
+    if (processedNumRows == 0) {
+      return new BatchIterator();
+    }
+    return sorter.finishByIterator();
+  }
 
-    val res = if (processedNumRows == 0) {
+  def getSorterResult(resultBatch: ArrowRecordBatch): ColumnarBatch = {
+    if (resultBatch == null) {
       val resultColumnVectors =
         ArrowWritableColumnVector.allocateColumns(0, resultSchema).toArray
       new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), 0)
     } else {
-      val finalResultRecordBatchList = sorter.finish()
-      if (finalResultRecordBatchList.size == 0) {
-        val resultColumnVectors =
-          ArrowWritableColumnVector.allocateColumns(0, resultSchema).toArray
-        new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), 0)
-      } else {
-        val recordBatchSchema = new Schema(outputFieldList.asJava)
-        val resultColumnVectorList = ConverterUtils.fromArrowRecordBatch(
-          recordBatchSchema, finalResultRecordBatchList(0))
+      val resultColumnVectorList = ConverterUtils.fromArrowRecordBatch(
+        recordBatchSchema, resultBatch)
 
-        val finalColumnarBatch = new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]), finalResultRecordBatchList(0).getLength())
-        ConverterUtils.releaseArrowRecordBatchList(finalResultRecordBatchList)
-        finalColumnarBatch
-      }
+      new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]), resultBatch.getLength())
     }
-    ConverterUtils.releaseArrowRecordBatchList(inputBatchHolder.toArray)
-    res
   }
 
   def createIterator(cbIterator: Iterator[ColumnarBatch]): Iterator[ColumnarBatch] = {
     new Iterator[ColumnarBatch] {
       var cb: ColumnarBatch = null
+      var nextBatch: ArrowRecordBatch = null
+      var batchIterator: BatchIterator = null
+      var eval_elapse : Long = 0
+      var finish_elapse : Long = 0
+      var elapse: Long = 0
 
       override def hasNext: Boolean = {
-        cbIterator.hasNext
-      }
+        if (batchIterator == null) {
+          val beforeSort = System.nanoTime()
+          while (cbIterator.hasNext) {
+            if (cb != null) {
+              cb.close()
+              cb = null
+            }
+            cb = cbIterator.next()
 
-      override def next(): ColumnarBatch = {
-        val beforeSort = System.nanoTime()
-        var eval_elapse : Long = 0
-        var finish_elapse : Long = 0
-        while (cbIterator.hasNext) {
+            val beforeEval = System.nanoTime()
+            if (cb.numRows > 0) {
+              updateSorterResult(cb)
+              processedNumRows += cb.numRows
+              numInputBatches += 1
+            }
+            eval_elapse += System.nanoTime() - beforeEval
+          }
           if (cb != null) {
             cb.close()
             cb = null
           }
-          cb = cbIterator.next()
+          elapse = System.nanoTime() - beforeSort
+          sortTime.set(NANOSECONDS.toMillis(elapse))
+          batchIterator = getSorterResultByIterator()
+        }
 
-          val beforeEval = System.nanoTime()
-          if (cb.numRows > 0) {
-            updateSorterResult(cb)
-            processedNumRows += cb.numRows
-            numInputBatches += 1
-          }
-          eval_elapse += System.nanoTime() - beforeEval
-        }
         val beforeFinish = System.nanoTime()
-        val outputBatch = getSorterResult()
+        nextBatch = batchIterator.next()
         finish_elapse += System.nanoTime() - beforeFinish
-        val elapse = System.nanoTime() - beforeSort
-        sortTime.set(NANOSECONDS.toMillis(elapse))
-        logInfo(s"Sort Completed, total processed ${numInputBatches} batches, took ${NANOSECONDS.toMillis(elapse)} ms handling one file(including fetching + processing), took ${NANOSECONDS.toMillis(eval_elapse)} ms doing evaluation, ${NANOSECONDS.toMillis(finish_elapse)} ms doing finish process.");
-        if (cb != null) {
-          cb.close()
-          cb = null
+
+        if (nextBatch == null) {
+          ConverterUtils.releaseArrowRecordBatchList(inputBatchHolder.toArray)
+          logInfo(s"Sort Completed, total processed ${numInputBatches} batches, took ${NANOSECONDS.toMillis(elapse)} ms handling one file(including fetching + processing), took ${NANOSECONDS.toMillis(eval_elapse)} ms doing evaluation, ${NANOSECONDS.toMillis(finish_elapse)} ms doing finish process.");
+          return false;
+        } else {
+          return true;
         }
+      }
+
+      override def next(): ColumnarBatch = {
+        val outputBatch = getSorterResult(nextBatch)
+        ConverterUtils.releaseArrowRecordBatch(nextBatch)
+
         outputBatch
       }
     }

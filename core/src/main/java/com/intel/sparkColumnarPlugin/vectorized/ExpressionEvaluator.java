@@ -89,6 +89,11 @@ public class ExpressionEvaluator {
     return recordBatchList;
   }
 
+  public BatchIterator finishByIterator() throws RuntimeException, IOException {
+    long batchIteratorInstance = jniWrapper.nativeFinishByIterator(nativeHandler);
+    return new BatchIterator(batchIteratorInstance);
+  }
+
   public void close() {
     jniWrapper.nativeClose(nativeHandler);
   }
