@@ -66,6 +66,14 @@ public class ExpressionEvaluatorJniWrapper {
   native ArrowRecordBatchBuilder[] nativeFinish(long nativeHandler) throws RuntimeException;
 
   /**
+   * Call Finish to get result, result will be as a iterator.
+   *
+   * @param nativeHandler nativeHandler that needs to be closed
+   * @return iterator instance id
+   */
+  native long nativeFinishByIterator(long nativeHandler) throws RuntimeException;
+
+  /**
    * Closes the projector referenced by nativeHandler.
    *
    * @param nativeHandler nativeHandler that needs to be closed

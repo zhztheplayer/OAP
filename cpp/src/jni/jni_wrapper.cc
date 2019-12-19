@@ -2,12 +2,14 @@
 #include <arrow/io/memory.h>
 #include <arrow/ipc/api.h>
 #include <arrow/ipc/dictionary.h>
+#include <arrow/record_batch.h>
 #include <gandiva/jni/protobuf_utils.h>
 #include <jni.h>
 #include <iostream>
 #include <string>
 
 #include "codegen/code_generator_factory.h"
+#include "codegen/common/result_iterator.h"
 #include "jni/concurrent_map.h"
 #include "jni/jni_common.h"
 
@@ -34,9 +36,21 @@ static jint JNI_VERSION = JNI_VERSION_1_8;
 
 using CodeGenerator = sparkcolumnarplugin::codegen::CodeGenerator;
 static arrow::jni::ConcurrentMap<std::shared_ptr<CodeGenerator>> handler_holder_;
+static arrow::jni::ConcurrentMap<std::shared_ptr<ResultIterator<arrow::RecordBatch>>>
+    batch_iterator_holder_;
 
 std::shared_ptr<CodeGenerator> GetCodeGenerator(JNIEnv* env, jlong id) {
   auto handler = handler_holder_.Lookup(id);
+  if (!handler) {
+    std::string error_message = "invalid handler id " + std::to_string(id);
+    env->ThrowNew(illegal_argument_exception_class, error_message.c_str());
+  }
+  return handler;
+}
+
+std::shared_ptr<ResultIterator<arrow::RecordBatch>> GetBatchIterator(JNIEnv* env,
+                                                                     jlong id) {
+  auto handler = batch_iterator_holder_.Lookup(id);
   if (!handler) {
     std::string error_message = "invalid handler id " + std::to_string(id);
     env->ThrowNew(illegal_argument_exception_class, error_message.c_str());
@@ -296,6 +310,48 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
   }
 
   return record_batch_builder_array;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeFinishByIterator(
+    JNIEnv* env, jobject obj, jlong id) {
+  arrow::Status status;
+  std::shared_ptr<CodeGenerator> handler = GetCodeGenerator(env, id);
+  std::shared_ptr<ResultIterator<arrow::RecordBatch>> out;
+  status = handler->finish(&out);
+  if (!status.ok()) {
+    std::string error_message =
+        "nativeFinishForIterator: finish failed with error msg " + status.ToString();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  return batch_iterator_holder_.Insert(
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>(out));
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_intel_sparkColumnarPlugin_vectorized_BatchIterator_nativeNext(JNIEnv* env,
+                                                                       jobject obj,
+                                                                       jlong id) {
+  arrow::Status status;
+  auto iter = GetBatchIterator(env, id);
+  std::shared_ptr<arrow::RecordBatch> out;
+  if (!iter->HasNext()) return nullptr;
+  status = iter->Next(&out);
+  if (!status.ok()) {
+    std::string error_message =
+        "nativeNext: get Next() failed with error msg " + status.ToString();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  return MakeRecordBatchBuilder(env, out->schema(), out);
+}
+
+JNIEXPORT void JNICALL
+Java_com_intel_sparkColumnarPlugin_vectorized_BatchIterator_nativeClose(JNIEnv* env,
+                                                                        jobject this_obj,
+                                                                        jlong id) {
+  batch_iterator_holder_.Erase(id);
 }
 
 JNIEXPORT void JNICALL
