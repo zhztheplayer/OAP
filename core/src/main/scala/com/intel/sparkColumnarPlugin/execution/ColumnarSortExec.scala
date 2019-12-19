@@ -32,16 +32,20 @@ extends SortExec(
   override def supportCodegen: Boolean = false
 
   override lazy val metrics = Map(
-    "sortTime" -> SQLMetrics.createTimingMetric(sparkContext, "time in sort process"))
+    "sortTime" -> SQLMetrics.createTimingMetric(sparkContext, "time in sort process"),
+    "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
+    "numOutputBatches" -> SQLMetrics.createMetric(sparkContext, "number of output batches"))
 
   override def doExecuteColumnar(): RDD[ColumnarBatch] = {
     val sortTime = longMetric("sortTime")
+    val numOutputRows = longMetric("numOutputRows")
+    val numOutputBatches = longMetric("numOutputBatches")
     child.executeColumnar().mapPartitions{ iter =>
       val hasInput = iter.hasNext
       val res = if (!hasInput) {
         Iterator.empty
       } else {
-        val sorter = ColumnarSorter.create(sortOrder, child.output, sortTime)
+        val sorter = ColumnarSorter.create(sortOrder, child.output, sortTime, numOutputBatches, numOutputRows)
         TaskContext.get().addTaskCompletionListener[Unit](_ => {
           sorter.close()
         })
