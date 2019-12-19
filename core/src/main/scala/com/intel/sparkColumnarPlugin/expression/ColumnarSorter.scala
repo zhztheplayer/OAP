@@ -33,7 +33,9 @@ import scala.collection.mutable.ArrayBuffer
 class ColumnarSorter(
     sortOrder: Seq[SortOrder],
     outputAttributes: Seq[Attribute],
-    sortTime: SQLMetric)
+    sortTime: SQLMetric,
+    outputBatches: SQLMetric,
+    outputRows: SQLMetric)
     extends Logging {
 
   logInfo(s"ColumnarSorter sortOrder is ${sortOrder}, outputAttributes is ${outputAttributes}")
@@ -161,10 +163,12 @@ class ColumnarSorter(
 
         if (nextBatch == null) {
           ConverterUtils.releaseArrowRecordBatchList(inputBatchHolder.toArray)
-          logInfo(s"Sort Completed, total processed ${numInputBatches} batches, took ${NANOSECONDS.toMillis(elapse)} ms handling one file(including fetching + processing), took ${NANOSECONDS.toMillis(eval_elapse)} ms doing evaluation, ${NANOSECONDS.toMillis(finish_elapse)} ms doing finish process.");
-          return false;
+          logInfo(s"Sort Completed, total processed ${numInputBatches} batches, ${processedNumRows} rows, took ${NANOSECONDS.toMillis(elapse)} ms handling one file(including fetching + processing), ${NANOSECONDS.toMillis(finish_elapse)} ms doing finish process.")
+          return false
         } else {
-          return true;
+          outputBatches += 1
+          outputRows += nextBatch.getLength()
+          return true
         }
       }
 
@@ -184,11 +188,15 @@ object ColumnarSorter {
   def create(
       sortOrder: Seq[SortOrder],
       outputAttributes: Seq[Attribute],
-      sortTime: SQLMetric): ColumnarSorter = synchronized {
+      sortTime: SQLMetric,
+      outputBatches: SQLMetric,
+      outputRows: SQLMetric): ColumnarSorter = synchronized {
     columnarSorter = new ColumnarSorter(
       sortOrder,
       outputAttributes,
-      sortTime)
+      sortTime,
+      outputBatches,
+      outputRows)
     columnarSorter
   }
 

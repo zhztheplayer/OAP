@@ -273,8 +273,7 @@ class ShuffleArrayListKernel::Impl {
         for (auto eval_func : eval_func_list_) {
           eval_func(item->array_id, item->id);
         }
-        row_id_++;
-        if (row_id_ >= total_length_) break;
+        if (row_id_++ >= total_length_) break;
       }
 
       std::vector<std::shared_ptr<arrow::Array>> out_array_list;
@@ -295,7 +294,7 @@ class ShuffleArrayListKernel::Impl {
     std::vector<std::shared_ptr<extra::ActionBase>> action_list_;
     ArrayItemIndex* data_;
     uint64_t total_length_;
-    uint64_t row_id_;
+    uint64_t row_id_ = 0;
   };
 };
 

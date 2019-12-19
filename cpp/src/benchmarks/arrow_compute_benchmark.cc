@@ -92,6 +92,7 @@ class BenchmarkArrowCompute : public ::testing::Test {
     uint64_t elapse_read = 0;
     uint64_t elapse_eval = 0;
     uint64_t num_batches = 0;
+    uint64_t num_rows = 0;
 
     TIME_MICRO_OR_THROW(elapse_gen, CreateCodeGenerator(schema, expr_vector,
                                                         ret_field_list, &expr, true));
@@ -111,11 +112,12 @@ class BenchmarkArrowCompute : public ::testing::Test {
     while (it->HasNext()) {
       TIME_MICRO_OR_THROW(elapse_eval, it->Next(&out));
       num_output_batches++;
+      num_rows += out->num_rows();
     }
 
     std::cout << "BenchmarkArrowCompute processed " << num_batches
-              << " batches, then output " << num_output_batches
-              << " batches, to complete, it took " << TIME_TO_STRING(elapse_gen)
+              << " batches, then output " << num_output_batches << " batches with "
+              << num_rows << " rows, to complete, it took " << TIME_TO_STRING(elapse_gen)
               << " doing codegen, took " << TIME_TO_STRING(elapse_read)
               << " doing BatchRead, took " << TIME_TO_STRING(elapse_eval)
               << " doing Batch Evaluation." << std::endl;
