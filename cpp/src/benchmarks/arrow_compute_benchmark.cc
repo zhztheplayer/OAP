@@ -1,6 +1,7 @@
 #include <arrow/filesystem/filesystem.h>
 #include <arrow/io/interfaces.h>
 #include <arrow/memory_pool.h>
+#include <arrow/pretty_print.h>
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 #include <gandiva/node.h>
@@ -10,6 +11,7 @@
 #include <chrono>
 #include "codegen/code_generator.h"
 #include "codegen/code_generator_factory.h"
+#include "codegen/common/result_iterator.h"
 #include "tests/test_utils.h"
 
 namespace sparkcolumnarplugin {
@@ -67,17 +69,56 @@ class BenchmarkArrowCompute : public ::testing::Test {
       TIME_MICRO_OR_THROW(elapse_read, record_batch_reader->ReadNext(&record_batch));
       if (record_batch) {
         TIME_MICRO_OR_THROW(elapse_eval, expr->evaluate(record_batch, &result_batch));
+        num_batches += 1;
       }
-      num_batches += 1;
     } while (record_batch);
     std::cout << "Readed " << num_batches << " batches." << std::endl;
 
     TIME_MICRO_OR_THROW(elapse_eval, expr->finish(&result_batch));
 
-    std::cout << "BenchmarkArrowCompute processed " << num_batches << " batches, took "
-              << TIME_TO_STRING(elapse_gen) << " doing codegen, took "
-              << TIME_TO_STRING(elapse_read) << " doing BatchRead, took "
-              << TIME_TO_STRING(elapse_eval) << " doing Batch Evaluation." << std::endl;
+    std::cout << "BenchmarkArrowComputeBigScale processed " << num_batches
+              << " batches, took " << TIME_TO_STRING(elapse_gen)
+              << " doing codegen, took " << TIME_TO_STRING(elapse_read)
+              << " doing BatchRead, took " << TIME_TO_STRING(elapse_eval)
+              << " doing Batch Evaluation." << std::endl;
+  }
+
+  void StartWithIterator() {
+    std::shared_ptr<CodeGenerator> expr;
+    std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch;
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    std::shared_ptr<arrow::RecordBatch> out;
+    uint64_t elapse_gen = 0;
+    uint64_t elapse_read = 0;
+    uint64_t elapse_eval = 0;
+    uint64_t num_batches = 0;
+
+    TIME_MICRO_OR_THROW(elapse_gen, CreateCodeGenerator(schema, expr_vector,
+                                                        ret_field_list, &expr, true));
+
+    do {
+      TIME_MICRO_OR_THROW(elapse_read, record_batch_reader->ReadNext(&record_batch));
+      if (record_batch) {
+        TIME_MICRO_OR_THROW(elapse_eval, expr->evaluate(record_batch, &result_batch));
+        num_batches += 1;
+      }
+    } while (record_batch);
+    std::cout << "Readed " << num_batches << " batches." << std::endl;
+
+    std::shared_ptr<ResultIterator<arrow::RecordBatch>> it;
+    uint64_t num_output_batches = 0;
+    TIME_MICRO_OR_THROW(elapse_eval, expr->finish(&it));
+    while (it->HasNext()) {
+      TIME_MICRO_OR_THROW(elapse_eval, it->Next(&out));
+      num_output_batches++;
+    }
+
+    std::cout << "BenchmarkArrowCompute processed " << num_batches
+              << " batches, then output " << num_output_batches
+              << " batches, to complete, it took " << TIME_TO_STRING(elapse_gen)
+              << " doing codegen, took " << TIME_TO_STRING(elapse_read)
+              << " doing BatchRead, took " << TIME_TO_STRING(elapse_eval)
+              << " doing Batch Evaluation." << std::endl;
   }
 
  protected:
@@ -156,7 +197,7 @@ TEST_F(BenchmarkArrowCompute, SortBenchmark) {
   }
 
   ///////////////////// Calculation //////////////////
-  Start();
+  StartWithIterator();
 }
 
 }  // namespace codegen

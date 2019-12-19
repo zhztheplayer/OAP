@@ -67,8 +67,8 @@ class BenchmarkArrowComputeBigScale : public ::testing::Test {
       TIME_MICRO_OR_THROW(elapse_read, record_batch_reader->ReadNext(&record_batch));
       if (record_batch) {
         TIME_MICRO_OR_THROW(elapse_eval, expr->evaluate(record_batch, &result_batch));
+        num_batches += 1;
       }
-      num_batches += 1;
     } while (record_batch);
     std::cout << "Readed " << num_batches << " batches." << std::endl;
 
@@ -76,6 +76,44 @@ class BenchmarkArrowComputeBigScale : public ::testing::Test {
 
     std::cout << "BenchmarkArrowComputeBigScale processed " << num_batches
               << " batches, took " << TIME_TO_STRING(elapse_gen)
+              << " doing codegen, took " << TIME_TO_STRING(elapse_read)
+              << " doing BatchRead, took " << TIME_TO_STRING(elapse_eval)
+              << " doing Batch Evaluation." << std::endl;
+  }
+
+  void StartWithIterator() {
+    std::shared_ptr<CodeGenerator> expr;
+    std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch;
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    std::shared_ptr<arrow::RecordBatch> out;
+    uint64_t elapse_gen = 0;
+    uint64_t elapse_read = 0;
+    uint64_t elapse_eval = 0;
+    uint64_t num_batches = 0;
+
+    TIME_MICRO_OR_THROW(elapse_gen, CreateCodeGenerator(schema, expr_vector,
+                                                        ret_field_list, &expr, true));
+
+    do {
+      TIME_MICRO_OR_THROW(elapse_read, record_batch_reader->ReadNext(&record_batch));
+      if (record_batch) {
+        TIME_MICRO_OR_THROW(elapse_eval, expr->evaluate(record_batch, &result_batch));
+        num_batches += 1;
+      }
+    } while (record_batch);
+    std::cout << "Readed " << num_batches << " batches." << std::endl;
+
+    std::shared_ptr<ResultIterator<arrow::RecordBatch>> it;
+    uint64_t num_output_batches = 0;
+    TIME_MICRO_OR_THROW(elapse_eval, expr->finish(&it));
+    while (it->HasNext()) {
+      TIME_MICRO_OR_THROW(elapse_eval, it->Next(&out));
+      num_output_batches++;
+    }
+
+    std::cout << "BenchmarkArrowCompute processed " << num_batches
+              << " batches, then output " << num_output_batches
+              << " batches, to complete, it took " << TIME_TO_STRING(elapse_gen)
               << " doing codegen, took " << TIME_TO_STRING(elapse_read)
               << " doing BatchRead, took " << TIME_TO_STRING(elapse_eval)
               << " doing Batch Evaluation." << std::endl;
@@ -157,7 +195,7 @@ TEST_F(BenchmarkArrowComputeBigScale, SortBenchmark) {
   }
 
   ///////////////////// Calculation //////////////////
-  Start();
+  StartWithIterator();
 }
 
 }  // namespace codegen

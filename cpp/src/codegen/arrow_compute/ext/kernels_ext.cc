@@ -213,6 +213,28 @@ class ShuffleArrayListKernel::Impl {
     return arrow::Status::OK();
   }
 
+  arrow::Status MakeResultIterator(
+      std::shared_ptr<arrow::Schema> schema,
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) {
+    if (input_cache_.size() == 0 || !in_indices_) {
+      return arrow::Status::Invalid("input data is invalid");
+    }
+
+    std::vector<std::function<arrow::Status(uint64_t, uint64_t)>> eval_func_list;
+    for (int i = 0; i < input_cache_.size(); i++) {
+      auto col_list = input_cache_[i];
+      auto action = action_list_[i];
+      std::function<arrow::Status(uint64_t, uint64_t)> func;
+      action->Submit(col_list, 4096, &func);
+      eval_func_list.push_back(func);
+    }
+
+    *out = std::make_shared<ShuffleArrayListResultIterator>(in_indices_, schema,
+                                                            action_list_, eval_func_list);
+
+    return arrow::Status::OK();
+  }
+
  private:
   arrow::compute::FunctionContext* ctx_;
   std::vector<std::shared_ptr<extra::ActionBase>> action_list_;
@@ -221,6 +243,59 @@ class ShuffleArrayListKernel::Impl {
   struct ArrayItemIndex {
     uint64_t id = 0;
     uint64_t array_id = 0;
+  };
+
+  class ShuffleArrayListResultIterator : public ResultIterator<arrow::RecordBatch> {
+   public:
+    ShuffleArrayListResultIterator(
+        std::shared_ptr<arrow::Array> in_indices, std::shared_ptr<arrow::Schema> schema,
+        std::vector<std::shared_ptr<extra::ActionBase>> action_list,
+        std::vector<std::function<arrow::Status(uint64_t, uint64_t)>> eval_func_list)
+        : action_list_(action_list), eval_func_list_(eval_func_list) {
+      data_ = (ArrayItemIndex*)std::dynamic_pointer_cast<arrow::FixedSizeBinaryArray>(
+                  in_indices)
+                  ->raw_values();
+      total_length_ = in_indices->length();
+      schema_ = schema;
+    }
+
+    bool HasNext() {
+      if (row_id_ < total_length_)
+        return true;
+      else
+        return false;
+    }
+
+    arrow::Status Next(std::shared_ptr<arrow::RecordBatch>* out) {
+      int output_num_rows = 0;
+      for (; output_num_rows < 4096; output_num_rows++) {
+        ArrayItemIndex* item = data_ + row_id_;
+        for (auto eval_func : eval_func_list_) {
+          eval_func(item->array_id, item->id);
+        }
+        row_id_++;
+        if (row_id_ >= total_length_) break;
+      }
+
+      std::vector<std::shared_ptr<arrow::Array>> out_array_list;
+      for (auto action : action_list_) {
+        std::shared_ptr<arrow::Array> arr_out;
+        RETURN_NOT_OK(action->FinishAndReset(&arr_out));
+        out_array_list.push_back(arr_out);
+      }
+
+      *out = arrow::RecordBatch::Make(schema_, output_num_rows, out_array_list);
+
+      return arrow::Status::OK();
+    }
+
+   private:
+    std::shared_ptr<arrow::Schema> schema_;
+    std::vector<std::function<arrow::Status(uint64_t, uint64_t)>> eval_func_list_;
+    std::vector<std::shared_ptr<extra::ActionBase>> action_list_;
+    ArrayItemIndex* data_;
+    uint64_t total_length_;
+    uint64_t row_id_;
   };
 };
 
@@ -250,6 +325,12 @@ arrow::Status ShuffleArrayListKernel::Finish(ArrayList* out) {
 arrow::Status ShuffleArrayListKernel::SetDependencyInput(
     const std::shared_ptr<arrow::Array>& in) {
   return impl_->SetDependencyInput(in);
+}
+
+arrow::Status ShuffleArrayListKernel::MakeResultIterator(
+    std::shared_ptr<arrow::Schema> schema,
+    std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) {
+  return impl_->MakeResultIterator(schema, out);
 }
 
 ///////////////  SortArraysToIndices  ////////////////

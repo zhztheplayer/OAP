@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include "codegen/common/result_iterator.h"
 #include "codegen/common/visitor_base.h"
 #include "utils/macros.h"
 
@@ -21,7 +22,14 @@ class ExprVisitorImpl;
 
 using ExprVisitorMap = std::unordered_map<std::string, std::shared_ptr<ExprVisitor>>;
 using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
-enum class ArrowComputeResultType { Array, ArrayList, Batch, BatchList, None };
+enum class ArrowComputeResultType {
+  Array,
+  ArrayList,
+  Batch,
+  BatchList,
+  BatchIterator,
+  None
+};
 enum class BuilderVisitorNodeType { FunctionNode, FieldNode };
 
 class BuilderVisitor : public VisitorBase {
@@ -90,6 +98,9 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   arrow::Status Reset();
   arrow::Status ResetDependency();
   arrow::Status Finish(std::shared_ptr<ExprVisitor>* finish_visitor);
+  arrow::Status MakeResultIterator(
+      std::shared_ptr<arrow::Schema> schema,
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out);
 
   std::string GetName() { return func_name_; }
 
@@ -142,6 +153,8 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   std::vector<int> result_batch_size_list_;
   // Return fields
   std::vector<std::shared_ptr<arrow::Field>> result_fields_;
+  // This is used when we want to output an ResultIterator<RecordBatch>
+  std::shared_ptr<ResultIterator<arrow::RecordBatch>> result_batch_iterator_;
 
   // Long live variables
   arrow::compute::FunctionContext ctx_;
