@@ -10,9 +10,9 @@
 
 ## Introduction
 
-Apache Spark is a fast and general-purpose cluster computing system. It provides high-level APIs in Java, Scala, Python and R, and an optimized engine that supports general execution graphs. It also supports a rich set of higher-level tools including Spark SQL for SQL and structured data processing, MLlib for machine learning, GraphX for graph processing, and Spark Streaming.
+Apache Spark is a unified analytics engine for large-scale data processing. Spark SQL* is the most popular component of Apache Spark* and it is widely used to process large scale structured data in data center. However, Spark SQL still suffers from stability and performance challenges in the highly dynamic environment with ultra large scale of data for various use cases.
 
-OAP is designed to leverage the user defined indices and smart fine-grained in-memory data caching strategy for boosting Spark SQL performance on ad-hoc queries.
+So we created OAP (Optimized Analytical Package for Spark) to address the performance issues for some of the use cases. OAP is designed to leverage the user defined indices and smart fine-grained in-memory data caching strategy for boosting Spark SQL performance.
 
 
 ![OAP-INTRODUCTION](./image/OAP-Introduction.PNG)
