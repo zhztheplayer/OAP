@@ -7,10 +7,10 @@
 * [Working with OAP Cache](#Working-with-OAP-Cache)
 
 ## Prerequisites
-Before getting started with OAP on Spark, you should have set up a working Hadoop cluster with YARN and Spark. Running Spark on YARN requires a binary distribution of Spark which is built with YARN support. If you don't want to build Spark by yourself, we have a pre-built Spark-2.3.2, you can download ![Spark-2.3.2]() to your master machine.
+Before getting started with OAP on Spark, you should have set up a working Hadoop cluster with YARN and Spark. Running Spark on YARN requires a binary distribution of Spark which is built with YARN support. If you don't want to build Spark by yourself, we have a pre-built Spark-2.3.2, you can download [Spark-2.3.2]() to your master machine.
 ## Getting Started with OAP
 ### Building OAP
-We have a pre-built OAP, you can download ![OAP-0.6.1.jar](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/oap-0.6.0-with-spark-2.3.2.jar) to your master and put the OAP jar to directory such as `/home/oap/jars/`. If you’d like to build OAP from source code, please refer to [Developer Guide](https://github.com/HongW2019/OAP-spark2.4.3/blob/master/docs/Developer-Guide.md).
+We have a pre-built OAP, you can download [OAP-0.6.1.jar](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/oap-0.6.0-with-spark-2.3.2.jar) to your master and put the OAP jar to directory such as `/home/oap/jars/`. If you’d like to build OAP from source code, please refer to [Developer Guide](https://github.com/HongW2019/OAP-spark2.4.3/blob/master/docs/Developer-Guide.md).
 ### Spark Configurations for OAP
 A common deploy mode that can be used to launch Spark applications on YRAN is ***client*** mode. The ***client*** mode is especially suitable for applications such as Spark shell. Before you run ` . $SPARK_HOME/bin/spark-shell ` to launch Spark, firstly you should add the following configurations in the file of `$SPARK_HOME/conf/spark-defaults.conf`
 
@@ -42,7 +42,7 @@ Step 2. Run Spark shell
 ```
 When your Spark shell shows the same as below picture, it means you have run Spark with OAP successfully.
 
-![Spark_shell_running_results](https://github.com/HongW2019/OAP-spark2.4.3/blob/master/docs/image/spark_shell_oap.png)
+![Spark_shell_running_results](./docs/image/spark_shell_oap.png)
 
 ## Configurations for YARN Cluster and Spark Standalone Mode
 ### YARN Cluster Mode
@@ -152,7 +152,7 @@ Step 5. Run query like
 ```
 Then you can find the cache metric with OAP TAB in the spark history Web UI.
 
-![webUI](https://github.com/HongW2019/OAP-spark2.4.3/blob/master/webUI.png)
+![webUI](./image/webUI.png)
 
 
 
