@@ -75,36 +75,38 @@ spark.driver.extraClassPath        /home/oap/jars/oap-0.6-with-spark-2.3.2.jar  
 
 ## Working with OAP Index
 
-You can use SQL DDL(create/drop/refresh/check/show index) to try OAP index function, run Spark with the following example to try OAP index function with Spark shell.
-```
-. $SPARK_HOME/bin/spark-shell
-```
-### Index Creation
-Step 1. Use `CREATE` to create a table with `parquet` file format on corresponding HDFS data path `hdfs:///user/oap/`.
+After a successful OAP integration, you can use OAP SQL DDL to manage table indexs. The DDL operations include index create, drop, refresh and show. You can run Spark Shell to try and test these functions. The below index examples based on an example table created by the following commands in Spark Shell.
+
 ```
 > spark.sql(s"""CREATE TABLE oap_test (a INT, b STRING)
        USING parquet
        OPTIONS (path 'hdfs:///user/oap/')""".stripMargin)
-```
-Step 2. Insert data into table `oap_test`.
-```
 > val data = (1 to 30000).map { i => (i, s"this is test $i") }.toDF().createOrReplaceTempView("t")
-> spark.sql("insert overwrite table oap_test select * from t")
+> spark.sql("insert overwrite table oap_test select * from t")       
 ```
-Step 3. Create index with OAP on `oap_test`
+
+### Index Creation
+Use CREATE OINDEX DDL command to create an B+ Tree index or bitmap index with given name on a table column. The following example creates an B+ Tree index on column "a" of oap_test table.
+
 ```
 > spark.sql("create oindex index1 on oap_test (a)")
+```
+###
+Use SHOW OINDEX command to show all the created indexs on a specified table. For example,
+```
 > spark.sql("show oindex from oap_test").show()
 ```
 ### Use OAP Index
+Using index in query is transparent. When the SQL queries have filter conditions on the column(s) which can table advantage to use the index to filter the data scan, the index will be automatically applied to the execution of Spark SQL. The following example will automatically use the underlayer index created on column "a".
 ```
 > spark.sql("SELECT * FROM oap_test WHERE a = 1").show()
 ```
 ### Drop index
+Use DROP OINDEX command to drop a named index.
 ```
 > spark.sql("drop oindex index1 on oap_test")
 ```
-For  more detailed examples on OAP performance comparation, you can refer to this [page](https://github.com/Intel-bigdata/OAP/wiki/OAP-examples) for further instructions.
+For more detailed examples on OAP performance comparation, you can refer to this [page](https://github.com/Intel-bigdata/OAP/wiki/OAP-examples) for further instructions.
 
 ## Working with OAP Cache
 
