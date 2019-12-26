@@ -283,8 +283,9 @@ Start the thriftserver service by "OAP-TPCDS-Benchmark-Package/scripts/spark_thr
 
       ii. Run the 9 I/O intensive queries.
        
-       ```
-       python run_beeline.py
-       ```
+```
+python run_beeline.py
+```
+      
       When the queries end, you will see the result file result.json in the current executive directory
 
