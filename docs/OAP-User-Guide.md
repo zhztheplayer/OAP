@@ -16,24 +16,24 @@ We have a pre-built OAP, you can download [OAP-0.6.1 for Spark 2.3.2 jar](https:
 ### Spark Configurations for OAP
 Users usually test and run Spark SQL or scala scripts in Spark Shell which launches Spark applications on YRAN with ***client*** mode. In this section, we will start with Spark Shell then introduce other use scenarios. 
 
-Before you run ` . $SPARK_HOME/bin/spark-shell `, you need to configure Spark for OAP integration. You need to add or update the following configurations in the file of `$SPARK_HOME/conf/spark-defaults.conf`
+Before you run ` . $SPARK_HOME/bin/spark-shell `, you need to configure Spark for OAP integration. You need to add or update the following configurations in the Spark configuration file `$SPARK_HOME/conf/spark-defaults.conf` on your working node.
 
 ```
 spark.master                      yarn
 spark.deploy-mode                 client
 spark.sql.extensions              org.apache.spark.sql.OapExtensions
-spark.files                       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar     # absolute path of OAP jar  
+spark.files                       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar     # absolute path of OAP jar on your working node
 spark.executor.extraClassPath     ./oap-0.6-with-spark-2.3.2.jar                  # relative path of OAP jar
-spark.driver.extraClassPath       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar     # absolute path of OAP jar
+spark.driver.extraClassPath       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar     # absolute path of OAP jar on your working node
 ```
 ### Verify Spark with OAP Integration 
-After configuration, you can follow the below steps and verify the OAP integration is working. 
+After configuration, you can follow the below steps and verify the OAP integration is working using Spark Shell.
 
 Step 1. Create a test data path on your HDFS. Take data path `hdfs:///user/oap/` for example.
 ```
 hadoop fs -mkdir /user/oap/
 ```
-Step 2. Luanch Spark Shell using the following command.
+Step 2. Launch Spark Shell using the following command on your working node.
 ```
 . $SPARK_HOME/bin/spark-shell
 ```
@@ -53,30 +53,24 @@ The test create an index on a table and then show the created index. If there is
 
 ## Configurations for YARN Cluster and Spark Standalone Mode
 ### YARN Cluster Mode
-There are two deploy modes that can be used to launch Spark applications on YARN, ***client*** and ***cluster*** mode. if your application is submitted from a machine far from the worker machines (e.g. locally on your laptop), it is common to use ***cluster*** mode to minimize network latency between the drivers and the executors. Launching Applications with spark-submit can support different deploy modes that Spark supports, so you can run spark-submit to use YARN cluster mode.
+Spark Shell and Thrift Sever run Spark application in ***client*** mode. While Spark Submit tool and Spark SQL CLI can run Spark application in ***client*** or ***cluster*** mode deciding by --deploy-mode parameter.  Spark SQL There are two deploy modes that can be used to launch Spark applications on YARN, ***client*** and ***cluster*** mode. The [#Getting Started with OAP] session has shown the configuraitons needed for ***client*** mode. If you are running Spark Submit tool or Spark SQL CLI in ***cluster***mode, you need to following the below configuation steps instead.
 #### Configurations on Spark with OAP on YARN Cluster Mode
-Before run `spark-submit`, you should add below OAP configurations in the file of `$SPARK_HOME/conf/spark-defaults.conf`
+Before run `spark-submit` with ***cluster*** mode, you should add below OAP configurations in the Spark configuration file `$SPARK_HOME/conf/spark-defaults.conf` on your working node.
 ```
 spark.master                      yarn
 spark.deploy-mode                 cluster
 spark.sql.extensions              org.apache.spark.sql.OapExtensions
-spark.files                       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar        # absolute path    
+spark.files                       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar        # absolute path on your working node    
 spark.executor.extraClassPath     ./oap-0.6-with-spark-2.3.2.jar                     # relative path 
 spark.driver.extraClassPath       ./oap-0.6-with-spark-2.3.2.jar                     # relative path
 ```
-Then you can run `spark-submit` with YARN cluster mode
-```
-. $SPARK_HOME/bin/spark-submit \
-  --master yarn \
-  --deploy-mode cluster \
-  ...
-```
+
 ### Spark Standalone Mode
-In addition to running on the YARN cluster managers, Spark also provides a simple standalone deploy mode. If install `Spark Standalone mode`, you simply place a compiled version of Spark and OAP on each node on the cluster.
+In addition to running on the YARN cluster managers, Spark also provides a simple standalone deploy mode. If you are using Spark in Spark Standalone mode, you need to copy the oap jar to ALL the worker nodes. And then set the following configurations in “$SPARK_HOME/conf/spark-defaults” of ALL worker nodes. 
 ```
 spark.sql.extensions               org.apache.spark.sql.OapExtensions
-spark.executor.extraClassPath      /home/oap/jars/oap-0.6-with-spark-2.3.2.jar      # absolute path
-spark.driver.extraClassPath        /home/oap/jars/oap-0.6-with-spark-2.3.2.jar      # absolute path
+spark.executor.extraClassPath      /home/oap/jars/oap-0.6-with-spark-2.3.2.jar      # absolute path on worker nodes
+spark.driver.extraClassPath        /home/oap/jars/oap-0.6-with-spark-2.3.2.jar      # absolute path on worker nodes
 ```
 
 ## Working with OAP Index
