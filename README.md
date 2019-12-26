@@ -7,4 +7,4 @@ Refer to ![OAP Architecture Overview](./docs/OAP-Architect-Overview.md)
 ## OAP User Guide
 Refer to ![OAP User Guide](./docs/OAP-User-Guide.md)
 ## OAP Developer Guide
-Refer to ![OAP Developer Guide](./docs/OAP-Developer-Guide.md)
+Refer to ![OAP Developer Guide](./docs/Developer-Guide.md)
