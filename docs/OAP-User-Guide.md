@@ -5,6 +5,8 @@
 * [YARN Cluster and Spark Standalone Mode](#YARN-Cluster-and-Spark-Standalone-Mode)
 * [Working with OAP Index](#Working-with-OAP-Index)
 * [Working with OAP Cache](#Working-with-OAP-Cache)
+* [Run TPC-DS Benchmark for OAP](#Run-TPC-DS-Benchmark-for-OAP)
+
 
 ## Prerequisites
 Before getting started with OAP on Spark, you should have set up a working Hadoop cluster with YARN and Spark. Running Spark on YARN requires a binary distribution of Spark which is built with YARN support. If you don't want to build Spark by yourself, we have a pre-built Spark-2.3.2, you can download [Spark-2.3.2]() to your master machine.
