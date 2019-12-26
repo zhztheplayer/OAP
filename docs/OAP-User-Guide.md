@@ -253,11 +253,12 @@ sh OAP-TPCDS-Benchmark-Package/scripts/run_gen_data.sh
 
 Start the thriftserver service by "OAP-TPCDS-Benchmark-Package/scripts/spark_thrift_server_yarn_with_DCPMM.sh" using DCPMM as the cache media or by "OAP-TPCDS-Benchmark-Package/scripts/spark_thrift_server_yarn_with_DRAM.sh" using DRAM as the cache media. 
 
-       i. No matter which script you use, you need to modify the variable SPARK_HOME and other Spark configuration items in the script according to the actual environment.
+   i. No matter which script you use, you need to modify the variable SPARK_HOME and other Spark configuration items in the script according to the actual environment.
        
-       ii. Start thriftserver
+   ii. Start thriftserver
        
-       ```
+      
+      ```
        sh spark_thrift_server_yarn_with_DCPMM.sh
                      or
        sh spark_thrift_server_yarn_with_DRAM.sh
@@ -267,7 +268,7 @@ Start the thriftserver service by "OAP-TPCDS-Benchmark-Package/scripts/spark_thr
        
 2. Run Queries
        
-       i. Modify several variables of OAP-TPCDS-Benchmark-Package/scripts/run_beeline.py, according to the actual situation.
+      i. Modify several variables of OAP-TPCDS-Benchmark-Package/scripts/run_beeline.py, according to the actual situation.
        
        ```
        # replace the $SPARK_HOME
@@ -280,10 +281,10 @@ Start the thriftserver service by "OAP-TPCDS-Benchmark-Package/scripts/spark_thr
        PACKAGE='./OAP-TPCDS-Benchmark-Package'
        ```
 
-       ii. Run the 9 I/O intensive queries.
+      ii. Run the 9 I/O intensive queries.
        
        ```
        python run_beeline.py
        ```
-       When the queries end, you will see the result file result.json in the current executive directory
+      When the queries end, you will see the result file result.json in the current executive directory
 
