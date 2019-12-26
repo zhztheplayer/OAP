@@ -129,6 +129,6 @@ Note: If you are using a customized Spark, there may be conflicts in applying th
 
 #### Use pre-built patched Spark packages 
 
-If you think it is cumbersome to apply patches, you can use our pre-built [spark-2.3.2-bin-hadoop2.7-patched.tgz](spark-2.3.2-bin-hadoop2.7-patched.tgz) to deploy directly.
+If you think it is cumbersome to apply patches, you can use our pre-built [spark-2.3.2-bin-hadoop2.7-patched.tgz](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/spark-2.3.2-bin-hadoop2.7-patched.tgz) to deploy directly.
 
 
