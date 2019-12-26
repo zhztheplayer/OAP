@@ -195,3 +195,93 @@ spark.sql.oap.parquet.data.cache.enable                    true            # for
 spark.sql.oap.orc.data.cache.enable                        true            # for orc fileformat
 ```
 You can also run Spark with the same following example as DRAM cache to try OAP cache function with DCPMM, then you can find the cache metric with OAP TAB in the spark history Web UI.
+
+## Run TPC-DS Benchmark for OAP
+
+The industry often chooses TPC-DS workload as the benchmark for Spark. We also select 9 TPC-DS I/O intensive queries as the benchmark for OAP.
+
+We provide the [OAP-TPCDS-Benchmark-Package.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/OAP-TPCDS-Benchmark-Package.zip) to setup and run the benchmark for OAP.
+
+#### Prerequisites
+
+1. Need to install python 2.7+ in the environment
+2. Download the [OAP-TPCDS-Benchmark-Package.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/OAP-TPCDS-Benchmark-Package.zip)  and unzip
+3. Copy OAP-TPCDS-Benchmark-Package/tools/tpcds-kits on all cluster executor nodes under the same path.
+
+#### Generate TPC-DS Data
+
+1. Modify several variables at the beginning of OAP-TPCDS-Benchmark-Package/scripts/genData.scala, according to the actual situation.
+
+
+```
+// data scale GB
+val scale = 2
+// data file format
+val format = "parquet"
+// cluster NameNode
+val namenode = "bdpe833n1"
+// root directory of location to create data in.
+val rootDir = s"hdfs://${namenode}:9000/genData$scale"
+// name of database to create.
+val databasename = s"tpcds$scale"
+// location of tpcds-kits on executor nodes
+val tpcdskitsDir = "/opt/Beaver/tpcds-kit/tools"
+```
+
+2. Modify several variables of OAP-TPCDS-Benchmark-Package/scripts/run_gen_data.sh, according to the actual situation
+
+
+```
+#replace the $SPARK_HOME
+SPARK_HOME=/opt/Beaver/spark-2.3.2-bin-Phive
+#replace with the OAP-TPCDS-Benchmark-Package path
+PACKAGE=./OAP-TPCDS-Benchmark-Package
+```
+
+3. Generate Data
+
+```
+sh OAP-TPCDS-Benchmark-Package/scripts/run_gen_data.sh
+```
+
+
+#### Run Benchmark Queries
+
+1. Start the thriftserver service
+
+Start the thriftserver service by "OAP-TPCDS-Benchmark-Package/scripts/spark_thrift_server_yarn_with_DCPMM.sh" using DCPMM as the cache media or by "OAP-TPCDS-Benchmark-Package/scripts/spark_thrift_server_yarn_with_DRAM.sh" using DRAM as the cache media. 
+
+       i. No matter which script you use, you need to modify the variable SPARK_HOME and other Spark configuration items in the script according to the actual environment.
+       
+       ii. Start thriftserver
+       
+       ```
+       sh spark_thrift_server_yarn_with_DCPMM.sh
+                     or
+       sh spark_thrift_server_yarn_with_DRAM.sh
+       ```
+       
+       
+       
+2. Run Queries
+       
+       i. Modify several variables of OAP-TPCDS-Benchmark-Package/scripts/run_beeline.py, according to the actual situation.
+       
+       ```
+       # replace the $SPARK_HOME
+       SPARK_HOME = '/home/spark-sql/spark-2.3.2'
+       # replace with node running thriftserver 
+       hostname = 'bdpe833n1'
+       # replace with the actual database to query 
+       database_name = 'tpcds2'
+       # replace with the OAP-TPCDS-Benchmark-Package path
+       PACKAGE='./OAP-TPCDS-Benchmark-Package'
+       ```
+
+       ii. Run the 9 I/O intensive queries.
+       
+       ```
+       python run_beeline.py
+       ```
+       When the queries end, you will see the result file result.json in the current executive directory
+
