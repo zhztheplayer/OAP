@@ -2,7 +2,8 @@
 
 * [Prerequisites](#Prerequisites)
 * [Getting Started with OAP](#Getting-Started-with-OAP)
-* [YARN Cluster and Spark Standalone Mode](#YARN-Cluster-and-Spark-Standalone-Mode)
+* [Configuration for YARN Cluster Mode](#Configuration-for-YARN-Cluster-Mode)
+* [Configuration for Spark Standalone Mode](#Configuration-for-Spark-Standalone-Mode)
 * [Working with OAP Index](#Working-with-OAP-Index)
 * [Working with OAP Cache](#Working-with-OAP-Cache)
 * [Run TPC-DS Benchmark for OAP](#Run-TPC-DS-Benchmark-for-OAP)
@@ -51,10 +52,9 @@ The test create an index on a table and then show the created index. If there is
 
 ![Spark_shell_running_results](./docs/image/spark_shell_oap.png)
 
-## Configurations for YARN Cluster and Spark Standalone Mode
-### YARN Cluster Mode
+## Configuration for YARN Cluster Mode
 Spark Shell and Thrift Sever run Spark application in ***client*** mode. While Spark Submit tool and Spark SQL CLI can run Spark application in ***client*** or ***cluster*** mode deciding by --deploy-mode parameter.  Spark SQL There are two deploy modes that can be used to launch Spark applications on YARN, ***client*** and ***cluster*** mode. The [#Getting Started with OAP] session has shown the configuraitons needed for ***client*** mode. If you are running Spark Submit tool or Spark SQL CLI in ***cluster***mode, you need to following the below configuation steps instead.
-#### Configurations on Spark with OAP on YARN Cluster Mode
+
 Before run `spark-submit` with ***cluster*** mode, you should add below OAP configurations in the Spark configuration file `$SPARK_HOME/conf/spark-defaults.conf` on your working node.
 ```
 spark.master                      yarn
@@ -65,7 +65,7 @@ spark.executor.extraClassPath     ./oap-0.6-with-spark-2.3.2.jar                
 spark.driver.extraClassPath       ./oap-0.6-with-spark-2.3.2.jar                     # relative path
 ```
 
-### Spark Standalone Mode
+## Configuration for Spark Standalone Mode
 In addition to running on the YARN cluster managers, Spark also provides a simple standalone deploy mode. If you are using Spark in Spark Standalone mode, you need to copy the oap jar to ALL the worker nodes. And then set the following configurations in “$SPARK_HOME/conf/spark-defaults” of ALL worker nodes. 
 ```
 spark.sql.extensions               org.apache.spark.sql.OapExtensions
