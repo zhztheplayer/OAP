@@ -1,148 +1,197 @@
-Below is the basic guide for a new Spark developer about how to use OAP with Spark. 
-# Environment setup
-## i. Configurations
-With yarn, you need to especially set below properties to ensure all the available resources (CPU cores, memory) can be fully utilized and not be exceeded by the Spark executors with OAP.
-```
-yarn.nodemanager.vmem-pmem-ratio
-yarn.nodemanager.resource.memory-mb
-yarn.scheduler.minimum-allocation-mb
-yarn.scheduler.maximum-allocation-mb
-yarn.nodemanager.resource.cpu-vcores
-yarn.scheduler.minimum-allocation-vcores
-yarn.scheduler.maximum-allocation-vcores
-```
-`yarn.nodemanager.resource.memory-mb` and `yarn.nodemanager.resource.cpu-vcores` can be set to be the total available memory size and total available CPU cores of each worker. `yarn.scheduler.maximum-allocation-mb` is less than `yarn.nodemanager.resource.memory-mb`. `yarn.scheduler.maximum-allocation-vcores`
-is less than `yarn.nodemanager.resource.cpu-vcores`. Meanwhile `spark.executor.memory` can be less equal to `yarn.scheduler.maximum-allocation-mb` and `spark.executor.cores` is less equal to `yarn.scheduler.maximum-allocation-vcores`. 
-You need to ensure that the above properties are consistent among the driver and all the workers. If failed to launch Spark with OAP, you need to check the logs to find the reason.
-## ii. How to deploy OAP
-### a) With yarn
-```
-spark.files                        file:///{PATH_TO_OAP_JAR}/oap-0.X.0.jar
-spark.executor.extraClassPath      ./oap-0.X.0.jar
-spark.driver.extraClassPath        /{PATH_TO_OAP_JAR}/oap-0.X.0.jar
-spark.sql.extensions    org.apache.spark.sql.OapExtensions
-```
-With the above approach, you just need to deploy OAP jar to the driver, and no need to deploy to the workers.
-### b) With standalone mode
-You need to manually deploy the OAP jar to both the master and workers.
+# OAP User Guide
 
-# Important properties for OAP with Spark
-## i. Below are critical properties for OAP index creation performance with Spark.
-```
-spark.executor.cores
-spark.executor.instances
-spark.executor.memory
-spark.memory.offHeap.enabled # !!!MUST be true in oap 0.3.0.
-spark.memory.offHeap.size
-```
-Executor instances can be 1~2X of work nodes. Considering the count of executor instances (`N`) on each node, executor memory can be around `1/N` of each worker total available memory. Usually each worker has one or two executor instances. However, considering the cache utilization, one executor per work node is recommended.
-Always enable offHeap memory and set a reasonable (the larger the better) size, as long as OAP's fine-grained cache takes advantage of offHeap memory, otherwise user might encounter weird behaviors.
-## ii. Below are critical properties for OAP query performance with Spark.
-```
-Rowgroup size
-spark.yarn.executor.memoryOverhead #Important for yarn mode, as tasks would be killed if they use too much off-heap memory.
-```
-row group size and fiber cache size are OAP properties. They can be set with below approaches.
-```
-spark.createDataFrame(rawMapData).write.mode("overwrite").format("oap”).option(“rowgroup”, 1048576).save("/oap_rawMapData_1000")
-```
-row group size can be `1/1000` of total data size. 
+* [Prerequisites](#Prerequisites)
+* [Getting Started with OAP](#Getting-Started-with-OAP)
+* [YARN Cluster and Spark Standalone Mode](#YARN-Cluster-and-Spark-Standalone-Mode)
+* [Working with OAP Index](#Working-with-OAP-Index)
+* [Working with OAP Cache](#Working-with-OAP-Cache)
 
-The fiber cache size is configured by spark.memory.offHeap.size (0.35 of it by default) which is usually close to `spark.yarn.executor.memoryOverhead` for better query performance, meanwhile `spark.yarn.executor.memoryOverhead` can be around half of the executor memory size. 
-Basically we have a rough calculation here: 
+## Prerequisites
+Before getting started with OAP on Spark, you should have set up a working Hadoop cluster with YARN and Spark. Running Spark on YARN requires a binary distribution of Spark which is built with YARN support. If you don't want to build Spark by yourself, we have a pre-built Spark-2.3.2, you can download ![Spark-2.3.2]() to your master machine.
+## Getting Started with OAP
+### Building OAP
+We have a pre-built OAP, you can download ![OAP-0.6.1.jar](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/oap-0.6.0-with-spark-2.3.2.jar) to your master and put the OAP jar to directory such as `/home/oap/jars/`. If you’d like to build OAP from source code, please refer to [Developer Guide](https://github.com/HongW2019/OAP-spark2.4.3/blob/master/docs/Developer-Guide.md).
+### Spark Configurations for OAP
+A common deploy mode that can be used to launch Spark applications on YRAN is ***client*** mode. The ***client*** mode is especially suitable for applications such as Spark shell. Before you run ` . $SPARK_HOME/bin/spark-shell ` to launch Spark, firstly you should add the following configurations in the file of `$SPARK_HOME/conf/spark-defaults.conf`
+
 ```
-spark.memory.offHeap.size ~= spark.yarn.executor.memoryOverhead 
-spark.executor.memory + spark.memory.offHeap.size(spark.yarn.executor.memoryOverhead) < yarn.nodemanager.resource.memory-mb 
-spark.driver.memory/spark.driver.cores >= 3G
+spark.master                      yarn
+spark.deploy-mode                 client
+spark.sql.extensions              org.apache.spark.sql.OapExtensions
+spark.files                       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar     # absolute path of OAP jar  
+spark.executor.extraClassPath     ./oap-0.6-with-spark-2.3.2.jar                  # relative path of OAP jar
+spark.driver.extraClassPath       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar     # absolute path of OAP jar
+```
+### Verify Spark with OAP Integration 
+After configuration, you can follow the below steps to run Spark shell and check if OAP configurations work. Here take data path `hdfs:///user/oap/` for example.
+
+Step 1. Create data path on HDFS
+```
+hadoop fs -mkdir /user/oap/
+```
+Step 2. Run Spark shell
+```
+. $SPARK_HOME/bin/spark-shell
+> spark.sql(s"""CREATE TABLE oap_test (a INT, b STRING)
+       USING parquet
+       OPTIONS (path 'hdfs:///user/oap/')""".stripMargin)
+> val data = (1 to 30000).map { i => (i, s"this is test $i") }.toDF().createOrReplaceTempView("t")
+> spark.sql("insert overwrite table oap_test select * from t")
+> spark.sql("create oindex index1 on oap_test (a)")
+> spark.sql("show oindex from oap_test").show()
+```
+When your Spark shell shows the same as below picture, it means you have run Spark with OAP successfully.
+
+![Spark_shell_running_results](https://github.com/HongW2019/OAP-spark2.4.3/blob/master/docs/image/spark_shell_oap.png)
+
+## Configurations for YARN Cluster and Spark Standalone Mode
+### YARN Cluster Mode
+There are two deploy modes that can be used to launch Spark applications on YARN, ***client*** and ***cluster*** mode. if your application is submitted from a machine far from the worker machines (e.g. locally on your laptop), it is common to use ***cluster*** mode to minimize network latency between the drivers and the executors. Launching Applications with spark-submit can support different deploy modes that Spark supports, so you can run spark-submit to use YARN cluster mode.
+#### Configurations on Spark with OAP on YARN Cluster Mode
+Before run `spark-submit`, you should add below OAP configurations in the file of `$SPARK_HOME/conf/spark-defaults.conf`
+```
+spark.master                      yarn
+spark.deploy-mode                 cluster
+spark.sql.extensions              org.apache.spark.sql.OapExtensions
+spark.files                       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar        # absolute path    
+spark.executor.extraClassPath     ./oap-0.6-with-spark-2.3.2.jar                     # relative path 
+spark.driver.extraClassPath       ./oap-0.6-with-spark-2.3.2.jar                     # relative path
+```
+Then you can run `spark-submit` with YARN cluster mode
+```
+. $SPARK_HOME/bin/spark-submit \
+  --master yarn \
+  --deploy-mode cluster \
+  ...
+```
+### Spark Standalone Mode
+In addition to running on the YARN cluster managers, Spark also provides a simple standalone deploy mode. If install `Spark Standalone mode`, you simply place a compiled version of Spark and OAP on each node on the cluster.
+```
+spark.sql.extensions               org.apache.spark.sql.OapExtensions
+spark.executor.extraClassPath      /home/oap/jars/oap-0.6-with-spark-2.3.2.jar      # absolute path
+spark.driver.extraClassPath        /home/oap/jars/oap-0.6-with-spark-2.3.2.jar      # absolute path
 ```
 
-# Reference settings
-Below are reference settings for OAP with Spark on yarn for the total 5 IA machines with 72 CPU cores Xeon E5-2699 v3 2.30G and 256G memory for each machine. Since the standalone mode will automatically utilize the available resources as fully as possible, it's easier for resource settings. For standalone mode, you can refer to below settings and do some minor changes accordingly. So far we haven't tried mesos mode. We expect no big changes with mesos mode.
+## Working with OAP Index
+
+You can use SQL DDL(create/drop/refresh/check/show index) to try OAP index function, run Spark with the following example to try OAP index function with Spark shell.
 ```
-spark.driver.cores                 64         # Use all cores.
-spark.driver.memory                100G       # ~1/2 total for on-heap.
-spark.executor.cores               32         # Use as many cores, but each core(task) should has at least 3G memory.
-spark.executor.instances           4          # 1 executor per work node.
-spark.executor.memory              100G       # ~1/2 total for on-heap.
-spark.memory.offHeap.enabled       true       # Enable off-heap
-spark.memory.offHeap.size          120G       # ~1/2 total for off-heap.
-spark.yarn.executor.memoryOverhead 120G       # ~1/2 for yarn to control memory usage.
+. $SPARK_HOME/bin/spark-shell
+```
+### Index Creation
+Step 1. Use `CREATE` to create a table with `parquet` file format on corresponding HDFS data path `hdfs:///user/oap/`.
+```
+> spark.sql(s"""CREATE TABLE oap_test (a INT, b STRING)
+       USING parquet
+       OPTIONS (path 'hdfs:///user/oap/')""".stripMargin)
+```
+Step 2. Insert data into table `oap_test`.
+```
+> val data = (1 to 30000).map { i => (i, s"this is test $i") }.toDF().createOrReplaceTempView("t")
+> spark.sql("insert overwrite table oap_test select * from t")
+```
+Step 3. Create index with OAP on `oap_test`
+```
+> spark.sql("create oindex index1 on oap_test (a)")
+> spark.sql("show oindex from oap_test").show()
+```
+### Use OAP Index
+```
+> spark.sql("SELECT * FROM oap_test WHERE a = 1").show()
+```
+### Drop index
+```
+> spark.sql("drop oindex index1 on oap_test")
+```
+For  more detailed examples on OAP performance comparation, you can refer to this [page](https://github.com/Intel-bigdata/OAP/wiki/OAP-examples) for further instructions.
+
+## Working with OAP Cache
+
+If you want to run OAP with cache function, there are two media types in OAP to cache hot data: DRAM and DCPMM. 
+
+### Use DRAM Cache 
+Step 1. Change some configurations in `$SPARK_HOME/conf/spark-defaults.conf`. 
+
+```
+spark.memory.offHeap.enabled                true
+spark.memory.offHeap.size                   80g      # half of total memory size
+spark.sql.oap.parquet.data.cache.enable     true     #for parquet fileformat
+spark.sql.oap.orc.data.cache.enable         true     #for orc fileformat
+```
+Step 2. Run Spark ***ThriftServer***
+
+You should run Spark ***ThriftServer*** with the beeline scripts to use OAP DRAM cache, ThriftServer launchs Spark applications which can cache hot data for a long time backstage, and it can also accept query requests from different clients at the same time.
+
+To directly verify DRAM Cache function, we reuse table `oap_test` created in the [Working with OAP Index](#Working-with-OAP-Index).
+
+When we run ```spark-shell``` to create table `oap_test`, `metastore_db` will be created, so we need to run Thrift JDBC server in the same directory of `metastore`.
+```
+. $SPARK_HOME/sbin/start-thriftserver.sh
+```
+Step3. Use beeline and Connect to the JDBC/ODBC server in beeline with:
+
+```
+./beeline -u jdbc:hive2://vsr211:10000       
+```
+vsr211 is hostname, so you need change to your hostname.
+ 
+Step 4. Using DRAM Cache on table `oap_test`
+When ***0: jdbc:hive2://vsr211:10000>*** shows up, then you can directly use table oap_test, which is stored in the `default` database.
+```
+> SHOW databases;
+> USE default;
+> SHOW tables;
+> USE oap_test;
+```
+Step 5. Run query like
+```
+> SELECT * FROM oap_test WHERE a = 1;
+> SELECT * FROM oap_test WHERE a = 2;
+> SELECT * FROM oap_test WHERE a = 3;
+...
+```
+Then you can find the cache metric with OAP TAB in the spark history Web UI.
+
+![webUI](https://github.com/HongW2019/OAP-spark2.4.3/blob/master/webUI.png)
+
+
+
+### Use DCPMM Cache 
+#### Prerequisites
+When you want to use DCPMM to cache hot data, you should follow the below steps.
+
+Step 1. You need have DCPMM formatted and mounted on your clusters.
+
+Step 2. Download [libmemkind.so.0](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/libmemkind.so.0), [libnuma.so.1](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/libnuma.so.1) to directory `/lib64/`(Centos) in each executor node.
+##### Achieve NUMA binding
+Step 3. Install numactl by `yum install numactl -y ` to achieve NUMA binding
+##### Configurations for DCPMM 
+Step 4. Create a file named “persistent-memory.xml” under "$SPARK_HOME/conf/" and set the “initialPath” of numa node in “persistent-memory.xml”. You can directly copy the following part only changing `/mnt/pmem0` `/mnt/pmem1` to your path to DCPMM.
+
+```
+<persistentMemoryPool>
+  <!--The numa id-->
+  <numanode id="0">
+    <!--The initial path for Intel Optane DC persistent memory-->
+    <initialPath>/mnt/pmem0</initialPath>
+  </numanode>
+  <numanode id="1">
+    <initialPath>/mnt/pmem1</initialPath>
+  </numanode>
+</persistentMemoryPool>
 ```
 
-## Configurations and Performance Tuning
-
-Parquet Support - Enable OAP support for parquet files
-* Default: true
-* Usage: `sqlContext.conf.setConfString(SQLConf.OAP_PARQUET_ENABLED.key, "false")`
-
-Index Directory Setting - Enable OAP support to separate the index file in specific directory. The index file is in the directory of data file in default.
-* Default: ""
-* Usage1: `sqlContext.conf.setConfString(SQLConf.OAP_INDEX_DIRECTORY.key, "/tmp")`
-* Usage2: `SET spark.sql.oap.index.directory = /tmp`
-
-Fiber Cache Size - Total Memory size to cache Fiber, configured implicitly by 'spark.memory.offHeap.size'
-* Default Size: `spark.memory.offHeap.size * 0.7`
-* Usage: Fiber cache locates in off heap storage memory, basically this size is spark.memory.offHeap.size * 0.7. But as execution can borrow a few memory from storage in UnifiedMemoryManager mode, it may vary during execution.
-
-Full Scan Threshold - If the analysis result is above this threshold, it will go through the whole data file instead of read index data.
-* Default: 0.8
-* Usage: `sqlContext.conf.setConfString(SQLConf.OAP_FULL_SCAN_THRESHOLD.key, "0.8")`
-
-Row Group Size - Row count for each row group
-* Default: 1048576
-* Usage1: `sqlContext.conf.setConfString(SQLConf.OAP_ROW_GROUP_SIZE.key, "1048576")`
-* Usage2: `CREATE TABLE t USING oap OPTIONS ('rowgroup' '1048576')`
-
-Compression Codec - Choose compression type for OAP data files.
-* Default: GZIP
-* Values: UNCOMPRESSED, SNAPPY, GZIP, LZO (Note that ORC does not support GZIP)
-* Usage1: `sqlContext.conf.setConfString(SQLConf.OAP_COMPRESSION.key, "SNAPPY")`
-* Usage2: `CREATE TABLE t USING oap OPTIONS ('compression' 'SNAPPY')`
-
-# Trouble shooting
-## i.	Java object serial version incompatibility issue
-If you are using spark-shell and see below exception, usually it’s caused by incorrectly deploying OAP jar to the workers. Please follow the above steps to correctly deploy OAP.
+Here we privide you with an example, this cluster consists of 2 worker nodes, per node has 2 pieces of 488GB DCPMM ; 
 ```
-scala> java.io.InvalidClassException: org.apache.spark.Heartbeat; local class incompatible: stream classdesc serialVersionUID = -3395605122687888761, local class serialVersionUID = -7235392889710158116
+spark.executor.instances                                   4               # 2x of number of your worker nodes
+spark.yarn.numa.enabled                                    true            # enable numa
+spark.executorEnv.MEMKIND_ARENA_NUM_PER_KIND               1
+spark.memory.offHeap.enabled                               false
+spark.speculation                                          false
+spark.sql.oap.fiberCache.memory.manager                    pm              # use DCPMM as cache media
+spark.sql.oap.fiberCache.persistent.memory.initial.size    450g            # ~90% of total available DCPMM per executor
+spark.sql.oap.fiberCache.persistent.memory.reserved.size   30g             # the left DCPMM per executor
+spark.sql.oap.parquet.data.cache.enable                    true            # for parquet fileformat
+spark.sql.oap.orc.data.cache.enable                        true            # for orc fileformat
 ```
-## ii.	OAP index creation failed
-If you are seeing below exception when trying to create OAP index, usually you are incorrectly using data frame and schema for OAP file. Please make sure save the schema you specified to the OAP file. After OAP file is loaded, do not change the schema any more.
-```
-scala> spark.sql("create sindex index1 on oapView(oapKey)")
-org.apache.spark.sql.execution.datasources.OapException: We don't support index building for Project [_1#27 AS oapKey#38, _2#28 AS oapValue#39]
-```
-Below are the examples.
-```
-scala> val rawMapData = sc.parallelize(1 to 1000, 1000).map{i => (i, s"this is test $i")}
-scala> spark.createDataFrame(rawMapData).write.mode("overwrite").format("oap").save("/oap_rawMapData_1000")
-```
-You can add schema as below before saving.
-```
-spark.createDataFrame(rawMapData).toDF(“oapKey”, “oapValue”).write.mode("overwrite").format("oap").save("/oap_rawMapData_1000")
-```
-Do not change schema as below after OAP file is loaded already.
-```
-scala> val dfOapRead = spark.read.format("oap").load("hdfs:///oap_rawMapData_1000")
-scala> dfOapRead.toDF("oapKey", "oapValue").createOrReplaceTempView("oapView")
-```
-## iii. Index creation is time consuming. 
-This step is usually GC intensive. You can add below GC options to check the each task specific GC behavior.
-```
-spark.executor.extraJavaOptions -XX:+PrintGCDetails -XX:+PrintGCTimeStamps
-```
-In this case, it needs to increase the initial executor memory size to be close to the task working set. For example, it can be half of the executor memory size using below example:
-```
-spark.executor.memory  35G #Note that it is illegal to set Spark properties or maximum heap size (-Xmx) settings with this option.
-```
-And meanwhile increase executor instances to fully utilize the existing workers. You can check spark Web UI to check that.
-## iv. The query with filer is not as fast as expected.
-In this case, user can increase `spark.memory.offHeap.size` to utilize the whole left system memory, see if more cache helps user out of the problem.
-
-
-
-
-
-
-
-
-
+You can also run Spark with the same following example as DRAM cache to try OAP cache function with DCPMM, then you can find the cache metric with OAP TAB in the spark history Web UI.

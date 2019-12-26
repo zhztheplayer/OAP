@@ -1,0 +1,244 @@
+diff --git a/core/src/main/scala/org/apache/spark/executor/CoarseGrainedExecutorBackend.scala b/core/src/main/scala/org/apache/spark/executor/CoarseGrainedExecutorBackend.scala
+index 9b62e4b..64be60d 100644
+--- a/core/src/main/scala/org/apache/spark/executor/CoarseGrainedExecutorBackend.scala
++++ b/core/src/main/scala/org/apache/spark/executor/CoarseGrainedExecutorBackend.scala
+@@ -41,6 +41,7 @@ private[spark] class CoarseGrainedExecutorBackend(
+     override val rpcEnv: RpcEnv,
+     driverUrl: String,
+     executorId: String,
++    numaNodeId: Option[String],
+     hostname: String,
+     cores: Int,
+     userClassPath: Seq[URL],
+@@ -177,6 +178,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
+   private def run(
+       driverUrl: String,
+       executorId: String,
++      numaNodeId: Option[String],
+       hostname: String,
+       cores: Int,
+       appId: String,
+@@ -227,9 +229,10 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
+ 
+       val env = SparkEnv.createExecutorEnv(
+         driverConf, executorId, hostname, cores, cfg.ioEncryptionKey, isLocal = false)
++      SparkEnv.get.conf.set("spark.executor.numa.id", s"${numaNodeId.getOrElse(-1)}")
+ 
+       env.rpcEnv.setupEndpoint("Executor", new CoarseGrainedExecutorBackend(
+-        env.rpcEnv, driverUrl, executorId, hostname, cores, userClassPath, env))
++        env.rpcEnv, driverUrl, executorId, numaNodeId, hostname, cores, userClassPath, env))
+       workerUrl.foreach { url =>
+         env.rpcEnv.setupEndpoint("WorkerWatcher", new WorkerWatcher(env.rpcEnv, url))
+       }
+@@ -245,6 +248,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
+   def main(args: Array[String]) {
+     var driverUrl: String = null
+     var executorId: String = null
++    var numaNodeId: Option[String] = null
+     var hostname: String = null
+     var cores: Int = 0
+     var appId: String = null
+@@ -269,6 +273,9 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
+         case ("--app-id") :: value :: tail =>
+           appId = value
+           argv = tail
++        case ("--numa-node-id") :: value :: tail =>
++          numaNodeId = Some(value.trim.toString)
++          argv = tail
+         case ("--worker-url") :: value :: tail =>
+           // Worker url is used in spark standalone mode to enforce fate-sharing with worker
+           workerUrl = Some(value)
+@@ -290,7 +297,8 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
+       printUsageAndExit()
+     }
+ 
+-    run(driverUrl, executorId, hostname, cores, appId, workerUrl, userClassPath)
++    logInfo(s"[NUMACHECK] numaNodeId $numaNodeId")
++    run(driverUrl, executorId, numaNodeId, hostname, cores, appId, workerUrl, userClassPath)
+     System.exit(0)
+   }
+ 
+@@ -303,6 +311,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
+       | Options are:
+       |   --driver-url <driverUrl>
+       |   --executor-id <executorId>
++      |   --numa-node-id <numaNodeId>
+       |   --hostname <hostname>
+       |   --cores <cores>
+       |   --app-id <appid>
+diff --git a/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/ApplicationMaster.scala b/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/ApplicationMaster.scala
+index 6e35d23..f2debc0 100644
+--- a/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/ApplicationMaster.scala
++++ b/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/ApplicationMaster.scala
+@@ -455,7 +455,7 @@ private[spark] class ApplicationMaster(args: ApplicationMasterArguments) extends
+       val executorMemory = sparkConf.get(EXECUTOR_MEMORY).toInt
+       val executorCores = sparkConf.get(EXECUTOR_CORES)
+       val dummyRunner = new ExecutorRunnable(None, yarnConf, sparkConf, driverUrl, "<executorId>",
+-        "<hostname>", executorMemory, executorCores, appId, securityMgr, localResources)
++        None, "<hostname>", executorMemory, executorCores, appId, securityMgr, localResources)
+       dummyRunner.launchContextDebugInfo()
+     }
+ 
+diff --git a/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/ExecutorRunnable.scala b/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/ExecutorRunnable.scala
+index 3f4d236..2893ead 100644
+--- a/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/ExecutorRunnable.scala
++++ b/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/ExecutorRunnable.scala
+@@ -36,6 +36,7 @@ import org.apache.hadoop.yarn.ipc.YarnRPC
+ import org.apache.hadoop.yarn.util.{ConverterUtils, Records}
+ 
+ import org.apache.spark.{SecurityManager, SparkConf, SparkException}
++import org.apache.spark.deploy.yarn.config._
+ import org.apache.spark.internal.Logging
+ import org.apache.spark.internal.config._
+ import org.apache.spark.network.util.JavaUtils
+@@ -47,6 +48,7 @@ private[yarn] class ExecutorRunnable(
+     sparkConf: SparkConf,
+     masterAddress: String,
+     executorId: String,
++    numaNodeId: Option[String],
+     hostname: String,
+     executorMemory: Int,
+     executorCores: Int,
+@@ -197,9 +199,23 @@ private[yarn] class ExecutorRunnable(
+       Seq("--user-class-path", "file:" + absPath)
+     }.toSeq
+ 
++    val numaEnabled = sparkConf.get(SPARK_YARN_NUMA_ENABLED)
++
++    logInfo(s"[NUMACHECK] numaEnabled $numaEnabled executorId $executorId")
++    // Don't need numa binding for driver.
++    val (numaCtlCommand, numaNodeOpts) = if (numaEnabled && executorId != "<executorId>"
++      && numaNodeId.nonEmpty) {
++      logInfo(s"numaNodeId ${numaNodeId.get}")
++      val command = s"numactl --cpubind=${numaNodeId.get} --membind=${numaNodeId.get} "
++      (command, Seq("--numa-node-id", numaNodeId.get.toString))
++    } else {
++      ("", Nil)
++    }
++
++    logInfo(s"[NUMACHECK] numactl command $numaCtlCommand")
+     YarnSparkHadoopUtil.addOutOfMemoryErrorArgument(javaOpts)
+     val commands = prefixEnv ++
+-      Seq(Environment.JAVA_HOME.$$() + "/bin/java", "-server") ++
++      Seq(numaCtlCommand  + Environment.JAVA_HOME.$$() + "/bin/java", "-server") ++
+       javaOpts ++
+       Seq("org.apache.spark.executor.CoarseGrainedExecutorBackend",
+         "--driver-url", masterAddress,
+@@ -207,11 +223,13 @@ private[yarn] class ExecutorRunnable(
+         "--hostname", hostname,
+         "--cores", executorCores.toString,
+         "--app-id", appId) ++
++      numaNodeOpts ++
+       userClassPath ++
+       Seq(
+         s"1>${ApplicationConstants.LOG_DIR_EXPANSION_VAR}/stdout",
+         s"2>${ApplicationConstants.LOG_DIR_EXPANSION_VAR}/stderr")
+ 
++    logInfo(s"[NUMACHECK] container command $commands")
+     // TODO: it would be nicer to just make sure there are no null commands here
+     commands.map(s => if (s == null) "null" else s).toList
+   }
+diff --git a/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/YarnAllocator.scala b/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/YarnAllocator.scala
+index b2d960b..5474bf9 100644
+--- a/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/YarnAllocator.scala
++++ b/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/YarnAllocator.scala
+@@ -160,6 +160,13 @@ private[yarn] class YarnAllocator(
+   private[yarn] val containerPlacementStrategy =
+     new LocalityPreferredContainerPlacementStrategy(sparkConf, conf, resource, resolver)
+ 
++  // The total number of numa node
++  private[yarn] val totalNumaNumber = sparkConf.get(SPARK_YARN_NUMA_NUMBER)
++  // Mapping from host to executor counter
++  private[yarn] case class NumaInfo(cotainer2numa: mutable.HashMap[String, Int], numaUsed: Array[Int])
++
++  private[yarn] val hostToNumaInfo = new mutable.HashMap[String, NumaInfo]()
++
+   /**
+    * Use a different clock for YarnAllocator. This is mainly used for testing.
+    */
+@@ -495,11 +502,25 @@ private[yarn] class YarnAllocator(
+     for (container <- containersToUse) {
+       executorIdCounter += 1
+       val executorHostname = container.getNodeId.getHost
++      // Setting the numa id that the executor should binding.
++      // new numaid binding method
++      val numaInfo = hostToNumaInfo.getOrElseUpdate(executorHostname,
++        NumaInfo(new mutable.HashMap[String, Int], new Array[Int](totalNumaNumber)))
++      val minUsed = numaInfo.numaUsed.min
++      val newNumaNodeId = numaInfo.numaUsed.indexOf(minUsed)
++      numaInfo.cotainer2numa.put(container.getId.toString, newNumaNodeId)
++      numaInfo.numaUsed(newNumaNodeId) += 1
++
++      val numaNodeId = newNumaNodeId.toString
++      logInfo(s"numaNodeId: $numaNodeId on host $executorHostname," +
++        "container: " + container.getId.toString +
++        ", minUsed: " + minUsed)
++
+       val containerId = container.getId
+       val executorId = executorIdCounter.toString
+       assert(container.getResource.getMemory >= resource.getMemory)
+       logInfo(s"Launching container $containerId on host $executorHostname " +
+-        s"for executor with ID $executorId")
++        s"for executor with ID $executorId with numa ID $numaNodeId")
+ 
+       def updateInternalState(): Unit = synchronized {
+         runningExecutors.add(executorId)
+@@ -525,6 +546,7 @@ private[yarn] class YarnAllocator(
+                   sparkConf,
+                   driverUrl,
+                   executorId,
++                  Some(numaNodeId),
+                   executorHostname,
+                   executorMemory,
+                   executorCores,
+@@ -583,6 +605,17 @@ private[yarn] class YarnAllocator(
+         // there are some exit status' we shouldn't necessarily count against us, but for
+         // now I think its ok as none of the containers are expected to exit.
+         val exitStatus = completedContainer.getExitStatus
++
++        var numaNodeId = -1
++        val hostName = hostOpt.getOrElse("nohost")
++        val numaInfoOp = hostToNumaInfo.get(hostName)
++        numaInfoOp match {
++          case Some(numaInfo) =>
++            numaNodeId = numaInfo.cotainer2numa.get(containerId.toString).getOrElse(-1)
++            if(-1 != numaNodeId) numaInfo.numaUsed(numaNodeId) -= 1
++          case _ => numaNodeId = -1
++        }
++
+         val (exitCausedByApp, containerExitReason) = exitStatus match {
+           case ContainerExitStatus.SUCCESS =>
+             (false, s"Executor for container $containerId exited because of a YARN event (e.g., " +
+@@ -606,7 +639,9 @@ private[yarn] class YarnAllocator(
+             failedExecutorsTimeStamps.enqueue(clock.getTimeMillis())
+             (true, "Container marked as failed: " + containerId + onHostStr +
+               ". Exit status: " + completedContainer.getExitStatus +
+-              ". Diagnostics: " + completedContainer.getDiagnostics)
++              ". Diagnostics: " + completedContainer.getDiagnostics +
++              ". numaNodeId: " + numaNodeId +
++              ". hostName: " + hostName)
+ 
+         }
+         if (exitCausedByApp) {
+diff --git a/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/config.scala b/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/config.scala
+index 3ba3ae5..9ff4e86 100644
+--- a/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/config.scala
++++ b/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/config.scala
+@@ -129,6 +129,17 @@ package object config {
+ 
+   /* Launcher configuration. */
+ 
++   private[spark] val SPARK_YARN_NUMA_ENABLED = ConfigBuilder("spark.yarn.numa.enabled")
++    .doc("Whether enabling numa binding when executor start up. This is recommend to true " +
++      "when persistent memory is enabled.")
++    .booleanConf
++    .createWithDefault(false)
++
++  private[spark] val SPARK_YARN_NUMA_NUMBER = ConfigBuilder("spark.yarn.numa.number")
++    .doc("Total number of numanodes in physical server")
++    .intConf
++    .createWithDefault(2)
++
+   private[spark] val WAIT_FOR_APP_COMPLETION = ConfigBuilder("spark.yarn.submit.waitAppCompletion")
+     .doc("In cluster mode, whether to wait for the application to finish before exiting the " +
+       "launcher process.")
