@@ -41,7 +41,9 @@ OAP is a package for Spark to speed up interactive queries (ad-hoc queries) by u
 #### Usage Scenario 2 -- Batch processing jobs 
 
 Customers usually use Spark SQL for Business Analytics in Data Warehousing.
+
 OAP can speed up batch processing jobs with cache technologies. 
+
 OAP provides two cache strategies: Automatically cache hot data and specifically cache hot tables. Users can choose either strategy according to the actual situation.
 
 
