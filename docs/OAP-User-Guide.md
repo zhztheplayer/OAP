@@ -162,7 +162,7 @@ Before configuring in OAP to use DCPMM cache, you need to make sure the followin
 
 - DCPMM hardwares are installed, formatted and mounted correctly on every cluster worker nodes. You will get a mounted directory to use if you have done this. Usually, the DCPMM on each socket will be mounted as a directory. For example, on a two sockets system, we may get two mounted directories named `/mnt/pmem0` and `/mnt/pmem1`.
 
-- [Memkind](http://memkind.github.io/memkind/) library has been installed on every cluster worker nodes. Please use the latest Memkind version. You can compile Memkind based on your system. We have a pre-build binary for x86 64bit CentOS Linux and you can download [libmemkind.so.0](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/libmemkind.so.0) and put the files to `/lib64/` directory in each worker node in cluster. Memkind depends on libnuma at the runtime. You need to make sure libnuma already exists in worker node system.
+- [Memkind](http://memkind.github.io/memkind/) library has been installed on every cluster worker nodes. Please use the latest Memkind version. You can compile Memkind based on your system. We have a pre-build binary for x86 64bit CentOS Linux and you can download [libmemkind.so.0](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/libmemkind.so.0) and put the file to `/lib64/` directory in each worker node in cluster. Memkind library depends on libnuma at the runtime. You need to make sure libnuma already exists in worker node system.
 
 ##### Configure for NUMA
 To achieve the optimum performance, we need to configure NUMA for binding executor to NUMA node and try access the right DCPMM device on the same NUMA node. You need install numactl on each worker node. For example, on CentOS, run following command to install numactl.
@@ -188,7 +188,7 @@ Create a configuration file named “persistent-memory.xml” under "$SPARK_HOME
 Make the following configuration changes in Spark configuration file `$SPARK_HOME/conf/spark-defaults.conf`.
 
 ```
-spark.executor.instances                                   6               # 2x of number of your worker nodes
+spark.executor.instances                                   6               # 2x number of your worker nodes
 spark.yarn.numa.enabled                                    true            # enable numa
 spark.executorEnv.MEMKIND_ARENA_NUM_PER_KIND               1
 spark.memory.offHeap.enabled                               false
@@ -199,7 +199,15 @@ spark.sql.oap.fiberCache.persistent.memory.reserved.size   50g             # Res
 spark.sql.oap.parquet.data.cache.enable                    true            # for parquet fileformat
 spark.sql.oap.orc.data.cache.enable                        true            # for orc fileformat
 ```
-You need to change the value for spark.executor.instances, spark.sql.oap.fiberCache.persistent.memory.initial.size, and spark.sql.oap.fiberCache.persistent.memory.reserved.size according to your real environment. Here we privide you with an example, this cluster consists of 2 worker nodes, per node has 2 pieces of 488GB DCPMM ; ou can also run Spark with the same following example as DRAM cache to try OAP cache function with DCPMM, then you can find the cache metric with OAP TAB in the spark history Web UI.
+You need to change the value for spark.executor.instances, spark.sql.oap.fiberCache.persistent.memory.initial.size, and spark.sql.oap.fiberCache.persistent.memory.reserved.size according to your real environment. 
+
+- spark.executor.instances: We suggest to configure the value to 2x number of the worker nodes considering NUMA binding is enabled. With each worker node runs two executors, each executor will be bound to one of the two sockets. And accesses the corresponding DCPMM device on that socket.
+- spark.sql.oap.fiberCache.persistent.memory.initial.size: It is configured to the available DCPMM capacity to used as data cache per exectutor.
+- spark.sql.oap.fiberCache.persistent.memory.reserved.size: When we use DCPMM as memory through memkind library, some portion of the space needs to be reserved for memory management overhead, such as memory segmenation. We suggest to reserve 20% - 25% of the available DCPMM capacity to avoid memory allocation failure. But even with an alloation failure, OAP will continue the operation to read data from original input data and will not cache the data block.
+
+##### Verify DCPMM cache functionality
+
+After the configuration, and you need to restart Spark Thrift Server to make the configuration changes taking effect. You can take the same steps described in [Use DRAM Cache](#Use-DRAM-Cache) to test and verify the cache is in working.
 
 ## Run TPC-DS Benchmark for OAP
 
