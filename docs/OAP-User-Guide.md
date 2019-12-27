@@ -6,7 +6,7 @@
 * [Configuration for Spark Standalone Mode](#Configuration-for-Spark-Standalone-Mode)
 * [Working with OAP Index](#Working-with-OAP-Index)
 * [Working with OAP Cache](#Working-with-OAP-Cache)
-* [Run TPC-DS Benchmark for OAP](#Run-TPC-DS-Benchmark-for-OAP)
+* [Run TPC-DS Benchmark for OAP Cache](#Run-TPC-DS-Benchmark-for-OAP-Cache)
 
 
 ## Prerequisites
@@ -213,94 +213,81 @@ After the configuration, and you need to restart Spark Thrift Server to make the
 
 The section provides instructions and tools for running TPC-DS queries to evaluate the cache performance at various configurations. TPC-DS suite has many queries and we select 9 I/O intensive queries for making the performance evaluation simple.
 
-We created a tool [OAP-TPCDS-Benchmark-Package.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/OAP-TPCDS-Benchmark-Package.zip) to simplify the running work for beginners. If you have already been familar with TPC-DS data generation and running a TPC-DS tool suite, you can skip our tool and use TPC-DS tool suite directly.
+We created some tool scripts [OAP-TPCDS-TOOL.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/OAP-TPCDS-TOOL.zip) to simplify the running work for beginners. If you have already been familar with TPC-DS data generation and running a TPC-DS tool suite, you can skip our tool and use TPC-DS tool suite directly.
 
 #### Prerequisites
 
 - The tool use Python scripts to execute Beeline commands to Spark Thrift Server. You need to install python 2.7+ on your working node.
 
 #### Prepare the Tool
-2. Download the [OAP-TPCDS-Benchmark-Package.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/OAP-TPCDS-Benchmark-Package.zip)  and unzip to a folder (for example, OAP-TPCDS-Benchmark-Package folder) on your working node. 
-3. Copy OAP-TPCDS-Benchmark-Package/tools/tpcds-kits to ALL worker nodes under the same folder (for example, /home/oap/tpcds-kits).
+2. Download the [OAP-TPCDS-TOOL.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/OAP-TPCDS-TOOL.zip)  and unzip to a folder (for example, OAP-TPCDS-TOOL folder) on your working node. 
+3. Copy OAP-TPCDS-TOOL/tools/tpcds-kits to ALL worker nodes under the same folder (for example, /home/oap/tpcds-kits).
 
 #### Generate TPC-DS Data
 
-1. Update a few variable values in OAP-TPCDS-Benchmark-Package/scripts/genData.scala based on your environment and needs.
-- scale: The data scale to be generated in GB
-- format: The data file format. You can specify parquet or orc
-- namenode: The HDFS name node address
-- tpcdskitsDir: The tpcds-kits directory you coped to in the above prepare process.
+1. Update the values for the following variables in OAP-TPCDS-TOOL/scripts/tool.conf based on your environment and needs.
+- SPARK_HOME: Point to the Spark home directory of your Spark setup.
+- TPCDS_KITS_DIR: The tpcds-kits directory you coped to the worker nodes in the above prepare process. For example, /home/oap/tpcds-kits
+- NAMENODE_ADDRESS: Your HDFS Namenod address in the format of host:port.
+- THRIFT_SERVER_ADDRESS: Your working node address on which you will run Thrift Server.
+- DATA_SCALE: The data scale to be generated in GB
+- DATA_FORMAT: The data file format. You can specify parquet or orc
 
 The following is an example:
 
 ```
-// data scale GB
-val scale = 2
-// data file format
-val format = "parquet"
-// cluster NameNode
-val namenode = "bdpe833n1"
-// location of tpcds-kits on executor nodes
-val tpcdskitsDir = "/home/oap/tpcds-kits"
+export SPARK_HOME=/home/oap/spark-2.3.2
+export TPCDS_KITS_DIR=/home/oap/tpcds-kits
+export NAMENODE_ADDRESS=mynamenode:9000
+export THRIFT_SERVER_ADDRESS=mythriftserver
+export DATA_SCALE=2
+export DATA_FORMAT=parquet
+```
+2. Start data generation
+At the root directory of this tool, for example, OAP-TPCDS-TOOL folder, execute scripts/run_gen_data.sh to start the data generation process. 
+```
+cd OAP-TPCDS-TOOL
+sh ./scripts/run_gen_data.sh
+```
+Once finished, the data with $scale will be generated at HDFS folder genData$scale. And database with the name "tpcds$scale" was created with the TPC-DS tables.
+
+#### Start Spark Thrift Server
+
+You need to start the Thrift Server in the tool root folder, which is the same folder you run data generation scripts. We provide two different scripts to start Thrift Server for DCPMM and DRAM respectively.
+
+##### Use DCPMM as cache
+If you are about to use DCPMM as cache, use scripts/spark_thrift_server_yarn_with_DCPMM.sh. You need to update the configuration values in this script to reflect the real environment. Normally, you need to update the following configuration values for DCPMM case,
+- --driver-memory
+- --executor-memory
+- --executor-cores
+- --conf spark.sql.oap.fiberCache.persistent.memory.initial.size
+- --conf spark.sql.oap.fiberCache.persistent.memory.reserved.size
+
+These configurations will overide the values specified in Spark configuration file. After the configuration is done, you can execute the following command to start Thrift Server.
+
+```
+cd OAP-TPCDS-TOOL
+sh ./scripts/spark_thrift_server_yarn_with_DCPMM.sh
 ```
 
-2. Modify several variables of OAP-TPCDS-Benchmark-Package/scripts/run_gen_data.sh, according to the actual situation
+##### Use DRAM as cache
+If you are about to use DCPMM as cache, use scripts/spark_thrift_server_yarn_with_DRAM.sh. You need to update the configuration values in this script to reflect the real environment. Normally, you need to update the following configuration values for DRAM case,
+- --driver-memory
+- --executor-memory
+- --executor-cores
+- --conf spark.memory.offHeap.size
 
+These configurations will overide the values specified in Spark configuration file. After the configuration is done, you can execute the following command to start Thrift Server.
+```
+cd OAP-TPCDS-TOOL
+sh ./scripts/spark_thrift_server_yarn_with_DRAM.sh
+```
+#### Run Queries
+Now you are ready to execute the queries over the data. Execute the following command to start to run queries.
 
 ```
-#replace the $SPARK_HOME
-SPARK_HOME=/opt/Beaver/spark-2.3.2-bin-Phive
-#replace with the OAP-TPCDS-Benchmark-Package path
-PACKAGE=./OAP-TPCDS-Benchmark-Package
+cd OAP-TPCDS-TOOL
+sh ./scripts/run_tpcds.sh
 ```
 
-3. Generate Data
-
-```
-sh OAP-TPCDS-Benchmark-Package/scripts/run_gen_data.sh
-```
-
-
-#### Run Benchmark Queries
-
-1. Start the thriftserver service
-
-Start the thriftserver service by "OAP-TPCDS-Benchmark-Package/scripts/spark_thrift_server_yarn_with_DCPMM.sh" using DCPMM as the cache media or by "OAP-TPCDS-Benchmark-Package/scripts/spark_thrift_server_yarn_with_DRAM.sh" using DRAM as the cache media. 
-
-   i. No matter which script you use, you need to modify the variable SPARK_HOME and other Spark configuration items in the script according to the actual environment.
-       
-   ii. Start thriftserver
-       
-      
-```
-sh spark_thrift_server_yarn_with_DCPMM.sh
-              or
-sh spark_thrift_server_yarn_with_DRAM.sh
-```
-       
-       
-       
-2. Run Queries
-       
-      i. Modify several variables of OAP-TPCDS-Benchmark-Package/scripts/run_beeline.py, according to the actual situation.
-       
-```
-# replace the $SPARK_HOME
-SPARK_HOME = '/home/spark-sql/spark-2.3.2'
-# replace with node running thriftserver 
-hostname = 'bdpe833n1'
-# replace with the actual database to query 
-database_name = 'tpcds2'
-# replace with the OAP-TPCDS-Benchmark-Package path
-PACKAGE='./OAP-TPCDS-Benchmark-Package'
-```
-
-    
-   ii. Run the 9 I/O intensive queries.
-       
-```
-python run_beeline.py
-```
-      
-   When the queries end, you will see the result file result.json in the current executive directory
-
+When all the queries are done, you will see the result.json file in the current directory.
