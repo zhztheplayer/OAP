@@ -10,10 +10,10 @@
 
 
 ## Prerequisites
-Before getting started with OAP on Spark, you should have set up a working Hadoop cluster with YARN and Spark. Running Spark on YARN requires a binary distribution of Spark which is built with YARN support. If you don't want to build Spark by yourself, we have a pre-built Spark-2.3.2, you can download [Spark-2.3.2]() and setup Spark on your working node.
+Before getting started with OAP on Spark, you should have set up a working Hadoop cluster with YARN and Spark. Running Spark on YARN requires a binary distribution of Spark which is built with YARN support. If you don't want to build Spark by yourself, we have a pre-built Spark-2.3.2, you can download [Spark-2.3.2](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/spark-2.3.2-bin-hadoop2.7-patched-v2.tgz) and setup Spark on your working node.
 ## Getting Started with OAP
 ### Building OAP
-We have a pre-built OAP, you can download [OAP-0.6.1 for Spark 2.3.2 jar](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/oap-0.6.0-with-spark-2.3.2.jar) to your working node and put the OAP jar to your working directory such as `/home/oap/jars/`. If you’d like to build OAP from source code, please refer to [Developer Guide](https://github.com/HongW2019/OAP-spark2.4.3/blob/master/docs/Developer-Guide.md) for the detailed steps.
+We have a pre-built OAP, you can download [OAP-0.6.1 for Spark 2.3.2 jar](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/oap-0.6.1-with-spark-2.3.2.jar) to your working node and put the OAP jar to your working directory such as `/home/oap/jars/`. If you’d like to build OAP from source code, please refer to [Developer Guide](https://github.com/HongW2019/OAP-spark2.4.3/blob/master/docs/Developer-Guide.md) for the detailed steps.
 ### Spark Configurations for OAP
 Users usually test and run Spark SQL or scala scripts in Spark Shell which launches Spark applications on YRAN with ***client*** mode. In this section, we will start with Spark Shell then introduce other use scenarios. 
 
@@ -21,9 +21,9 @@ Before you run ` . $SPARK_HOME/bin/spark-shell `, you need to configure Spark fo
 
 ```
 spark.sql.extensions              org.apache.spark.sql.OapExtensions
-spark.files                       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar     # absolute path of OAP jar on your working node
+spark.files                       /home/oap/jars/oap-0.6.1-with-spark-2.3.2.jar     # absolute path of OAP jar on your working node
 spark.executor.extraClassPath     ./oap-0.6-with-spark-2.3.2.jar                  # relative path of OAP jar
-spark.driver.extraClassPath       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar     # absolute path of OAP jar on your working node
+spark.driver.extraClassPath       /home/oap/jars/oap-0.6.1-with-spark-2.3.2.jar     # absolute path of OAP jar on your working node
 ```
 ### Verify Spark with OAP Integration 
 After configuration, you can follow the below steps and verify the OAP integration is working using Spark Shell.
@@ -56,17 +56,17 @@ Spark Shell and Thrift Sever run Spark application in ***client*** mode. While S
 Before run `spark-submit` with ***cluster*** mode, you should add below OAP configurations in the Spark configuration file `$SPARK_HOME/conf/spark-defaults.conf` on your working node.
 ```
 spark.sql.extensions              org.apache.spark.sql.OapExtensions
-spark.files                       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar        # absolute path on your working node    
-spark.executor.extraClassPath     ./oap-0.6-with-spark-2.3.2.jar                     # relative path 
-spark.driver.extraClassPath       ./oap-0.6-with-spark-2.3.2.jar                     # relative path
+spark.files                       /home/oap/jars/oap-0.6.1-with-spark-2.3.2.jar        # absolute path on your working node    
+spark.executor.extraClassPath     ./oap-0.6.1-with-spark-2.3.2.jar                     # relative path 
+spark.driver.extraClassPath       ./oap-0.6.1-with-spark-2.3.2.jar                     # relative path
 ```
 
 ## Configuration for Spark Standalone Mode
 In addition to running on the YARN cluster managers, Spark also provides a simple standalone deploy mode. If you are using Spark in Spark Standalone mode, you need to copy the oap jar to ALL the worker nodes. And then set the following configurations in “$SPARK_HOME/conf/spark-defaults” on working node.
 ```
 spark.sql.extensions               org.apache.spark.sql.OapExtensions
-spark.executor.extraClassPath      /home/oap/jars/oap-0.6-with-spark-2.3.2.jar      # absolute path on worker nodes
-spark.driver.extraClassPath        /home/oap/jars/oap-0.6-with-spark-2.3.2.jar      # absolute path on worker nodes
+spark.executor.extraClassPath      /home/oap/jars/oap-0.6.1-with-spark-2.3.2.jar      # absolute path on worker nodes
+spark.driver.extraClassPath        /home/oap/jars/oap-0.6.1-with-spark-2.3.2.jar      # absolute path on worker nodes
 ```
 
 ## Working with OAP Index
@@ -162,7 +162,7 @@ Before configuring in OAP to use DCPMM cache, you need to make sure the followin
 
 - DCPMM hardwares are installed, formatted and mounted correctly on every cluster worker nodes. You will get a mounted directory to use if you have done this. Usually, the DCPMM on each socket will be mounted as a directory. For example, on a two sockets system, we may get two mounted directories named `/mnt/pmem0` and `/mnt/pmem1`.
 
-- [Memkind](http://memkind.github.io/memkind/) library has been installed on every cluster worker nodes. Please use the latest Memkind version. You can compile Memkind based on your system. We have a pre-build binary for x86 64bit CentOS Linux and you can download [libmemkind.so.0](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/libmemkind.so.0) and put the files to `/lib64/` directory in each worker node in cluster. Memkind depends on libnuma at the runtime. You need to make sure libnuma already exists in worker node system.
+- [Memkind](http://memkind.github.io/memkind/) library has been installed on every cluster worker nodes. Please use the latest Memkind version. You can compile Memkind based on your system. We have a pre-build binary for x86 64bit CentOS Linux and you can download [libmemkind.so.0](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/libmemkind.so.0) and put the files to `/lib64/` directory in each worker node in cluster. Memkind depends on libnuma at the runtime. You need to make sure libnuma already exists in worker node system.
 
 ##### Configure for NUMA
 To achieve the optimum performance, we need to configure NUMA for binding executor to NUMA node and try access the right DCPMM device on the same NUMA node. You need install numactl on each worker node. For example, on CentOS, run following command to install numactl.
@@ -205,12 +205,12 @@ You need to change the value for spark.executor.instances, spark.sql.oap.fiberCa
 
 The industry often chooses TPC-DS workload as the benchmark for Spark. We also select 9 TPC-DS I/O intensive queries as the benchmark for OAP.
 
-We provide the [OAP-TPCDS-Benchmark-Package.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/OAP-TPCDS-Benchmark-Package.zip) to setup and run the benchmark for OAP.
+We provide the [OAP-TPCDS-Benchmark-Package.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/OAP-TPCDS-Benchmark-Package.zip) to setup and run the benchmark for OAP.
 
 #### Prerequisites
 
 1. Need to install python 2.7+ in the environment
-2. Download the [OAP-TPCDS-Benchmark-Package.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/OAP-TPCDS-Benchmark-Package.zip)  and unzip
+2. Download the [OAP-TPCDS-Benchmark-Package.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/OAP-TPCDS-Benchmark-Package.zip)  and unzip
 3. Copy OAP-TPCDS-Benchmark-Package/tools/tpcds-kits on all cluster executor nodes under the same path.
 
 #### Generate TPC-DS Data
