@@ -20,8 +20,6 @@ Users usually test and run Spark SQL or scala scripts in Spark Shell which launc
 Before you run ` . $SPARK_HOME/bin/spark-shell `, you need to configure Spark for OAP integration. You need to add or update the following configurations in the Spark configuration file `$SPARK_HOME/conf/spark-defaults.conf` on your working node.
 
 ```
-spark.master                      yarn
-spark.deploy-mode                 client
 spark.sql.extensions              org.apache.spark.sql.OapExtensions
 spark.files                       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar     # absolute path of OAP jar on your working node
 spark.executor.extraClassPath     ./oap-0.6-with-spark-2.3.2.jar                  # relative path of OAP jar
@@ -57,8 +55,6 @@ Spark Shell and Thrift Sever run Spark application in ***client*** mode. While S
 
 Before run `spark-submit` with ***cluster*** mode, you should add below OAP configurations in the Spark configuration file `$SPARK_HOME/conf/spark-defaults.conf` on your working node.
 ```
-spark.master                      yarn
-spark.deploy-mode                 cluster
 spark.sql.extensions              org.apache.spark.sql.OapExtensions
 spark.files                       /home/oap/jars/oap-0.6-with-spark-2.3.2.jar        # absolute path on your working node    
 spark.executor.extraClassPath     ./oap-0.6-with-spark-2.3.2.jar                     # relative path 
@@ -66,7 +62,7 @@ spark.driver.extraClassPath       ./oap-0.6-with-spark-2.3.2.jar                
 ```
 
 ## Configuration for Spark Standalone Mode
-In addition to running on the YARN cluster managers, Spark also provides a simple standalone deploy mode. If you are using Spark in Spark Standalone mode, you need to copy the oap jar to ALL the worker nodes. And then set the following configurations in “$SPARK_HOME/conf/spark-defaults” of ALL worker nodes. 
+In addition to running on the YARN cluster managers, Spark also provides a simple standalone deploy mode. If you are using Spark in Spark Standalone mode, you need to copy the oap jar to ALL the worker nodes. And then set the following configurations in “$SPARK_HOME/conf/spark-defaults” on working node.
 ```
 spark.sql.extensions               org.apache.spark.sql.OapExtensions
 spark.executor.extraClassPath      /home/oap/jars/oap-0.6-with-spark-2.3.2.jar      # absolute path on worker nodes
@@ -86,7 +82,11 @@ After a successful OAP integration, you can use OAP SQL DDL to manage table inde
 ```
 
 ### Index Creation
-Use CREATE OINDEX DDL command to create an B+ Tree index or bitmap index with given name on a table column. The following example creates an B+ Tree index on column "a" of oap_test table.
+Use CREATE OINDEX DDL command to create an B+ Tree index or bitmap index with given name on a table column. 
+```
+CREATE OINDEX index_name ON table_name (column_name) USING [BTREE, BITMAP]
+```
+The following example creates an B+ Tree index on column "a" of oap_test table.
 
 ```
 > spark.sql("create oindex index1 on oap_test (a)")
@@ -97,7 +97,7 @@ Use SHOW OINDEX command to show all the created indexs on a specified table. For
 > spark.sql("show oindex from oap_test").show()
 ```
 ### Use OAP Index
-Using index in query is transparent. When the SQL queries have filter conditions on the column(s) which can table advantage to use the index to filter the data scan, the index will be automatically applied to the execution of Spark SQL. The following example will automatically use the underlayer index created on column "a".
+Using index in query is transparent. When the SQL queries have filter conditions on the column(s) which can take advantage to use the index to filter the data scan, the index will be automatically applied to the execution of Spark SQL. The following example will automatically use the underlayer index created on column "a".
 ```
 > spark.sql("SELECT * FROM oap_test WHERE a = 1").show()
 ```
@@ -141,7 +141,6 @@ After the connection is established, execute the following command to check the 
 > SHOW databases;
 > USE default;
 > SHOW tables;
-> USE oap_test;
 ```
  
 Step 4. Run queries on table which will use the cache automatically. For example,
