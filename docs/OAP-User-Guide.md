@@ -51,7 +51,7 @@ The test creates an index on a table and then show the created index. If there i
 ![Spark_shell_running_results](./image/spark_shell_oap.png)
 
 ## Configuration for YARN Cluster Mode
-Spark Shell and Thrift Sever run Spark application in ***client*** mode. While Spark Submit tool and Spark SQL CLI can run Spark application in ***client*** or ***cluster*** mode deciding by --deploy-mode parameter.  Spark SQL There are two deploy modes that can be used to launch Spark applications on YARN, ***client*** and ***cluster*** mode. The [#Getting Started with OAP] session has shown the configuraitons needed for ***client*** mode. If you are running Spark Submit tool or Spark SQL CLI in ***cluster***mode, you need to following the below configuation steps instead.
+Spark Shell, Spark SQL CLI and Thrift Sever run Spark application in ***client*** mode. While Spark Submit tool can run Spark application in ***client*** or ***cluster*** mode deciding by --deploy-mode parameter. [#Getting Started with OAP] session has shown the configuraitons needed for ***client*** mode. If you are running Spark Submit tool in ***cluster***mode, you need to follow the below configuation steps instead.
 
 Before run `spark-submit` with ***cluster*** mode, you should add below OAP configurations in the Spark configuration file `$SPARK_HOME/conf/spark-defaults.conf` on your working node.
 ```
