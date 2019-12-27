@@ -209,22 +209,29 @@ You need to change the value for spark.executor.instances, spark.sql.oap.fiberCa
 
 After the configuration, and you need to restart Spark Thrift Server to make the configuration changes taking effect. You can take the same steps described in [Use DRAM Cache](#Use-DRAM-Cache) to test and verify the cache is in working.
 
-## Run TPC-DS Benchmark for OAP
+## Run TPC-DS Benchmark for OAP Cache
 
-The industry often chooses TPC-DS workload as the benchmark for Spark. We also select 9 TPC-DS I/O intensive queries as the benchmark for OAP.
+The section provides instructions and tools for running TPC-DS queries to evaluate the cache performance at various configurations. TPC-DS suite has many queries and we select 9 I/O intensive queries for making the performance evaluation simple.
 
-We provide the [OAP-TPCDS-Benchmark-Package.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/OAP-TPCDS-Benchmark-Package.zip) to setup and run the benchmark for OAP.
+We created a tool [OAP-TPCDS-Benchmark-Package.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/OAP-TPCDS-Benchmark-Package.zip) to simplify the running work for beginners. If you have already been familar with TPC-DS data generation and running a TPC-DS tool suite, you can skip our tool and use TPC-DS tool suite directly.
 
 #### Prerequisites
 
-1. Need to install python 2.7+ in the environment
-2. Download the [OAP-TPCDS-Benchmark-Package.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/OAP-TPCDS-Benchmark-Package.zip)  and unzip
-3. Copy OAP-TPCDS-Benchmark-Package/tools/tpcds-kits on all cluster executor nodes under the same path.
+- The tool use Python scripts to execute Beeline commands to Spark Thrift Server. You need to install python 2.7+ on your working node.
+
+#### Prepare the Tool
+2. Download the [OAP-TPCDS-Benchmark-Package.zip](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.1-spark-2.3.2/OAP-TPCDS-Benchmark-Package.zip)  and unzip to a folder (for example, OAP-TPCDS-Benchmark-Package folder) on your working node. 
+3. Copy OAP-TPCDS-Benchmark-Package/tools/tpcds-kits to ALL worker nodes under the same folder (for example, /home/oap/tpcds-kits).
 
 #### Generate TPC-DS Data
 
-1. Modify several variables at the beginning of OAP-TPCDS-Benchmark-Package/scripts/genData.scala, according to the actual situation.
+1. Update a few variable values in OAP-TPCDS-Benchmark-Package/scripts/genData.scala based on your environment and needs.
+- scale: The data scale to be generated in GB
+- format: The data file format. You can specify parquet or orc
+- namenode: The HDFS name node address
+- tpcdskitsDir: The tpcds-kits directory you coped to in the above prepare process.
 
+The following is an example:
 
 ```
 // data scale GB
@@ -233,12 +240,8 @@ val scale = 2
 val format = "parquet"
 // cluster NameNode
 val namenode = "bdpe833n1"
-// root directory of location to create data in.
-val rootDir = s"hdfs://${namenode}:9000/genData$scale"
-// name of database to create.
-val databasename = s"tpcds$scale"
 // location of tpcds-kits on executor nodes
-val tpcdskitsDir = "/opt/Beaver/tpcds-kit/tools"
+val tpcdskitsDir = "/home/oap/tpcds-kits"
 ```
 
 2. Modify several variables of OAP-TPCDS-Benchmark-Package/scripts/run_gen_data.sh, according to the actual situation
