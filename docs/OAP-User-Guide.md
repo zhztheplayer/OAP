@@ -113,7 +113,7 @@ For more detailed examples on OAP performance comparation, you can refer to this
 OAP is capable to provide input data cache functionality in executor. Considering to utilize the cache data among different SQL queries, we should configure to allow different SQL queries to use the same executor process. This can be achieved by running your queries through Spark ThriftServer. The below steps assume to use Spark ThriftServer. For cache media, we support both DRAM and Intel DCPMM which means you can choose to cache data in DRAM or Intel DCPMMM if you have DCPMM configured in hardware.
 
 ### Use DRAM Cache 
-Step 1. Make the following configurations in Spark configuration file `$SPARK_HOME/conf/spark-defaults.conf`. 
+Step 1. Make the following configuration changes in Spark configuration file `$SPARK_HOME/conf/spark-defaults.conf`. 
 
 ```
 spark.memory.offHeap.enabled                true
@@ -152,22 +152,26 @@ Step 4. Run queries on table which will use the cache automatically. For example
 > SELECT * FROM oap_test WHERE a = 3;
 ...
 ```
-Step 5. To verify that the cache funtionality is used, you can open Spark History Web UI and go to OAP tab page. And check the cache metrics. The following picture is an example.
+Step 5. To verify that the cache funtionality is in effect, you can open Spark History Web UI and go to OAP tab page. And check the cache metrics. The following picture is an example.
 
 ![webUI](./image/webUI.png)
 
 
 ### Use DCPMM Cache 
 #### Prerequisites
-When you want to use DCPMM to cache hot data, you should follow the below steps.
+Before configuring in OAP to use DCPMM cache, you need to make sure the following:
 
-Step 1. You need have DCPMM formatted and mounted on your clusters.
+- DCPMM hardwares are installed, formatted and mounted correctly on every cluster worker nodes. You will get a mounted directory to use if you have done this. Usually, the DCPMM on each socket will be mounted as a directory. For example, on a two sockets system, we may get two mounted directories named `/mnt/pmem0` and `/mnt/pmem1`.
 
-Step 2. Download [libmemkind.so.0](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/libmemkind.so.0), [libnuma.so.1](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/libnuma.so.1) to directory `/lib64/`(Centos) in each executor node.
-##### Achieve NUMA binding
-Step 3. Install numactl by `yum install numactl -y ` to achieve NUMA binding
-##### Configurations for DCPMM 
-Step 4. Create a file named “persistent-memory.xml” under "$SPARK_HOME/conf/" and set the “initialPath” of numa node in “persistent-memory.xml”. You can directly copy the following part only changing `/mnt/pmem0` `/mnt/pmem1` to your path to DCPMM.
+- [Memkind](http://memkind.github.io/memkind/) library has been installed on every cluster worker nodes. Please use the latest Memkind version. You can compile Memkind based on your system. We have a pre-build binary for x86 64bit CentOS Linux and you can download [libmemkind.so.0](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/libmemkind.so.0) and [libnuma.so.1](https://github.com/Intel-bigdata/OAP/releases/download/v0.6.0-spark-2.3.2/libnuma.so.1) and put the files to `/lib64/` directory in each worker node in cluster.
+
+##### Configure for NUMA
+To achieve the optimum performance, we need to configure NUMA for binding executor to NUMA node and try access the right DCPMM device on the same NUMA node. You need install numactl on each worker node. For example, on CentOS, run following command to install numactl.
+
+```yum install numactl -y ```
+
+##### Configure for DCPMM 
+Create a configuration file named “persistent-memory.xml” under "$SPARK_HOME/conf/" if it doesn't exist. Use below contents as a template and change the “initialPath” to your mounted paths for DCPMM devices. 
 
 ```
 <persistentMemoryPool>
@@ -181,21 +185,22 @@ Step 4. Create a file named “persistent-memory.xml” under "$SPARK_HOME/conf/
   </numanode>
 </persistentMemoryPool>
 ```
+##### Configure for Spark/OAP to enable DCPMM cache
+Make the following configuration changes in Spark configuration file `$SPARK_HOME/conf/spark-defaults.conf`.
 
-Here we privide you with an example, this cluster consists of 2 worker nodes, per node has 2 pieces of 488GB DCPMM ; 
 ```
-spark.executor.instances                                   4               # 2x of number of your worker nodes
+spark.executor.instances                                   6               # 2x of number of your worker nodes
 spark.yarn.numa.enabled                                    true            # enable numa
 spark.executorEnv.MEMKIND_ARENA_NUM_PER_KIND               1
 spark.memory.offHeap.enabled                               false
 spark.speculation                                          false
 spark.sql.oap.fiberCache.memory.manager                    pm              # use DCPMM as cache media
-spark.sql.oap.fiberCache.persistent.memory.initial.size    450g            # ~90% of total available DCPMM per executor
-spark.sql.oap.fiberCache.persistent.memory.reserved.size   30g             # the left DCPMM per executor
+spark.sql.oap.fiberCache.persistent.memory.initial.size    256g            # DCPMM capacity per executor
+spark.sql.oap.fiberCache.persistent.memory.reserved.size   50g             # Reserved space per executor
 spark.sql.oap.parquet.data.cache.enable                    true            # for parquet fileformat
 spark.sql.oap.orc.data.cache.enable                        true            # for orc fileformat
 ```
-You can also run Spark with the same following example as DRAM cache to try OAP cache function with DCPMM, then you can find the cache metric with OAP TAB in the spark history Web UI.
+You need to change the value for spark.executor.instances, spark.sql.oap.fiberCache.persistent.memory.initial.size, and spark.sql.oap.fiberCache.persistent.memory.reserved.size according to your real environment. Here we privide you with an example, this cluster consists of 2 worker nodes, per node has 2 pieces of 488GB DCPMM ; ou can also run Spark with the same following example as DRAM cache to try OAP cache function with DCPMM, then you can find the cache metric with OAP TAB in the spark history Web UI.
 
 ## Run TPC-DS Benchmark for OAP
 
