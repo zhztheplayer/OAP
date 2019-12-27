@@ -48,7 +48,7 @@ Steps 3. In Spark Shell, execute the following commands to test OAP integration.
 > spark.sql("create oindex index1 on oap_test (a)")
 > spark.sql("show oindex from oap_test").show()
 ```
-The test create an index on a table and then show the created index. If there is no error happens, it means the OAP jar is working with the configuration. The picture below is one example of a successfully run.
+The test creates an index on a table and then show the created index. If there is no error happens, it means the OAP jar is working with the configuration. The picture below is one example of a successfully run.
 
 ![Spark_shell_running_results](./docs/image/spark_shell_oap.png)
 
@@ -110,10 +110,10 @@ For more detailed examples on OAP performance comparation, you can refer to this
 
 ## Working with OAP Cache
 
-If you want to run OAP with cache function, there are two media types in OAP to cache hot data: DRAM and DCPMM. 
+OAP is capable to provide input data cache functionality in executor. Considering to utilize the cache data among different SQL queries, we should configure to allow different SQL queries to use the same executor process. This can be achieved by running your queries through Spark ThriftServer. The below steps assume to use Spark ThriftServer. For cache media, we support both DRAM and Intel DCPMM which means you can choose to cache data in DRAM or Intel DCPMMM if you have DCPMM configured in hardware.
 
 ### Use DRAM Cache 
-Step 1. Change some configurations in `$SPARK_HOME/conf/spark-defaults.conf`. 
+Step 1. Make the following configurations in Spark configuration file `$SPARK_HOME/conf/spark-defaults.conf`. 
 
 ```
 spark.memory.offHeap.enabled                true
@@ -121,42 +121,40 @@ spark.memory.offHeap.size                   80g      # half of total memory size
 spark.sql.oap.parquet.data.cache.enable     true     #for parquet fileformat
 spark.sql.oap.orc.data.cache.enable         true     #for orc fileformat
 ```
-Step 2. Run Spark ***ThriftServer***
+You should change the parameter spark.memory.offHeap.size value according to the availability of DRAM capacity to cache data.
 
-You should run Spark ***ThriftServer*** with the beeline scripts to use OAP DRAM cache, ThriftServer launchs Spark applications which can cache hot data for a long time backstage, and it can also accept query requests from different clients at the same time.
+Step 2. Launch Spark ***ThriftServer***
+After configuration, you can launch Spark Thift Server. And use Beeline command line tool to connect to the Thrift Server to execute DDL or DML operations. And the data cache will automatically take effect for Parquet or ORC file sources. To help you to do a quick verification of cache functionality, below steps will reuse database metastore created in the [Working with OAP Index](#Working-with-OAP-Index) which contains `oap_test` table definition. In production, Spark Thrift Server will have its own metastore database directory or metastore service and use DDL's  through Beeline for creating your tables.
 
-To directly verify DRAM Cache function, we reuse table `oap_test` created in the [Working with OAP Index](#Working-with-OAP-Index).
-
-When we run ```spark-shell``` to create table `oap_test`, `metastore_db` will be created, so we need to run Thrift JDBC server in the same directory of `metastore`.
+When you run ```spark-shell``` to create table `oap_test`, `metastore_db` will be created in the directory from which you run '$SPARK_HOME/bin/spark-shell'. Go the same directory you ran Spark Shell and then execute the following command to launch Thrift JDBC server.
 ```
 . $SPARK_HOME/sbin/start-thriftserver.sh
 ```
-Step3. Use beeline and Connect to the JDBC/ODBC server in beeline with:
+Step3. Use Beeline and connect to the Thrift JDBC server using the following command, replacing the hostname (mythriftserver) with your own Thrift Server hostname.
 
 ```
-./beeline -u jdbc:hive2://vsr211:10000       
+./beeline -u jdbc:hive2://mythriftserver:10000       
 ```
-vsr211 is hostname, so you need change to your hostname.
- 
-Step 4. Using DRAM Cache on table `oap_test`
-When ***0: jdbc:hive2://vsr211:10000>*** shows up, then you can directly use table oap_test, which is stored in the `default` database.
+After the connection is established, execute the following command to check the metastore is initialized correctly.
+
 ```
 > SHOW databases;
 > USE default;
 > SHOW tables;
 > USE oap_test;
 ```
-Step 5. Run query like
+ 
+Step 4. Run queries on table which will use the cache automatically. For example,
+
 ```
 > SELECT * FROM oap_test WHERE a = 1;
 > SELECT * FROM oap_test WHERE a = 2;
 > SELECT * FROM oap_test WHERE a = 3;
 ...
 ```
-Then you can find the cache metric with OAP TAB in the spark history Web UI.
+Step 5. To verify that the cache funtionality is used, you can open Spark History Web UI and go to OAP tab page. And check the cache metrics. The following picture is an example.
 
 ![webUI](./image/webUI.png)
-
 
 
 ### Use DCPMM Cache 
