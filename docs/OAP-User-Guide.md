@@ -267,7 +267,7 @@ These configurations will overide the values specified in Spark configuration fi
 
 ```
 cd OAP-TPCDS-TOOL
-sh ./scripts/spark_thrift_server_yarn_with_DCPMM.sh
+sh ./scripts/spark_thrift_server_yarn_with_DCPMM.sh start
 ```
 
 ##### Use DRAM as cache
@@ -280,7 +280,7 @@ If you are about to use DCPMM as cache, use scripts/spark_thrift_server_yarn_wit
 These configurations will overide the values specified in Spark configuration file. After the configuration is done, you can execute the following command to start Thrift Server.
 ```
 cd OAP-TPCDS-TOOL
-sh ./scripts/spark_thrift_server_yarn_with_DRAM.sh
+sh ./scripts/spark_thrift_server_yarn_with_DRAM.sh start
 ```
 #### Run Queries
 Now you are ready to execute the queries over the data. Execute the following command to start to run queries.
