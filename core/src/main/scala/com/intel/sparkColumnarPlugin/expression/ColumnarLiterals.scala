@@ -22,6 +22,10 @@ class ColumnarLiteral(lit: Literal)
         (TreeBuilder.makeStringLiteral(value.asInstanceOf[String]), resultType)
       case t: IntegerType =>
         (TreeBuilder.makeLiteral(value.asInstanceOf[Integer]), resultType)
+      case t: LongType =>
+        (TreeBuilder.makeLiteral(value.asInstanceOf[java.lang.Long]), resultType)
+      case t: DoubleType =>
+        (TreeBuilder.makeLiteral(value.asInstanceOf[java.lang.Double]), resultType)
     }
   }
 }
