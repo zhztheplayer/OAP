@@ -15,6 +15,9 @@ class KernalBase {
  public:
   KernalBase() {}
   ~KernalBase() {}
+  virtual arrow::Status SetMember(const std::shared_ptr<arrow::RecordBatch>& in) {
+    return arrow::Status::NotImplemented("KernalBase abstract interface.");
+  }
   virtual arrow::Status Evaluate(const ArrayList& in) {
     return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
                                          kernel_name_, ", input is arrayList.");
@@ -111,6 +114,51 @@ class EncodeArrayKernel : public KernalBase {
   EncodeArrayKernel(arrow::compute::FunctionContext* ctx);
   arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in,
                          std::shared_ptr<arrow::Array>* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class ProbeArrayKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<KernalBase>* out);
+  ProbeArrayKernel(arrow::compute::FunctionContext* ctx);
+  arrow::Status SetMember(const std::shared_ptr<arrow::RecordBatch>& ms);
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class TakeArrayKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<KernalBase>* out);
+  TakeArrayKernel(arrow::compute::FunctionContext* ctx);
+  arrow::Status SetMember(const std::shared_ptr<arrow::RecordBatch>& ms);
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class NTakeArrayKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<KernalBase>* out);
+  NTakeArrayKernel(arrow::compute::FunctionContext* ctx);
+  arrow::Status SetMember(const std::shared_ptr<arrow::RecordBatch>& ms);
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override;
 
  private:
   class Impl;

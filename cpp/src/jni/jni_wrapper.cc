@@ -284,6 +284,43 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
   return record_batch_builder_array;
 }
 
+JNIEXPORT void JNICALL
+Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeSetMember(
+    JNIEnv* env, jobject obj, jlong id, jint num_rows, jlongArray buf_addrs,
+    jlongArray buf_sizes) {
+  arrow::Status status;
+  std::shared_ptr<CodeGenerator> handler = GetCodeGenerator(env, id);
+  std::shared_ptr<arrow::Schema> schema;
+  status = handler->getSchema(&schema);
+
+  int in_bufs_len = env->GetArrayLength(buf_addrs);
+  if (in_bufs_len != env->GetArrayLength(buf_sizes)) {
+    std::string error_message =
+        "nativeEvaluate: mismatch in arraylen of buf_addrs and buf_sizes";
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  jlong* in_buf_addrs = env->GetLongArrayElements(buf_addrs, 0);
+  jlong* in_buf_sizes = env->GetLongArrayElements(buf_sizes, 0);
+
+  std::shared_ptr<arrow::RecordBatch> in;
+  status =
+      MakeRecordBatch(schema, num_rows, in_buf_addrs, in_buf_sizes, in_bufs_len, &in);
+
+  status = handler->SetMember(in);
+
+  if (!status.ok()) {
+    std::string error_message =
+        "nativeEvaluate: evaluate failed with error msg " + status.ToString();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+
+  env->ReleaseLongArrayElements(buf_addrs, in_buf_addrs, JNI_ABORT);
+  env->ReleaseLongArrayElements(buf_sizes, in_buf_sizes, JNI_ABORT);
+
+}
+
 JNIEXPORT jobject JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeFinish(
     JNIEnv* env, jobject obj, jlong id) {

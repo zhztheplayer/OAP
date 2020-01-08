@@ -94,6 +94,7 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   arrow::Status Init();
   arrow::Status Eval(const std::shared_ptr<arrow::RecordBatch>& in);
   arrow::Status Eval();
+  arrow::Status SetMember(const std::shared_ptr<arrow::RecordBatch>& ms);
   arrow::Status GetResultFromDependency();
   arrow::Status Reset();
   arrow::Status ResetDependency();
@@ -124,6 +125,10 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   std::string func_name_;
   std::shared_ptr<ExprVisitor> dependency_;
   std::shared_ptr<arrow::RecordBatch> in_record_batch_;
+
+  // For dual input kernels like probe
+  std::shared_ptr<arrow::RecordBatch> member_record_batch_;
+
   std::vector<std::string> param_field_names_;
   std::shared_ptr<gandiva::Node> finish_func_;
   std::vector<std::string> action_name_list_;

@@ -7,6 +7,10 @@
 #include <arrow/compute/kernels/minmax.h>
 #include <arrow/compute/kernels/sort_arrays_to_indices.h>
 #include <arrow/compute/kernels/sum.h>
+#include <arrow/compute/kernels/probe.h>
+#include <arrow/compute/kernels/ntake.h>
+#include <arrow/array/builder_primitive.h>
+#include <arrow/type_fwd.h>
 #include <arrow/pretty_print.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
@@ -468,6 +472,186 @@ arrow::Status AppendArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& i
 arrow::Status AppendArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
   return impl_->Finish(out);
 }
+
+///////////////  ProbeArray  ////////////////
+class ProbeArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  ~Impl() {}
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
+    arrow::compute::Datum output;
+    RETURN_NOT_OK(arrow::compute::Probe(ctx_, in, member_set_, &output));
+    if (!builder) {
+      RETURN_NOT_OK(MakeArrayBuilder(in->type(), ctx_->memory_pool(), &builder));
+    }
+    RETURN_NOT_OK(builder->AppendArray(output.make_array().get(), 0));
+
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
+    RETURN_NOT_OK(builder->Finish(out));
+    return arrow::Status::OK();
+  }
+
+ //TODO: move to private
+ public:
+  std::shared_ptr<arrow::Array> member_set_;
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<ArrayBuilderImplBase> builder;
+};
+
+arrow::Status ProbeArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                   std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<ProbeArrayKernel>(ctx);
+  return arrow::Status::OK();
+}
+
+ProbeArrayKernel::ProbeArrayKernel(arrow::compute::FunctionContext* ctx) {
+  impl_.reset(new Impl(ctx));
+}
+
+arrow::Status ProbeArrayKernel::SetMember(const std::shared_ptr<arrow::RecordBatch>& ms) {
+  //TODO: check if multiple columns found
+  impl_->member_set_ = ms->column(0);
+  return arrow::Status::OK();
+}
+
+arrow::Status ProbeArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
+  return impl_->Evaluate(in);
+}
+
+arrow::Status ProbeArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
+  return impl_->Finish(out);
+}
+
+///////////////  TakeArray  ////////////////
+class TakeArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  ~Impl() {}
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
+    arrow::compute::NTakeOptions options;
+    arrow::compute::Datum output;
+    RETURN_NOT_OK(arrow::compute::NTake(ctx_, in, member_set_, options, &output));
+    if (!builder) {
+      RETURN_NOT_OK(MakeArrayBuilder(in->type(), ctx_->memory_pool(), &builder));
+    }
+    RETURN_NOT_OK(builder->AppendArray(output.make_array().get(), 0));
+
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
+    RETURN_NOT_OK(builder->Finish(out));
+    return arrow::Status::OK();
+  }
+
+ //TODO: move to private
+ public:
+  std::shared_ptr<arrow::Array> member_set_;
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<ArrayBuilderImplBase> builder;
+};
+
+arrow::Status TakeArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                   std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<TakeArrayKernel>(ctx);
+  return arrow::Status::OK();
+}
+
+TakeArrayKernel::TakeArrayKernel(arrow::compute::FunctionContext* ctx) {
+  impl_.reset(new Impl(ctx));
+}
+
+arrow::Status TakeArrayKernel::SetMember(const std::shared_ptr<arrow::RecordBatch>& ms) {
+  //TODO: check if multiple columns found
+  impl_->member_set_ = ms->column(0);
+  return arrow::Status::OK();
+}
+
+arrow::Status TakeArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
+  return impl_->Evaluate(in);
+}
+
+arrow::Status TakeArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
+  return impl_->Finish(out);
+}
+
+///////////////  NTakeArray  ////////////////
+class NTakeArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  ~Impl() {}
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
+    arrow::compute::NTakeOptions options;
+    arrow::compute::Datum output;
+    // construct a new list based on row id
+    arrow::NumericBuilder<arrow::UInt32Type> new_builder(ctx_->memory_pool());
+    new_builder.Resize(member_set_->length());
+
+    for(int id = 0; id < member_set_->length(); id++) {
+      if (member_set_->IsNull(id)) {
+        new_builder.AppendNull();
+      } else {
+        new_builder.Append(id);
+      }
+    }
+    new_builder.Finish(&new_mb_builder);
+
+    RETURN_NOT_OK(arrow::compute::NTake(ctx_, in, new_mb_builder, options, &output));
+
+    if (!builder) {
+      RETURN_NOT_OK(MakeArrayBuilder(in->type(), ctx_->memory_pool(), &builder));
+    }
+    RETURN_NOT_OK(builder->AppendArray(output.make_array().get(), 0));
+
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
+    RETURN_NOT_OK(builder->Finish(out));
+    return arrow::Status::OK();
+  }
+
+ //TODO: move to private
+ public:
+  std::shared_ptr<arrow::Array> member_set_;
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<ArrayBuilderImplBase> builder;
+  std::shared_ptr<arrow::Array> new_mb_builder;
+};
+
+arrow::Status NTakeArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                   std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<NTakeArrayKernel>(ctx);
+  return arrow::Status::OK();
+}
+
+NTakeArrayKernel::NTakeArrayKernel(arrow::compute::FunctionContext* ctx) {
+  impl_.reset(new Impl(ctx));
+}
+
+arrow::Status NTakeArrayKernel::SetMember(const std::shared_ptr<arrow::RecordBatch>& ms) {
+  //TODO: check if multiple columns found
+  impl_->member_set_ = ms->column(0);
+  return arrow::Status::OK();
+}
+
+arrow::Status NTakeArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
+  return impl_->Evaluate(in);
+}
+
+arrow::Status NTakeArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
+  return impl_->Finish(out);
+}
+
 
 ///////////////  SumArray  ////////////////
 class SumArrayKernel::Impl {

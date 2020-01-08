@@ -55,6 +55,9 @@ public class ExpressionEvaluatorJniWrapper {
   native ArrowRecordBatchBuilder[] nativeEvaluate(
       long nativeHandler, int numRows, long[] bufAddrs, long[] bufSizes) throws RuntimeException;
 
+  native void nativeSetMember(
+      long nativeHandler, int numRows, long[] bufAddrs, long[] bufSizes);
+
   /**
    * Evaluate the expressions represented by the nativeHandler on a record batch and store the
    * output in ValueVectors. Throws an exception in case of errors
