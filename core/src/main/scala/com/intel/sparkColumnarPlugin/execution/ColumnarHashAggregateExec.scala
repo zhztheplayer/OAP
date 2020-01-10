@@ -59,13 +59,15 @@ class ColumnarHashAggregateExec(
     "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
     "numOutputBatches" -> SQLMetrics.createMetric(sparkContext, "number of output batches"),
     "numInputBatches" -> SQLMetrics.createMetric(sparkContext, "number of Input batches"),
-    "aggTime" -> SQLMetrics.createTimingMetric(sparkContext, "time in aggregation process"))
+    "aggTime" -> SQLMetrics.createTimingMetric(sparkContext, "time in aggregation process"),
+    "elapseTime" -> SQLMetrics.createTimingMetric(sparkContext, "elapse time from very begin to this process"))
 
   override def doExecuteColumnar(): RDD[ColumnarBatch] = {
     val numOutputRows = longMetric("numOutputRows")
     val numOutputBatches = longMetric("numOutputBatches")
     val numInputBatches = longMetric("numInputBatches")
     val aggTime = longMetric("aggTime")
+    val elapseTime = longMetric("elapseTime")
     numOutputRows.set(0)
     numOutputBatches.set(0)
     numInputBatches.set(0)
@@ -87,7 +89,8 @@ class ColumnarHashAggregateExec(
           numInputBatches,
           numOutputBatches,
           numOutputRows,
-          aggTime)
+          aggTime,
+          elapseTime)
         TaskContext.get().addTaskCompletionListener[Unit](_ => {
           aggregation.close()
         })

@@ -45,7 +45,8 @@ class ColumnarAggregation(
     numInputBatches: SQLMetric,
     numOutputBatches: SQLMetric,
     numOutputRows: SQLMetric,
-    aggrTime: SQLMetric)
+    aggrTime: SQLMetric,
+    elapseTime: SQLMetric)
     extends Logging {
   // build gandiva projection here.
   var elapseTime_make: Long = 0
@@ -228,16 +229,17 @@ class ColumnarAggregation(
           if (cb.numRows > 0) {
             updateAggregationResult(cb)
             processedNumRows += cb.numRows
-            numInputBatches += 1
           }
+          numInputBatches += 1
           eval_elapse += System.nanoTime() - beforeEval
         }
-        val beforeFinish = System.nanoTime()
+        val beforeEval = System.nanoTime()
         val outputBatch = getAggregationResult()
-        finish_elapse += System.nanoTime() - beforeFinish
+        eval_elapse += System.nanoTime() - beforeEval
         val elapse = System.nanoTime() - beforeAgg
-        aggrTime.set(NANOSECONDS.toMillis(elapse))
-        logInfo(s"HasgAggregate Completed, total processed ${numInputBatches.value} batches, took ${NANOSECONDS.toMillis(elapse)} ms handling one file(including fetching + processing), took ${NANOSECONDS.toMillis(eval_elapse)} ms doing evaluation, ${NANOSECONDS.toMillis(finish_elapse)} ms doing finish process.");
+        aggrTime.set(NANOSECONDS.toMillis(eval_elapse))
+        elapseTime.set(NANOSECONDS.toMillis(elapse))
+        logInfo(s"HasgAggregate Completed, total processed ${numInputBatches.value} batches, took ${NANOSECONDS.toMillis(elapse)} ms handling one file(including fetching + processing), took ${NANOSECONDS.toMillis(eval_elapse)} ms doing evaluation.");
         numOutputBatches += 1
         numOutputRows += outputBatch.numRows
         if (cb != null) {
@@ -293,7 +295,8 @@ object ColumnarAggregation {
       numInputBatches: SQLMetric,
       numOutputBatches: SQLMetric,
       numOutputRows: SQLMetric,
-      aggrTime: SQLMetric): ColumnarAggregation = synchronized {
+      aggrTime: SQLMetric,
+      elapseTime: SQLMetric): ColumnarAggregation = synchronized {
     columnarAggregation = new ColumnarAggregation(
       partIndex,
       groupingExpressions,
@@ -304,7 +307,8 @@ object ColumnarAggregation {
       numInputBatches,
       numOutputBatches,
       numOutputRows,
-      aggrTime)
+      aggrTime,
+      elapseTime)
     columnarAggregation
   }
 

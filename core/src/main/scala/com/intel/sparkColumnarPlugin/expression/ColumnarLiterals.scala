@@ -26,6 +26,11 @@ class ColumnarLiteral(lit: Literal)
         (TreeBuilder.makeLiteral(value.asInstanceOf[java.lang.Long]), resultType)
       case t: DoubleType =>
         (TreeBuilder.makeLiteral(value.asInstanceOf[java.lang.Double]), resultType)
+      case d: DecimalType =>
+        val v = value.asInstanceOf[Decimal]
+        (TreeBuilder.makeDecimalLiteral(v.toString, v.precision, v.scale), resultType)
+      case d: DateType =>
+        throw new UnsupportedOperationException(s"DateType is not supported yet.")
     }
   }
 }
