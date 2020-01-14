@@ -6,12 +6,16 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.HashAggregateExec
+import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.{SparkSession, SparkSessionExtensions}
 
 case class ColumnarOverrides() extends Rule[SparkPlan] {
 
   def replaceWithColumnarPlan(plan: SparkPlan): SparkPlan = plan match {
+    case plan: BatchScanExec =>
+      logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
+      new ColumnarBatchScanExec(plan.output, plan.scan)
     case plan: ProjectExec =>
       logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
       /*if (plan.child.isInstanceOf[FilterExec]) {
