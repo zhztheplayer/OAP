@@ -1,5 +1,9 @@
 #include <arrow/status.h>
+#include <arrow/type_fwd.h>
 #include <codegen/arrow_compute/expr_visitor.h>
+#include <gandiva/configuration.h>
+#include <gandiva/projector.h>
+#include <gandiva/tree_expr_builder.h>
 #include <unistd.h>
 #include <chrono>
 #include <memory>
@@ -250,15 +254,24 @@ class EncodeVisitorImpl : public ExprVisitorImpl {
       return arrow::Status::OK();
     }
     RETURN_NOT_OK(extra::EncodeArrayKernel::Make(&p_->ctx_, &kernel_));
-    if (p_->param_field_names_.size() != 1) {
-      return arrow::Status::Invalid(
-          "EncodeVisitorImpl expects param_field_name_list only contains one "
-          "element.");
+    std::vector<std::shared_ptr<arrow::DataType>> type_list;
+    for (auto col_name : p_->param_field_names_) {
+      std::shared_ptr<arrow::Field> field;
+      int col_id;
+      RETURN_NOT_OK(GetColumnIdAndFieldByName(p_->schema_, col_name, &col_id, &field));
+      col_id_list_.push_back(col_id);
+      type_list.push_back(field->type());
     }
-    auto col_name = p_->param_field_names_[0];
-    std::shared_ptr<arrow::Field> field;
-    RETURN_NOT_OK(GetColumnIdAndFieldByName(p_->schema_, col_name, &col_id_, &field));
-    p_->result_fields_.push_back(field);
+
+    // create a new kernel to memcpy all keys as one binary array
+    if (type_list.size() > 1) {
+      RETURN_NOT_OK(
+          // extra::ConcatArrayKernel::Make(&p_->ctx_, type_list, &concat_kernel_));
+          extra::HashAggrArrayKernel::Make(&p_->ctx_, type_list, &concat_kernel_));
+    }
+
+    auto result_field = field("res", arrow::uint32());
+    p_->result_fields_.push_back(result_field);
     initialized_ = true;
     return arrow::Status::OK();
   }
@@ -266,12 +279,19 @@ class EncodeVisitorImpl : public ExprVisitorImpl {
   arrow::Status Eval() override {
     switch (p_->dependency_result_type_) {
       case ArrowComputeResultType::None: {
-        if (col_id_ >= p_->in_record_batch_->num_columns()) {
-          return arrow::Status::Invalid(
-              "EncodeVisitorImpl Eval col_id is bigger than input "
-              "batch numColumns.");
+        std::shared_ptr<arrow::Array> col;
+        if (concat_kernel_) {
+          std::vector<std::shared_ptr<arrow::Array>> array_list;
+          for (auto col_id : col_id_list_) {
+            array_list.push_back(p_->in_record_batch_->column(col_id));
+          }
+
+          TIME_MICRO_OR_RAISE(concat_elapse_time,
+                              concat_kernel_->Evaluate(array_list, &col));
+        } else {
+          col = p_->in_record_batch_->column(col_id_list_[0]);
         }
-        auto col = p_->in_record_batch_->column(col_id_);
+
         TIME_MICRO_OR_RAISE(p_->elapse_time_, kernel_->Evaluate(col, &p_->result_array_));
         p_->return_type_ = ArrowComputeResultType::Array;
       } break;
@@ -282,8 +302,15 @@ class EncodeVisitorImpl : public ExprVisitorImpl {
     return arrow::Status::OK();
   }
 
+  arrow::Status Finish() override {
+    std::cout << "Concat took " << TIME_TO_STRING(concat_elapse_time) << std::endl;
+    return arrow::Status::OK();
+  }
+
  private:
-  int col_id_;
+  std::vector<int> col_id_list_;
+  std::shared_ptr<extra::KernalBase> concat_kernel_;
+  uint64_t concat_elapse_time = 0;
 };
 
 ////////////////////////// ProbeVisitorImpl ///////////////////////
