@@ -31,7 +31,7 @@ public class SkippableVectorizedRleValuesReader extends VectorizedRleValuesReade
   }
 
   public SkippableVectorizedRleValuesReader(int bitWidth, boolean readLength) {
-    super(bitWidth, readLength);
+    super(bitWidth);
   }
 
   public void skipIntegers(int total, int level, SkippableVectorizedValuesReader data) {

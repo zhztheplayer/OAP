@@ -34,7 +34,7 @@ class SkippableVectorizedRleValuesReaderSuite extends SparkFunSuite with Logging
     // init reader
     val data = writer.getBytes.toByteArray
     val reader = new SkippableVectorizedRleValuesReader(3)
-    reader.initFromPage(100, BytesInput.from(data).toInputStream)
+    reader.initFromPage(100, data, 0)
 
     // test skip and read Integer
     reader.skipIntegers(32)
@@ -53,7 +53,7 @@ class SkippableVectorizedRleValuesReaderSuite extends SparkFunSuite with Logging
     // init reader
     val data = writer.getBytes.toByteArray
     val reader = new SkippableVectorizedRleValuesReader(3)
-    reader.initFromPage(20, BytesInput.from(data).toInputStream)
+    reader.initFromPage(20, data, 0)
 
     // test skip and read Integer
     reader.skipIntegers(8)
@@ -72,7 +72,7 @@ class SkippableVectorizedRleValuesReaderSuite extends SparkFunSuite with Logging
     // init reader
     val data = writer.getBytes.toByteArray
     val reader = new SkippableVectorizedRleValuesReader(3)
-    reader.initFromPage(20, BytesInput.from(data).toInputStream)
+    reader.initFromPage(20, data, 0)
 
     // test skip and read boolean
     reader.skipBoolean()
@@ -87,7 +87,7 @@ class SkippableVectorizedRleValuesReaderSuite extends SparkFunSuite with Logging
     // init reader
     val data = Array.emptyByteArray
     val reader = new SkippableVectorizedRleValuesReader()
-    reader.initFromPage(0, BytesInput.from(data).toInputStream)
+    reader.initFromPage(0, data, 0)
 
     // skipByte should throw UnsupportedOperationException
     intercept[UnsupportedOperationException] {

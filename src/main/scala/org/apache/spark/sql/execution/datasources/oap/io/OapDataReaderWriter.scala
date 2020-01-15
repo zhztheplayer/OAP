@@ -34,7 +34,6 @@ import org.apache.spark.sql.execution.datasources.oap._
 import org.apache.spark.sql.execution.datasources.oap.filecache.DataFiberBuilder
 import org.apache.spark.sql.execution.datasources.oap.index._
 import org.apache.spark.sql.execution.datasources.oap.utils.{FilterHelper, OapIndexInfoStatusSerDe}
-import org.apache.spark.sql.execution.datasources.orc.OrcDeserializer
 import org.apache.spark.sql.oap.OapRuntime
 import org.apache.spark.sql.oap.listener.SparkListenerOapIndexInfoUpdate
 import org.apache.spark.sql.sources.Filter
@@ -246,10 +245,6 @@ private[oap] class OapDataReaderV1(
     if (meta.dataReaderClassName.equals(OapFileFormat.PARQUET_DATA_FILE_CLASSNAME)) {
       fileScanner.asInstanceOf[ParquetDataFile].setParquetVectorizedContext(
         context.asInstanceOf[Option[ParquetVectorizedContext]])
-    } else if (meta.dataReaderClassName.equals(OapFileFormat.ORC_DATA_FILE_CLASSNAME)) {
-      // For orc, the context will be used by both vectorization and non vectorization.
-      fileScanner.asInstanceOf[OrcDataFile].setOrcDataFileContext(
-        context.get.asInstanceOf[OrcDataFileContext])
     }
 
     def fullScan: OapCompletionIterator[Any] = {
@@ -291,8 +286,7 @@ private[oap] class OapDataReaderV1(
           // Actually Orc readers support the backward scan, thus no need to sort row Ids.
           // But with the sorted row Ids, the adjacment rows will be scanned in the same batch.
           // This will reduce IO cost.
-          if (meta.dataReaderClassName.equals(OapFileFormat.PARQUET_DATA_FILE_CLASSNAME) ||
-            meta.dataReaderClassName.equals(OapFileFormat.ORC_DATA_FILE_CLASSNAME)) {
+          if (meta.dataReaderClassName.equals(OapFileFormat.PARQUET_DATA_FILE_CLASSNAME)) {
             rowIds.sorted
           } else {
             rowIds
@@ -345,13 +339,13 @@ private[oap] class OapDataReaderV1(
             iter.asInstanceOf[Iterator[InternalRow]].map(d => {
               appendPartitionColumns(joinedRow(d, file.partitionValues))
             })
-          case dataReader if (dataReader.equals(OapFileFormat.ORC_DATA_FILE_CLASSNAME)) =>
-            val orcDataFileContext = context.get.asInstanceOf[OrcDataFileContext]
-            val deserializer = new OrcDeserializer(orcDataFileContext.dataSchema, requiredSchema,
-              orcDataFileContext.requestedColIds)
-            iter.asInstanceOf[Iterator[OrcStruct]].map(value => {
-              appendPartitionColumns(joinedRow(deserializer.deserialize(value),
-              file.partitionValues))})
+//          case dataReader if (dataReader.equals(OapFileFormat.ORC_DATA_FILE_CLASSNAME)) =>
+//            val orcDataFileContext = context.get.asInstanceOf[OrcDataFileContext]
+//            val deserializer = new OrcDeserializer(orcDataFileContext.dataSchema, requiredSchema,
+//              orcDataFileContext.requestedColIds)
+//            iter.asInstanceOf[Iterator[OrcStruct]].map(value => {
+//              appendPartitionColumns(joinedRow(deserializer.deserialize(value),
+//              file.partitionValues))})
         }
       }
     }

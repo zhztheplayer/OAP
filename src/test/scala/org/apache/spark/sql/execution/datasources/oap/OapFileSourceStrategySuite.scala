@@ -22,7 +22,6 @@ import org.scalatest.BeforeAndAfterEach
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.execution.{FileSourceScanExec, FilterExec, ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources._
-import org.apache.spark.sql.execution.datasources.orc.OrcFileFormat
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
 import org.apache.spark.sql.internal.oap.OapConf
 import org.apache.spark.sql.test.oap.{SharedOapContext, TestIndex}
@@ -179,42 +178,6 @@ class OapFileSourceStrategyForParquetSuite extends OapFileSourceStrategySuite {
   test("Scan : Not Optimized") {
     verifyScan(
       format => format.isInstanceOf[ParquetFileFormat],
-      (plan1, plan2) => plan1.sameResult(plan2)
-    )
-  }
-}
-
-class OapFileSourceStrategyForOrcSuite extends OapFileSourceStrategySuite {
-  protected def testTableName: String = "orc_test"
-
-  protected def fileFormat: String = "orc"
-
-  test("Project-> Filter -> Scan : Optimized") {
-    verifyProjectFilterScan(
-      indexColumn = "b",
-      format => format.isInstanceOf[OptimizedOrcFileFormat],
-      (plan1, plan2) => !plan1.sameResult(plan2)
-    )
-  }
-
-  test("Project-> Filter -> Scan : Not Optimized") {
-    verifyProjectFilterScan(
-      indexColumn = "a",
-      format => format.isInstanceOf[OrcFileFormat],
-      (plan1, plan2) => plan1.sameResult(plan2)
-    )
-  }
-
-  test("Project -> Scan : Not Optimized") {
-    verifyProjectScan(
-      format => format.isInstanceOf[OrcFileFormat],
-      (plan1, plan2) => plan1.sameResult(plan2)
-    )
-  }
-
-  test("Scan : Not Optimized") {
-    verifyScan(
-      format => format.isInstanceOf[OrcFileFormat],
       (plan1, plan2) => plan1.sameResult(plan2)
     )
   }

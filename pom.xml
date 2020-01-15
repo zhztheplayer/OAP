@@ -36,14 +36,14 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <maven.compiler.useIncrementalCompilation>false</maven.compiler.useIncrementalCompilation>
     <basedir>./</basedir>
-    <spark.internal.version>2.4.3</spark.internal.version>
+    <spark.internal.version>2.4.0-cdh6.3.1</spark.internal.version>
     <scala.version>2.11.12</scala.version>
     <scala.binary.version>2.11</scala.binary.version>
     <java.version>1.8</java.version>
     <antlr.version>4.7</antlr.version>
     <scalatest.version>3.0.3</scalatest.version>
     <scalacheck.version>1.13.5</scalacheck.version>
-    <parquet.version>1.10.1</parquet.version>
+    <parquet.version>1.9.0-cdh6.3.1</parquet.version>
     <jetty.version>9.3.24.v20180605</jetty.version>
     <!--diff: Spark-2.4.3 use orc 1.5.5 -->
     <orc.version>1.5.5</orc.version>
@@ -51,6 +51,10 @@
   </properties>
 
   <repositories>
+    <repository>
+      <id>cloudera</id>
+      <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
+    </repository>
     <repository>
       <id>mavencentral</id>
       <name>maven central repository</name>
@@ -113,6 +117,72 @@
   </pluginRepositories>
 
   <dependencies>
+    <dependency>
+      <groupId>org.apache.orc</groupId>
+      <artifactId>orc-core</artifactId>
+      <version>${orc.version}</version>
+      <classifier>nohive</classifier>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-common</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-hdfs</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.hive</groupId>
+          <artifactId>hive-storage-api</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.google.guava</groupId>
+          <artifactId>guava</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.orc</groupId>
+      <artifactId>orc-mapreduce</artifactId>
+      <version>${orc.version}</version>
+      <classifier>nohive</classifier>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-common</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-mapreduce-client-core</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.orc</groupId>
+          <artifactId>orc-core</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.hive</groupId>
+          <artifactId>hive-storage-api</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.google.guava</groupId>
+          <artifactId>guava</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.parquet</groupId>
+      <artifactId>parquet-column</artifactId>
+      <version>${parquet.version}</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.parquet</groupId>
+      <artifactId>parquet-hadoop</artifactId>
+      <version>${parquet.version}</version>
+      <scope>compile</scope>
+    </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-plus</artifactId>
@@ -242,11 +312,11 @@
       <type>test-jar</type>
       <scope>test</scope>
     </dependency>
-    <dependency>
-      <groupId>org.apache.spark</groupId>
-      <artifactId>spark-hive-thriftserver_${scala.binary.version}</artifactId>
-      <version>${spark.internal.version}</version>
-    </dependency>
+    <!--<dependency>-->
+      <!--<groupId>org.apache.spark</groupId>-->
+      <!--<artifactId>spark-hive-thriftserver_${scala.binary.version}</artifactId>-->
+      <!--<version>${spark.internal.version}</version>-->
+    <!--</dependency>-->
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-unsafe_${scala.binary.version}</artifactId>
@@ -283,18 +353,6 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-        <groupId>org.apache.parquet</groupId>
-        <artifactId>parquet-column</artifactId>
-        <version>${parquet.version}</version>
-        <scope>compile</scope>
-      </dependency>
-      <dependency>
-        <groupId>org.apache.parquet</groupId>
-        <artifactId>parquet-hadoop</artifactId>
-        <version>${parquet.version}</version>
-        <scope>compile</scope>
-      </dependency>
-    <dependency>
       <groupId>org.roaringbitmap</groupId>
       <artifactId>RoaringBitmap</artifactId>
       <version>0.7.45</version>
@@ -304,60 +362,6 @@
       <artifactId>mockito-core</artifactId>
       <version>2.13.0</version>
       <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.orc</groupId>
-      <artifactId>orc-core</artifactId>
-      <version>${orc.version}</version>
-      <classifier>nohive</classifier>
-      <scope>compile</scope>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.hadoop</groupId>
-          <artifactId>hadoop-common</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.hadoop</groupId>
-          <artifactId>hadoop-hdfs</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.hive</groupId>
-          <artifactId>hive-storage-api</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>com.google.guava</groupId>
-          <artifactId>guava</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.orc</groupId>
-      <artifactId>orc-mapreduce</artifactId>
-      <version>${orc.version}</version>
-      <classifier>nohive</classifier>
-      <scope>compile</scope>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.hadoop</groupId>
-          <artifactId>hadoop-common</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.hadoop</groupId>
-          <artifactId>hadoop-mapreduce-client-core</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.orc</groupId>
-          <artifactId>orc-core</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.hive</groupId>
-          <artifactId>hive-storage-api</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>com.google.guava</groupId>
-          <artifactId>guava</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
   </dependencies>
 
@@ -436,7 +440,7 @@
           <includeTestSourceDirectory>true</includeTestSourceDirectory>
           <sourceDirectories>
             <directory>src/main/scala</directory>
-            <directory>src/main/spark2.4.3/scala</directory>
+            <directory>src/main/spark2.4.0-cdh6.3.1/scala</directory>
           </sourceDirectories>
           <testSourceDirectories>
             <directory>src/test/scala</directory>
@@ -595,11 +599,11 @@
           <includeTestSourceDirectory>true</includeTestSourceDirectory>
           <sourceDirectories>
             <directory>src/main/java</directory>
-            <directory>src/spark2.4.3/scala</directory>
+            <directory>src/spark2.4.0-cdh6.3.1/scala</directory>
           </sourceDirectories>
           <testSourceDirectories>
             <directory>src/test/java</directory>
-            <directory>src/test/spark2.4.3/java</directory>
+            <directory>src/test/spark2.4.0-cdh6.3.1/java</directory>
           </testSourceDirectories>
           <configLocation>checkstyle.xml</configLocation>
           <outputFile>${basedir}/target/checkstyle-output.xml</outputFile>
@@ -628,7 +632,7 @@
         </executions>
         <configuration>
           <visitor>true</visitor>
-          <sourceDirectory>src/main/spark2.4.3/antlr4</sourceDirectory>
+          <sourceDirectory>src/main/spark2.4.0-cdh6.3.1/antlr4</sourceDirectory>
         </configuration>
       </plugin>
       <plugin>
@@ -644,8 +648,8 @@
             </goals>
             <configuration>
               <sources>
-                <source>src/main/spark2.4.3/java</source>
-                <source>src/main/spark2.4.3/scala</source>
+                <source>src/main/spark2.4.0-cdh6.3.1/java</source>
+                <source>src/main/spark2.4.0-cdh6.3.1/scala</source>
               </sources>
             </configuration>
           </execution>

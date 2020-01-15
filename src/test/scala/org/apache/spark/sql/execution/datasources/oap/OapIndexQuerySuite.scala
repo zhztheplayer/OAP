@@ -39,16 +39,11 @@ class OapIndexQuerySuite extends QueryTest with SharedOapContext with BeforeAndA
     sql(s"""CREATE TEMPORARY VIEW oap_parquet_test_1 (a INT, b STRING)
            | USING parquet
            | OPTIONS (path '$path2')""".stripMargin)
-
-    sql(s"""CREATE TEMPORARY VIEW orc_test_1 (a INT, b STRING)
-           | USING orc
-           | OPTIONS (path '$path2')""".stripMargin)
   }
 
   override def afterEach(): Unit = {
     sqlContext.dropTempTable("oap_test_1")
     sqlContext.dropTempTable("oap_parquet_test_1")
-    sqlContext.dropTempTable("orc_test_1")
   }
 
   test("index integrity") {
@@ -111,17 +106,6 @@ class OapIndexQuerySuite extends QueryTest with SharedOapContext with BeforeAndA
         Row(1, "this is test 1") ::
           Row(1, "this is test 10") ::
           Row(2, "this is test 2") :: Nil)
-    }
-
-    withIndex(TestIndex("orc_test_1", "index1")) {
-      sql("insert overwrite table orc_test_1 select * from t")
-      sql("create oindex index1 on orc_test_1 (a)")
-
-      // For orc format, the row Ids are sorted as well to reduce IO cost.
-      val parquetRslt = sql("select * from orc_test_1 where a > 0 and a < 3")
-      checkAnswer(parquetRslt, Row(1, "this is test 1") ::
-        Row(2, "this is test 2") ::
-        Row(1, "this is test 10") :: Nil)
     }
   }
 

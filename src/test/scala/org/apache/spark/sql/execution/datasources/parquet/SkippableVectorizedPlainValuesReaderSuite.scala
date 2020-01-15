@@ -44,7 +44,7 @@ class SkippableVectorizedPlainValuesReaderSuite extends SparkFunSuite with Loggi
     // init reader
     val data = writer.getBytes.toByteArray
     val reader = new SkippableVectorizedPlainValuesReader()
-    reader.initFromPage(9, BytesInput.from(data).toInputStream)
+    reader.initFromPage(9, data, 0)
     // test skip and read boolean data
     reader.skipBooleans(2)
     assert(!reader.readBoolean())
@@ -63,7 +63,7 @@ class SkippableVectorizedPlainValuesReaderSuite extends SparkFunSuite with Loggi
     // init reader
     val data = writer.getBytes.toByteArray
     val reader = new SkippableVectorizedPlainValuesReader()
-    reader.initFromPage(9, BytesInput.from(data).toInputStream)
+    reader.initFromPage(9, data, 0)
 
     // test skip and read boolean data
     reader.skipIntegers(2)
@@ -85,7 +85,7 @@ class SkippableVectorizedPlainValuesReaderSuite extends SparkFunSuite with Loggi
     // init reader
     val data = writer.getBytes.toByteArray
     val reader = new SkippableVectorizedPlainValuesReader()
-    reader.initFromPage(9, BytesInput.from(data).toInputStream)
+    reader.initFromPage(9, data, 0)
 
     // test skip and read boolean data
     reader.skipLongs(2)
@@ -106,7 +106,7 @@ class SkippableVectorizedPlainValuesReaderSuite extends SparkFunSuite with Loggi
     // init reader
     val data = writer.getBytes.toByteArray
     val reader = new SkippableVectorizedPlainValuesReader()
-    reader.initFromPage(9, BytesInput.from(data).toInputStream)
+    reader.initFromPage(9, data, 0)
 
     // test skip and read boolean data
     reader.skipDoubles(2)
@@ -126,7 +126,7 @@ class SkippableVectorizedPlainValuesReaderSuite extends SparkFunSuite with Loggi
     // init reader
     val data = writer.getBytes.toByteArray
     val reader = new SkippableVectorizedPlainValuesReader()
-    reader.initFromPage(9, BytesInput.from(data).toInputStream)
+    reader.initFromPage(9, data, 0)
 
     // test skip and read boolean data
     reader.skipFloats(2)
@@ -154,7 +154,7 @@ class SkippableVectorizedPlainValuesReaderSuite extends SparkFunSuite with Loggi
     // init reader
     val data = writer.getBytes.toByteArray
     val reader = new SkippableVectorizedPlainValuesReader()
-    reader.initFromPage(9, BytesInput.from(data).toInputStream)
+    reader.initFromPage(9, data, 0)
 
     // test skip and read boolean data
     reader.skipBytes(2)
@@ -177,7 +177,7 @@ class SkippableVectorizedPlainValuesReaderSuite extends SparkFunSuite with Loggi
     // init reader
     val data = writer.getBytes.toByteArray
     val reader = new SkippableVectorizedPlainValuesReader()
-    reader.initFromPage(5, BytesInput.from(data).toInputStream)
+    reader.initFromPage(5, data, 0)
 
     // test skip and read boolean data
     reader.skipBinary(2)
@@ -198,7 +198,7 @@ class SkippableVectorizedPlainValuesReaderSuite extends SparkFunSuite with Loggi
     // init reader
     val data = writer.getBytes.toByteArray
     val reader = new SkippableVectorizedPlainValuesReader()
-    reader.initFromPage(2, BytesInput.from(data).toInputStream)
+    reader.initFromPage(2, data, 0)
 
     // test skip and read boolean data
     reader.skipBinaryByLen(12)
