@@ -89,17 +89,14 @@ class ColumnarAggregation(
       a.resultId).asInstanceOf[ColumnarAggregateExpressionBase]
   })
 
-  // when zipping expression input and output, we should consider below scenario
-  // 1. inputField contains groupFields and aggrField, and output contains groupFields and aggrField
-  // 2. inputField contains aggrField, and output contains aggrField
-  val (expressions, actualInputFieldList) = if (inputFieldList.size == outputFieldList.size) {
-    (groupExpression ::: aggrExpression, inputFieldList)
-  } else if (aggrFieldList.size == outputFieldList.size) {
-    (aggrExpression, aggrFieldList)
-  } else {
-    throw new UnsupportedOperationException("ColumnarAggregation Unable to handle when result expression size either doesn't match groupingExpressions.size + aggrExpression.size or aggrExpression.size") 
+  // TODO: will there be aggr field is in middle of other fields?
+  val actualInputFieldList: List[Field] = originalInputAttributes.toList.filter(attr => ifIn(s"${attr.name}#${attr.exprId.id}", resultExpressions)).map( expr => {
+    val attr = getAttrFromExpr(expr)
+    Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
+  }) ::: aggrFieldList
 
-  }
+  val expressions = groupExpression ::: aggrExpression
+
   val fieldPairList = (actualInputFieldList zip outputFieldList).map {
       case (inputField, outputField) => 
         (inputField, outputField)
