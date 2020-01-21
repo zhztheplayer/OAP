@@ -77,9 +77,12 @@ class ColumnarAggregation(
     Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
   })
 
-  val groupExpression: List[ColumnarAggregateExpressionBase] = groupingExpressions.toList.map(field => {
-    new ColumnarUniqueAggregateExpression().asInstanceOf[ColumnarAggregateExpressionBase]
-  })
+  val groupExpression: List[ColumnarAggregateExpressionBase] = groupingExpressions.toList
+    .filter(attr =>
+      ifIn(s"${attr.name}#${attr.exprId.id}", resultExpressions))
+    .map(field => 
+      new ColumnarUniqueAggregateExpression().asInstanceOf[ColumnarAggregateExpressionBase]
+  )
 
   val aggrExpression: List[ColumnarAggregateExpressionBase] = aggregateExpressions.toList.map(a => {
     new ColumnarAggregateExpression(
