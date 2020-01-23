@@ -69,7 +69,7 @@ class ColumnarFilterExec(condition: Expression, child: SparkPlan)
   }
 }
 
-case class ColumnarCondProjExec(condition: Expression, child: SparkPlan)
+case class ColumnarConditionProjectExec(condition: Expression, child: SparkPlan)
   extends UnaryExecNode with CodegenSupport with PredicateHelper {
 
   var projectList: Seq[NamedExpression] = _
@@ -168,6 +168,6 @@ case class ColumnarCondProjExec(condition: Expression, child: SparkPlan)
     if (!super.equals(other)) {
       return false
     }
-    return other.isInstanceOf[ColumnarCondProjExec]
+    return other.isInstanceOf[ColumnarConditionProjectExec]
   }
 }

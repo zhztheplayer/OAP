@@ -20,16 +20,16 @@ case class ColumnarOverrides() extends Rule[SparkPlan] {
     case plan: ProjectExec =>
       logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
       val columnarPlan = replaceWithColumnarPlan(plan.child)
-      val res = if (!columnarPlan.isInstanceOf[ColumnarCondProjExec]) {
-        new ColumnarCondProjExec(null, columnarPlan)
+      val res = if (!columnarPlan.isInstanceOf[ColumnarConditionProjectExec]) {
+        new ColumnarConditionProjectExec(null, columnarPlan)
       } else {
         columnarPlan
       }
-      res.asInstanceOf[ColumnarCondProjExec].addProjExprs(plan.projectList)
+      res.asInstanceOf[ColumnarConditionProjectExec].addProjExprs(plan.projectList)
       res
     case plan: FilterExec =>
       logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
-      new ColumnarCondProjExec(plan.condition, replaceWithColumnarPlan(plan.child))
+      new ColumnarConditionProjectExec(plan.condition, replaceWithColumnarPlan(plan.child))
     case plan: HashAggregateExec =>
       logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
       new ColumnarHashAggregateExec(
