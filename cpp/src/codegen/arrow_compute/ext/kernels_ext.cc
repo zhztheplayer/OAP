@@ -17,6 +17,11 @@
 #include <arrow/type_traits.h>
 #include <arrow/util/bit_util.h>
 #include <arrow/util/checked_cast.h>
+#include <gandiva/configuration.h>
+#include <gandiva/node.h>
+#include <gandiva/projector.h>
+#include <gandiva/tree_expr_builder.h>
+#include <cstring>
 #include <iostream>
 #include <unordered_map>
 #include "codegen/arrow_compute/ext/actions_impl.h"
@@ -779,7 +784,9 @@ class EncodeArrayTypedImpl : public EncodeArrayKernel::Impl {
                          std::shared_ptr<arrow::Array>* out) {
     arrow::compute::Datum input_datum(in);
 
+    // std::cout << "Encode input " << in->ToString() << std::endl;
     RETURN_NOT_OK(arrow::compute::Group<InType>(ctx_, input_datum, hash_table_, out));
+    // std::cout << "Encode output " << (*out)->ToString() << std::endl;
     return arrow::Status::OK();
   }
 
@@ -838,6 +845,156 @@ arrow::Status EncodeArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& i
   return impl_->Evaluate(in, out);
 }
 #undef PROCESS_SUPPORTED_TYPES
+
+///////////////  ConcatArray  ////////////////
+class ConcatArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx,
+       std::vector<std::shared_ptr<arrow::DataType>> type_list)
+      : ctx_(ctx) {
+    // create a new result array type here
+    for (auto type : type_list) {
+      std::shared_ptr<ActionBase> action;
+      MakeConcatAction(ctx_, type, &action);
+      action_list_.push_back(action);
+    }
+    builder_.reset(new arrow::StringBuilder(ctx_->memory_pool()));
+  }
+
+  arrow::Status Evaluate(const ArrayList& in, std::shared_ptr<arrow::Array>* out) {
+    auto length = in[0]->length();
+    auto num_columns = in.size();
+
+    std::stringstream ss;
+    std::vector<std::function<arrow::Status(int)>> func_list;
+    for (int i = 0; i < num_columns; i++) {
+      auto col = in[i];
+      std::function<arrow::Status(int)> func;
+      action_list_[i]->Submit(col, &ss, &func);
+      func_list.push_back(func);
+    }
+
+    std::vector<std::string> concat_res;
+    std::vector<uint8_t> concat_valid;
+    concat_res.resize(length, "");
+    concat_valid.resize(length, 0);
+    for (int i = 0; i < length; i++) {
+      bool is_null = true;
+      ss.str("");
+      for (auto eval_func : func_list) {
+        eval_func(i);
+      }
+      if (concat_res.size() >= 0) {
+        concat_res[i] = ss.str();
+        concat_valid[i] = 1;
+      }
+    }
+    RETURN_NOT_OK(builder_->ReserveData(length));
+    RETURN_NOT_OK(builder_->AppendValues(concat_res, concat_valid.data()));
+    RETURN_NOT_OK(builder_->Finish(out));
+    builder_->Reset();
+
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::vector<std::shared_ptr<ActionBase>> action_list_;
+  std::unique_ptr<arrow::StringBuilder> builder_;
+};
+
+arrow::Status ConcatArrayKernel::Make(
+    arrow::compute::FunctionContext* ctx,
+    std::vector<std::shared_ptr<arrow::DataType>> type_list,
+    std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<ConcatArrayKernel>(ctx, type_list);
+  return arrow::Status::OK();
+}
+
+ConcatArrayKernel::ConcatArrayKernel(
+    arrow::compute::FunctionContext* ctx,
+    std::vector<std::shared_ptr<arrow::DataType>> type_list) {
+  impl_.reset(new Impl(ctx, type_list));
+  kernel_name_ = "ConcatArrayKernel";
+}
+
+arrow::Status ConcatArrayKernel::Evaluate(const ArrayList& in,
+                                          std::shared_ptr<arrow::Array>* out) {
+  return impl_->Evaluate(in, out);
+}
+
+///////////////  HashAggrArray  ////////////////
+class HashAggrArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx,
+       std::vector<std::shared_ptr<arrow::DataType>> type_list)
+      : ctx_(ctx) {
+    // create a new result array type here
+    std::vector<std::shared_ptr<gandiva::Node>> func_node_list = {};
+    std::vector<std::shared_ptr<arrow::Field>> field_list = {};
+    char index = '0';
+    for (auto type : type_list) {
+      auto field = arrow::field(std::string(&index), type);
+      field_list.push_back(field);
+      auto field_node = gandiva::TreeExprBuilder::MakeField(field);
+      auto func_node =
+          gandiva::TreeExprBuilder::MakeFunction("hash64", {field_node}, arrow::int64());
+      func_node_list.push_back(func_node);
+      if (func_node_list.size() == 2) {
+        auto tmp_func_node =
+            gandiva::TreeExprBuilder::MakeFunction("add", func_node_list, arrow::int64());
+        func_node_list.clear();
+        func_node_list.push_back(tmp_func_node);
+      }
+    }
+    auto expr = gandiva::TreeExprBuilder::MakeExpression(
+        func_node_list[0], arrow::field("res", arrow::int64()));
+    // std::cout << expr->ToString() << std::endl;
+    schema_ = arrow::schema(field_list);
+    auto configuration = gandiva::ConfigurationBuilder().DefaultConfiguration();
+    auto status = gandiva::Projector::Make(schema_, {expr}, configuration, &projector);
+    pool_ = ctx_->memory_pool();
+  }
+
+  arrow::Status Evaluate(const ArrayList& in, std::shared_ptr<arrow::Array>* out) {
+    auto length = in[0]->length();
+    auto num_columns = in.size();
+
+    auto in_batch = arrow::RecordBatch::Make(schema_, length, in);
+
+    arrow::ArrayVector outputs;
+    RETURN_NOT_OK(projector->Evaluate(*in_batch, pool_, &outputs));
+    *out = outputs[0];
+
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<gandiva::Projector> projector;
+  std::shared_ptr<arrow::Schema> schema_;
+  arrow::MemoryPool* pool_;
+};
+
+arrow::Status HashAggrArrayKernel::Make(
+    arrow::compute::FunctionContext* ctx,
+    std::vector<std::shared_ptr<arrow::DataType>> type_list,
+    std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<HashAggrArrayKernel>(ctx, type_list);
+  return arrow::Status::OK();
+}
+
+HashAggrArrayKernel::HashAggrArrayKernel(
+    arrow::compute::FunctionContext* ctx,
+    std::vector<std::shared_ptr<arrow::DataType>> type_list) {
+  impl_.reset(new Impl(ctx, type_list));
+  kernel_name_ = "HashAggrArrayKernel";
+}
+
+arrow::Status HashAggrArrayKernel::Evaluate(const ArrayList& in,
+                                            std::shared_ptr<arrow::Array>* out) {
+  return impl_->Evaluate(in, out);
+}
 
 }  // namespace extra
 }  // namespace arrowcompute

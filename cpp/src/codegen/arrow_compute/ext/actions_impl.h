@@ -6,6 +6,7 @@
 #include <arrow/type_traits.h>
 #include <arrow/util/checked_cast.h>
 #include <memory>
+#include <sstream>
 #include "codegen/arrow_compute/ext/array_builder_impl.h"
 
 namespace sparkcolumnarplugin {
@@ -41,6 +42,11 @@ class ActionBase {
   virtual arrow::Status Submit(std::vector<std::shared_ptr<arrow::Array>> in,
                                uint64_t reserved_length,
                                std::function<arrow::Status(uint64_t, uint64_t)>* out) {
+    return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
+  }
+  virtual arrow::Status Submit(const std::shared_ptr<arrow::Array>& in,
+                               std::stringstream* ss,
+                               std::function<arrow::Status(int)>* out) {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
   }
   virtual arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
@@ -323,6 +329,59 @@ class ShuffleAction : public ActionBase {
   std::shared_ptr<BuilderType> builder_;
 };
 
+//////////////// ConcatAction ///////////////
+template <typename DataType>
+class ConcatAction : public ActionBase {
+ public:
+  ConcatAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  ~ConcatAction() {
+#ifdef DEBUG
+    std::cout << "Destruct ConcatAction" << std::endl;
+#endif
+  }
+
+  arrow::Status Submit(const std::shared_ptr<arrow::Array>& in, std::stringstream* ss,
+                       std::function<arrow::Status(int)>* out) override {
+    ss_ = ss;
+    typed_array_ = std::dynamic_pointer_cast<ResArrayType>(in);
+    std::unique_ptr<arrow::ArrayBuilder> builder;
+    // prepare evaluate lambda
+    *out = [this](int id) {
+      *ss_ << typed_array_->GetView(id);
+      return arrow::Status::OK();
+    };
+    return arrow::Status::OK();
+  }
+
+ private:
+  using ResDataType = DataType;
+  using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
+  using BuilderType = typename arrow::TypeTraits<ResDataType>::BuilderType;
+  // input
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<ResArrayType> typed_array_;
+  std::stringstream* ss_;
+};
+
+///////////////////// Public Functions //////////////////
+#define PROCESS_SUPPORTED_TYPES(PROCESS) \
+  PROCESS(arrow::UInt8Type)              \
+  PROCESS(arrow::Int8Type)               \
+  PROCESS(arrow::UInt16Type)             \
+  PROCESS(arrow::Int16Type)              \
+  PROCESS(arrow::UInt32Type)             \
+  PROCESS(arrow::Int32Type)              \
+  PROCESS(arrow::UInt64Type)             \
+  PROCESS(arrow::Int64Type)
+
+/*  PROCESS(arrow::FloatType)              \
+  PROCESS(arrow::DoubleType)             \
+  PROCESS(arrow::BooleanType)            \
+  PROCESS(arrow::Date32Type)             \
+  PROCESS(arrow::Date64Type)             \
+  PROCESS(arrow::Time32Type)             \
+  PROCESS(arrow::Time64Type)             \
+  PROCESS(arrow::TimestampType)          \
 ///////////////////// Public Functions //////////////////
 #define PROCESS_SUPPORTED_TYPES(PROCESS) \
   PROCESS(arrow::UInt8Type)              \
@@ -395,6 +454,23 @@ arrow::Status MakeShuffleAction(arrow::compute::FunctionContext* ctx,
   case InType::type_id: {                                           \
     auto action_ptr = std::make_shared<ShuffleAction<InType>>(ctx); \
     *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);       \
+  } break;
+    PROCESS_SUPPORTED_TYPES(PROCESS)
+#undef PROCESS
+    default:
+      break;
+  }
+  return arrow::Status::OK();
+}
+
+arrow::Status MakeConcatAction(arrow::compute::FunctionContext* ctx,
+                               std::shared_ptr<arrow::DataType> type,
+                               std::shared_ptr<ActionBase>* out) {
+  switch (type->id()) {
+#define PROCESS(InType)                                            \
+  case InType::type_id: {                                          \
+    auto action_ptr = std::make_shared<ConcatAction<InType>>(ctx); \
+    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);      \
   } break;
     PROCESS_SUPPORTED_TYPES(PROCESS)
 #undef PROCESS

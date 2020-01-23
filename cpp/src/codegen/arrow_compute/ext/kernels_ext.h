@@ -27,6 +27,12 @@ class KernalBase {
     return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
                                          kernel_name_, ", input is arrayList and array.");
   }
+  virtual arrow::Status Evaluate(const ArrayList& in,
+                                 std::shared_ptr<arrow::Array>* out) {
+    return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
+                                         kernel_name_,
+                                         ", input is arrayList, output is array.");
+  }
   virtual arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
     return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
                                          kernel_name_, ", input is array.");
@@ -136,6 +142,22 @@ class ProbeArrayKernel : public KernalBase {
   arrow::compute::FunctionContext* ctx_;
 };
 
+class ConcatArrayKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::vector<std::shared_ptr<arrow::DataType>> type_list,
+                            std::shared_ptr<KernalBase>* out);
+  ConcatArrayKernel(arrow::compute::FunctionContext* ctx,
+                    std::vector<std::shared_ptr<arrow::DataType>> type_list);
+  arrow::Status Evaluate(const ArrayList& in,
+                         std::shared_ptr<arrow::Array>* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
 class TakeArrayKernel : public KernalBase {
  public:
   static arrow::Status Make(arrow::compute::FunctionContext* ctx,
@@ -159,6 +181,22 @@ class NTakeArrayKernel : public KernalBase {
   arrow::Status SetMember(const std::shared_ptr<arrow::RecordBatch>& ms);
   arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
   arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class HashAggrArrayKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::vector<std::shared_ptr<arrow::DataType>> type_list,
+                            std::shared_ptr<KernalBase>* out);
+  HashAggrArrayKernel(arrow::compute::FunctionContext* ctx,
+                      std::vector<std::shared_ptr<arrow::DataType>> type_list);
+  arrow::Status Evaluate(const ArrayList& in,
+                         std::shared_ptr<arrow::Array>* out) override;
 
  private:
   class Impl;

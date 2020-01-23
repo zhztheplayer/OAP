@@ -175,6 +175,37 @@ TEST_F(BenchmarkArrowCompute, GroupByAggregateBenchmark) {
   Start();
 }
 
+TEST_F(BenchmarkArrowCompute, GroupByWithTwoAggregateBenchmark) {
+  // prepare expression
+  std::vector<std::shared_ptr<::gandiva::Node>> field_node_list;
+  for (auto field : field_list) {
+    field_node_list.push_back(TreeExprBuilder::MakeField(field));
+  }
+
+  auto n_encode =
+      TreeExprBuilder::MakeFunction("encodeArray",
+                                    {TreeExprBuilder::MakeField(field_list[0]),
+                                     TreeExprBuilder::MakeField(field_list[1])},
+                                    uint32());
+
+  std::vector<std::shared_ptr<::gandiva::Node>> arg_for_aggr = {n_encode};
+  arg_for_aggr.insert(arg_for_aggr.end(), field_node_list.begin(), field_node_list.end());
+
+  auto n_aggr = TreeExprBuilder::MakeFunction("splitArrayListWithAction", arg_for_aggr,
+                                              uint32() /*won't be used*/);
+
+  for (auto field : field_list) {
+    auto action = TreeExprBuilder::MakeFunction(
+        "action_sum", {n_aggr, TreeExprBuilder::MakeField(field)}, field->type());
+    auto aggr_expr = TreeExprBuilder::MakeExpression(action, field);
+    expr_vector.push_back(aggr_expr);
+    ret_field_list.push_back(field);
+  }
+
+  ///////////////////// Calculation //////////////////
+  Start();
+}
+
 TEST_F(BenchmarkArrowCompute, SortBenchmark) {
   // prepare expression
   std::vector<std::shared_ptr<::gandiva::Node>> field_node_list;

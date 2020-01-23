@@ -53,21 +53,28 @@ class ColumnarUniqueAggregateExpression() extends ColumnarAggregateExpressionBas
     val (keyFieldList, inputFieldList, resultType, resultField) =
       args.asInstanceOf[(List[Field], List[Field], ArrowType, Field)]
     val funcName = "action_unique"
-    val inputFieldNode = {
+    val inputNode = {
       // if keyList has keys, we need to do groupby by these keys.
+      var inputFieldNode = 
+        keyFieldList.map({field => TreeBuilder.makeField(field)}).asJava
+      logInfo(s"encodeArray($keyFieldList)")
       val encodeNode = TreeBuilder.makeFunction(
         "encodeArray",
-        keyFieldList.map({field => TreeBuilder.makeField(field)}).asJava,
+        inputFieldNode,
         resultType/*this arg won't be used*/)
+      inputFieldNode = 
+        (encodeNode :: inputFieldList.map({field => TreeBuilder.makeField(field)})).asJava
+      logInfo(s"splitArrayListWithAction($inputFieldList)")
       val groupByFuncNode = TreeBuilder.makeFunction(
         "splitArrayListWithAction",
-        (encodeNode :: inputFieldList.map({field => TreeBuilder.makeField(field)})).asJava,
+        inputFieldNode,
         resultType/*this arg won't be used*/)
       Lists.newArrayList(groupByFuncNode, TreeBuilder.makeField(aggrField))
     }
+    logInfo(s"$funcName($inputNode)")
     val aggregateNode = TreeBuilder.makeFunction(
         funcName,
-        inputFieldNode,
+        inputNode,
         resultType)
     (aggregateNode, null)
   }
@@ -127,22 +134,31 @@ class ColumnarAggregateExpression(
     logInfo(s"funcName is $funcName, finalFuncName is $finalFuncName, mode is $mode")
     val (aggregateNode, finalFuncNode) = if (keyFieldList.isEmpty != true) {
       // if keyList has keys, we need to do groupby by these keys.
+      var inputFieldNode = 
+        keyFieldList.map({field => TreeBuilder.makeField(field)}).asJava
+      logInfo(s"encodeArray($keyFieldList)")
       val encodeNode = TreeBuilder.makeFunction(
         "encodeArray",
-        keyFieldList.map({field => TreeBuilder.makeField(field)}).asJava,
+        inputFieldNode,
         resultType/*this arg won't be used*/)
+      inputFieldNode = 
+        (encodeNode :: inputFieldList.map({field => TreeBuilder.makeField(field)})).asJava
+      logInfo(s"splitArrayListWithAction($inputFieldList)")
       val groupByFuncNode = TreeBuilder.makeFunction(
         "splitArrayListWithAction",
-        (encodeNode :: inputFieldList.map({field => TreeBuilder.makeField(field)})).asJava,
+        inputFieldNode,
         resultType/*this arg won't be used*/)
-      val inputFieldNode = Lists.newArrayList(groupByFuncNode, TreeBuilder.makeField(aggrField))
+      inputFieldNode = 
+        Lists.newArrayList(groupByFuncNode, TreeBuilder.makeField(aggrField))
       val aggregateFuncName = "action_" + funcName
+      logInfo(s"$aggregateFuncName($aggrField)")
       (TreeBuilder.makeFunction(
         aggregateFuncName,
         inputFieldNode,
         resultType), null)
     } else {
       val inputFieldNode = Lists.newArrayList(TreeBuilder.makeField(aggrField))
+      logInfo(s"$funcName($inputFieldNode)")
       (TreeBuilder.makeFunction(
         funcName,
         inputFieldNode,
