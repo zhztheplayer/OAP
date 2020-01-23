@@ -249,8 +249,9 @@ class CountArrayKernel : public KernalBase {
 class SortArraysToIndicesKernel : public KernalBase {
  public:
   static arrow::Status Make(arrow::compute::FunctionContext* ctx,
-                            std::shared_ptr<KernalBase>* out);
-  SortArraysToIndicesKernel(arrow::compute::FunctionContext* ctx);
+                            std::shared_ptr<KernalBase>* out, bool nulls_first, bool asc);
+  SortArraysToIndicesKernel(arrow::compute::FunctionContext* ctx, bool nulls_first,
+                            bool asc);
   arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
   arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override;
 

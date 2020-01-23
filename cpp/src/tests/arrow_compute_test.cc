@@ -252,7 +252,6 @@ TEST(TestArrowCompute, JoinTest) {
   MakeInputBatch(expected_result_string, res_sch, &expected_result);
   ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
 
-
   auto n_take = TreeExprBuilder::MakeFunction("ntakeArray", {arg_0}, uint64());
 
   auto take_expr = TreeExprBuilder::MakeExpression(n_take, f_res);
@@ -536,14 +535,80 @@ TEST(TestArrowCompute, GroupByAggregateWithMultipleBatchOutputWoKeyTest) {
   ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
 }
 
-TEST(TestArrowCompute, SortWithMultipleBatchTest) {
+TEST(TestArrowCompute, SortTestNullsFirstAsc) {
+  ////////////////////// prepare expr_vector ///////////////////////
+  auto f0 = field("f0", uint32());
+  auto f1 = field("f1", uint32());
+  auto arg_0 = TreeExprBuilder::MakeField(f0);
+  auto arg_1 = TreeExprBuilder::MakeField(f1);
+  auto n_sort_to_indices = TreeExprBuilder::MakeFunction(
+      "sortArraysToIndicesNullsFirstAsc", {arg_0}, uint32());
+  auto n_sort = TreeExprBuilder::MakeFunction(
+      "shuffleArrayList", {n_sort_to_indices, arg_0, arg_1}, uint32());
+  auto n_action_0 =
+      TreeExprBuilder::MakeFunction("action_dono", {n_sort, arg_0}, uint32());
+  auto n_action_1 =
+      TreeExprBuilder::MakeFunction("action_dono", {n_sort, arg_1}, uint32());
+
+  auto sort_expr_0 = TreeExprBuilder::MakeExpression(n_action_0, f0);
+  auto sort_expr_1 = TreeExprBuilder::MakeExpression(n_action_1, f1);
+  std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {sort_expr_0,
+                                                                     sort_expr_1};
+  auto sch = arrow::schema({f0, f1});
+  std::vector<std::shared_ptr<Field>> ret_types = {f0, f1};
+  ///////////////////// Calculation //////////////////
+  std::shared_ptr<CodeGenerator> expr;
+  ASSERT_NOT_OK(CreateCodeGenerator(sch, expr_vector, ret_types, &expr, true));
+  std::shared_ptr<arrow::RecordBatch> input_batch;
+  std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch;
+
+  std::vector<std::string> input_data_string = {"[10, 12, 4, 50, 52, 32, 11]",
+                                                "[11, 13, 5, 51, null, 33, 12]"};
+  MakeInputBatch(input_data_string, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_2 = {"[1, 14, 43, 42, 6, null, 2]",
+                                                  "[2, null, 44, 43, 7, 34, 3]"};
+  MakeInputBatch(input_data_string_2, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_3 = {"[3, 64, 15, 7, 9, 19, 33]",
+                                                  "[4, 65, 16, 8, 10, 20, 34]"};
+  MakeInputBatch(input_data_string_3, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_4 = {"[23, 17, 41, 18, 20, 35, 30]",
+                                                  "[24, 18, 42, 19, 21, 36, 31]"};
+  MakeInputBatch(input_data_string_4, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_5 = {"[37, null, 22, 13, 8, 59, 21]",
+                                                  "[38, 67, 23, 14, 9, 60, 22]"};
+  MakeInputBatch(input_data_string_5, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  ASSERT_NOT_OK(expr->finish(&result_batch));
+
+  std::shared_ptr<arrow::RecordBatch> expected_result;
+  std::vector<std::string> expected_result_string = {
+      "[null, null, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, "
+      "22, 23, 30, "
+      "32, 33, 35, 37, 41, 42, 43, 50, 52, 59, 64]",
+      "[34, 67, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, null, 16, 18, 19, 20, 21, 22, "
+      "23, 24, "
+      "31, 33, 34, 36, 38, 42, 43, 44, 51, null, 60, 65]"};
+  MakeInputBatch(expected_result_string, sch, &expected_result);
+  ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
+}
+
+TEST(TestArrowCompute, SortTestNullsLastAsc) {
   ////////////////////// prepare expr_vector ///////////////////////
   auto f0 = field("f0", uint32());
   auto f1 = field("f1", uint32());
   auto arg_0 = TreeExprBuilder::MakeField(f0);
   auto arg_1 = TreeExprBuilder::MakeField(f1);
   auto n_sort_to_indices =
-      TreeExprBuilder::MakeFunction("sortArraysToIndices", {arg_0}, uint32());
+      TreeExprBuilder::MakeFunction("sortArraysToIndicesNullsLastAsc", {arg_0}, uint32());
   auto n_sort = TreeExprBuilder::MakeFunction(
       "shuffleArrayList", {n_sort_to_indices, arg_0, arg_1}, uint32());
   auto n_action_0 =
@@ -594,8 +659,136 @@ TEST(TestArrowCompute, SortWithMultipleBatchTest) {
   std::vector<std::string> expected_result_string = {
       "[1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 30, "
       "32, 33, 35, 37, 41, 42, 43, 50, 52, 59, 64, null, null]",
-      "[2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, null, 16, 18, 19, 20, 21, 22, 23, 24, "
-      "31, 33, 34, 36, 38, 42, 43, 44, 51, null, 60, 65, 67, 34]"};
+      "[2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, null, 16, 18, 19, 20, 21, 22, 23, 24,"
+      "31, 33, 34, 36, 38, 42, 43, 44, 51, null, 60, 65, 34, 67]"};
+  MakeInputBatch(expected_result_string, sch, &expected_result);
+  ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
+}
+
+TEST(TestArrowCompute, SortTestNullsFirstDesc) {
+  ////////////////////// prepare expr_vector ///////////////////////
+  auto f0 = field("f0", uint32());
+  auto f1 = field("f1", uint32());
+  auto arg_0 = TreeExprBuilder::MakeField(f0);
+  auto arg_1 = TreeExprBuilder::MakeField(f1);
+  auto n_sort_to_indices = TreeExprBuilder::MakeFunction(
+      "sortArraysToIndicesNullsFirstDesc", {arg_0}, uint32());
+  auto n_sort = TreeExprBuilder::MakeFunction(
+      "shuffleArrayList", {n_sort_to_indices, arg_0, arg_1}, uint32());
+  auto n_action_0 =
+      TreeExprBuilder::MakeFunction("action_dono", {n_sort, arg_0}, uint32());
+  auto n_action_1 =
+      TreeExprBuilder::MakeFunction("action_dono", {n_sort, arg_1}, uint32());
+
+  auto sort_expr_0 = TreeExprBuilder::MakeExpression(n_action_0, f0);
+  auto sort_expr_1 = TreeExprBuilder::MakeExpression(n_action_1, f1);
+  std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {sort_expr_0,
+                                                                     sort_expr_1};
+  auto sch = arrow::schema({f0, f1});
+  std::vector<std::shared_ptr<Field>> ret_types = {f0, f1};
+  ///////////////////// Calculation //////////////////
+  std::shared_ptr<CodeGenerator> expr;
+  ASSERT_NOT_OK(CreateCodeGenerator(sch, expr_vector, ret_types, &expr, true));
+  std::shared_ptr<arrow::RecordBatch> input_batch;
+  std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch;
+
+  std::vector<std::string> input_data_string = {"[10, 12, 4, 50, 52, 32, 11]",
+                                                "[11, 13, 5, 51, null, 33, 12]"};
+  MakeInputBatch(input_data_string, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_2 = {"[1, 14, 43, 42, 6, null, 2]",
+                                                  "[2, null, 44, 43, 7, 34, 3]"};
+  MakeInputBatch(input_data_string_2, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_3 = {"[3, 64, 15, 7, 9, 19, 33]",
+                                                  "[4, 65, 16, 8, 10, 20, 34]"};
+  MakeInputBatch(input_data_string_3, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_4 = {"[23, 17, 41, 18, 20, 35, 30]",
+                                                  "[24, 18, 42, 19, 21, 36, 31]"};
+  MakeInputBatch(input_data_string_4, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_5 = {"[37, null, 22, 13, 8, 59, 21]",
+                                                  "[38, 67, 23, 14, 9, 60, 22]"};
+  MakeInputBatch(input_data_string_5, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  ASSERT_NOT_OK(expr->finish(&result_batch));
+
+  std::shared_ptr<arrow::RecordBatch> expected_result;
+  std::vector<std::string> expected_result_string = {
+      "[null ,null ,64 ,59 ,52 ,50 ,43 ,42 ,41 ,37 ,35 ,33 ,32 ,30 ,23 ,22 ,21 ,20 ,19 "
+      ",18 ,17 ,15 ,14 ,13 ,12 , 11 ,10 ,9 ,8 ,7 ,6 ,4 ,3 ,2 ,1]",
+      "[34 ,67 ,65 ,60 ,null ,51 ,44 ,43 ,42 ,38 ,36 ,34 ,33 ,31 ,24 ,23 ,22 ,21 , 20 "
+      ",19 ,18 ,16 ,null ,14 ,13 ,12 ,11 ,10 ,9 ,8 ,7 ,5 ,4 ,3 ,2]"};
+  MakeInputBatch(expected_result_string, sch, &expected_result);
+  ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
+}
+
+TEST(TestArrowCompute, SortTestNullsLastDesc) {
+  ////////////////////// prepare expr_vector ///////////////////////
+  auto f0 = field("f0", uint32());
+  auto f1 = field("f1", uint32());
+  auto arg_0 = TreeExprBuilder::MakeField(f0);
+  auto arg_1 = TreeExprBuilder::MakeField(f1);
+  auto n_sort_to_indices = TreeExprBuilder::MakeFunction(
+      "sortArraysToIndicesNullsLastDesc", {arg_0}, uint32());
+  auto n_sort = TreeExprBuilder::MakeFunction(
+      "shuffleArrayList", {n_sort_to_indices, arg_0, arg_1}, uint32());
+  auto n_action_0 =
+      TreeExprBuilder::MakeFunction("action_dono", {n_sort, arg_0}, uint32());
+  auto n_action_1 =
+      TreeExprBuilder::MakeFunction("action_dono", {n_sort, arg_1}, uint32());
+
+  auto sort_expr_0 = TreeExprBuilder::MakeExpression(n_action_0, f0);
+  auto sort_expr_1 = TreeExprBuilder::MakeExpression(n_action_1, f1);
+  std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {sort_expr_0,
+                                                                     sort_expr_1};
+  auto sch = arrow::schema({f0, f1});
+  std::vector<std::shared_ptr<Field>> ret_types = {f0, f1};
+  ///////////////////// Calculation //////////////////
+  std::shared_ptr<CodeGenerator> expr;
+  ASSERT_NOT_OK(CreateCodeGenerator(sch, expr_vector, ret_types, &expr, true));
+  std::shared_ptr<arrow::RecordBatch> input_batch;
+  std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch;
+
+  std::vector<std::string> input_data_string = {"[10, 12, 4, 50, 52, 32, 11]",
+                                                "[11, 13, 5, 51, null, 33, 12]"};
+  MakeInputBatch(input_data_string, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_2 = {"[1, 14, 43, 42, 6, null, 2]",
+                                                  "[2, null, 44, 43, 7, 34, 3]"};
+  MakeInputBatch(input_data_string_2, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_3 = {"[3, 64, 15, 7, 9, 19, 33]",
+                                                  "[4, 65, 16, 8, 10, 20, 34]"};
+  MakeInputBatch(input_data_string_3, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_4 = {"[23, 17, 41, 18, 20, 35, 30]",
+                                                  "[24, 18, 42, 19, 21, 36, 31]"};
+  MakeInputBatch(input_data_string_4, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  std::vector<std::string> input_data_string_5 = {"[37, null, 22, 13, 8, 59, 21]",
+                                                  "[38, 67, 23, 14, 9, 60, 22]"};
+  MakeInputBatch(input_data_string_5, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
+
+  ASSERT_NOT_OK(expr->finish(&result_batch));
+
+  std::shared_ptr<arrow::RecordBatch> expected_result;
+  std::vector<std::string> expected_result_string = {
+      "[64 ,59 ,52 ,50 ,43 ,42 ,41 ,37 ,35 ,33 ,32 ,30 ,23 ,22 ,21 ,20 ,19 "
+      ",18 ,17 ,15 ,14 ,13 ,12 , 11 ,10 ,9 ,8 ,7 ,6 ,4 ,3 ,2 ,1, null, null]",
+      "[65 ,60 ,null ,51 ,44 ,43 ,42 ,38 ,36 ,34 ,33 ,31 ,24 ,23 ,22 ,21 , 20 "
+      ",19 ,18 ,16 ,null ,14 ,13 ,12 ,11 ,10 ,9 ,8 ,7 ,5 ,4 ,3 ,2, 34, 67]"};
   MakeInputBatch(expected_result_string, sch, &expected_result);
   ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
 }
