@@ -530,9 +530,11 @@ class NTakeVisitorImpl : public ExprVisitorImpl {
 ////////////////////////// SortArraysToIndicesVisitorImpl ///////////////////////
 class SortArraysToIndicesVisitorImpl : public ExprVisitorImpl {
  public:
-  SortArraysToIndicesVisitorImpl(ExprVisitor* p) : ExprVisitorImpl(p) {}
-  static arrow::Status Make(ExprVisitor* p, std::shared_ptr<ExprVisitorImpl>* out) {
-    auto impl = std::make_shared<SortArraysToIndicesVisitorImpl>(p);
+  SortArraysToIndicesVisitorImpl(ExprVisitor* p, bool nulls_first, bool asc)
+      : ExprVisitorImpl(p), nulls_first_(nulls_first), asc_(asc) {}
+  static arrow::Status Make(ExprVisitor* p, std::shared_ptr<ExprVisitorImpl>* out,
+                            bool nulls_first, bool asc) {
+    auto impl = std::make_shared<SortArraysToIndicesVisitorImpl>(p, nulls_first, asc);
     *out = impl;
     return arrow::Status::OK();
   }
@@ -540,7 +542,8 @@ class SortArraysToIndicesVisitorImpl : public ExprVisitorImpl {
     if (initialized_) {
       return arrow::Status::OK();
     }
-    RETURN_NOT_OK(extra::SortArraysToIndicesKernel::Make(&p_->ctx_, &kernel_));
+    RETURN_NOT_OK(
+        extra::SortArraysToIndicesKernel::Make(&p_->ctx_, &kernel_, nulls_first_, asc_));
     if (p_->param_field_names_.size() != 1) {
       return arrow::Status::Invalid(
           "SortArraysToIndicesVisitorImpl expects param_field_name_list only "
@@ -593,6 +596,8 @@ class SortArraysToIndicesVisitorImpl : public ExprVisitorImpl {
 
  private:
   int col_id_;
+  bool nulls_first_;
+  bool asc_;
 };
 
 //////////////////////// ShuffleArrayListVisitorImpl //////////////////////

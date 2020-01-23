@@ -190,8 +190,20 @@ arrow::Status ExprVisitor::MakeExprVisitorImpl(const std::string& func_name,
     RETURN_NOT_OK(TakeVisitorImpl::Make(p, &impl_));
     goto finish;
   }
-  if (func_name.compare("sortArraysToIndices") == 0) {
-    RETURN_NOT_OK(SortArraysToIndicesVisitorImpl::Make(p, &impl_));
+  if (func_name.compare("sortArraysToIndicesNullsFirstAsc") == 0) {
+    RETURN_NOT_OK(SortArraysToIndicesVisitorImpl::Make(p, &impl_, true, true));
+    goto finish;
+  }
+  if (func_name.compare("sortArraysToIndicesNullsLastAsc") == 0) {
+    RETURN_NOT_OK(SortArraysToIndicesVisitorImpl::Make(p, &impl_, false, true));
+    goto finish;
+  }
+  if (func_name.compare("sortArraysToIndicesNullsFirstDesc") == 0) {
+    RETURN_NOT_OK(SortArraysToIndicesVisitorImpl::Make(p, &impl_, true, false));
+    goto finish;
+  }
+  if (func_name.compare("sortArraysToIndicesNullsLastDesc") == 0) {
+    RETURN_NOT_OK(SortArraysToIndicesVisitorImpl::Make(p, &impl_, false, false));
     goto finish;
   }
   goto unrecognizedFail;
@@ -212,8 +224,7 @@ arrow::Status ExprVisitor::AppendAction(const std::string& func_name,
 
 arrow::Status ExprVisitor::SetMember(const std::shared_ptr<arrow::RecordBatch>& ms) {
 #ifdef DEBUG_LEVEL_2
-    std::cout << typeid(*this).name() <<  __func__
-              << "memberset: " << ms << std::endl;
+  std::cout << typeid(*this).name() << __func__ << "memberset: " << ms << std::endl;
 #endif
   member_record_batch_ = ms;
   impl_->SetMember();

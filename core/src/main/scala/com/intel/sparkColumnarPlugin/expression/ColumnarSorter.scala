@@ -45,6 +45,11 @@ class ColumnarSorter(
   /////////////// Prepare ColumnarSorter //////////////
   var numInputBatches: Long = 0
   var processedNumRows: Long = 0
+  var numOutputBatches: Long = 0
+  var numOutputRows: Long = 0
+  var finish_elapse : Long = 0
+  var elapse: Long = 0
+  var hasNextCalledTimes: Long = 0
   val inputBatchHolder = new ListBuffer[ArrowRecordBatch]() 
   val keyField: Field = {
     val attr = ConverterUtils.getAttrFromExpr(sortOrder.head.child)
@@ -56,11 +61,17 @@ class ColumnarSorter(
   })
   val inputFieldList: List[Field] = outputFieldList
 
+  val sortFuncName = if (sortOrder.head.isAscending) {
+    "sortArraysToIndicesNullsFirstAsc"
+  } else {
+    "sortArraysToIndicesNullsFirstDesc"
+  }
+
   val gandivaExpressionTree: List[ExpressionTree] = inputFieldList.map( inputField => {
     val funcName = "action_dono"
     val resultType = inputField.getType()
     val sortNode = TreeBuilder.makeFunction(
-        "sortArraysToIndices",
+        sortFuncName,
         Lists.newArrayList(TreeBuilder.makeField(keyField)),
         keyField.getType())
     val shuffleNode = TreeBuilder.makeFunction(
@@ -91,6 +102,7 @@ class ColumnarSorter(
   
   def close(): Unit = {
     logInfo("ColumnarSorter ExpressionEvaluator closed");
+    logInfo(s"Sort Completed, total processed ${numInputBatches} batches, ${processedNumRows} rows, output ${numOutputBatches} batches and ${numOutputRows} rows, took ${NANOSECONDS.toMillis(elapse)} ms handling one file(including fetching + processing), ${NANOSECONDS.toMillis(finish_elapse)} ms doing finish process, hasNext called ${hasNextCalledTimes} times.")
     sorter.close()
     sorter = null
   }
@@ -127,10 +139,9 @@ class ColumnarSorter(
       var nextBatch: ArrowRecordBatch = null
       var batchIterator: BatchIterator = null
       var eval_elapse : Long = 0
-      var finish_elapse : Long = 0
-      var elapse: Long = 0
 
       override def hasNext: Boolean = {
+        hasNextCalledTimes += 1
         if (batchIterator == null) {
           val beforeSort = System.nanoTime()
           while (cbIterator.hasNext) {
@@ -163,11 +174,12 @@ class ColumnarSorter(
 
         if (nextBatch == null) {
           ConverterUtils.releaseArrowRecordBatchList(inputBatchHolder.toArray)
-          logInfo(s"Sort Completed, total processed ${numInputBatches} batches, ${processedNumRows} rows, took ${NANOSECONDS.toMillis(elapse)} ms handling one file(including fetching + processing), ${NANOSECONDS.toMillis(finish_elapse)} ms doing finish process.")
           return false
         } else {
           outputBatches += 1
           outputRows += nextBatch.getLength()
+          numOutputBatches += 1
+          numOutputRows += nextBatch.getLength()
           return true
         }
       }
@@ -184,26 +196,18 @@ class ColumnarSorter(
 }
 
 object ColumnarSorter {
-  var columnarSorter: ColumnarSorter = _
   def create(
       sortOrder: Seq[SortOrder],
       outputAttributes: Seq[Attribute],
       sortTime: SQLMetric,
       outputBatches: SQLMetric,
       outputRows: SQLMetric): ColumnarSorter = synchronized {
-    columnarSorter = new ColumnarSorter(
+    new ColumnarSorter(
       sortOrder,
       outputAttributes,
       sortTime,
       outputBatches,
       outputRows)
-    columnarSorter
   }
 
-  def close(): Unit = {
-    if (columnarSorter != null) {
-      columnarSorter.close()
-      columnarSorter = null
-    }
-  }
 }

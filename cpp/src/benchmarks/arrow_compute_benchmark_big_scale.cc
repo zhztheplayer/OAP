@@ -210,7 +210,7 @@ TEST_F(BenchmarkArrowComputeBigScale, SortBenchmark) {
   }
 
   auto n_sort_to_indices = TreeExprBuilder::MakeFunction(
-      "sortArraysToIndices", {TreeExprBuilder::MakeField(field_list[0])},
+      "sortArraysToIndicesNullsFirstAsc", {TreeExprBuilder::MakeField(field_list[0])},
       field_list[0]->type());
   std::vector<std::shared_ptr<::gandiva::Node>> arg_for_shuffle = {n_sort_to_indices};
   arg_for_shuffle.insert(arg_for_shuffle.end(), field_node_list.begin(),

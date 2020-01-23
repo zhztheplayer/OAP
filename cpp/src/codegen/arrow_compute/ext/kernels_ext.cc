@@ -1,19 +1,19 @@
 #include "codegen/arrow_compute/ext/kernels_ext.h"
+#include <arrow/array/builder_primitive.h>
 #include <arrow/compute/context.h>
 #include <arrow/compute/kernel.h>
 #include <arrow/compute/kernels/count.h>
 #include <arrow/compute/kernels/groupby_aggregate.h>
 #include <arrow/compute/kernels/hash.h>
 #include <arrow/compute/kernels/minmax.h>
+#include <arrow/compute/kernels/ntake.h>
+#include <arrow/compute/kernels/probe.h>
 #include <arrow/compute/kernels/sort_arrays_to_indices.h>
 #include <arrow/compute/kernels/sum.h>
-#include <arrow/compute/kernels/probe.h>
-#include <arrow/compute/kernels/ntake.h>
-#include <arrow/array/builder_primitive.h>
-#include <arrow/type_fwd.h>
 #include <arrow/pretty_print.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
+#include <arrow/type_fwd.h>
 #include <arrow/type_traits.h>
 #include <arrow/util/bit_util.h>
 #include <arrow/util/checked_cast.h>
@@ -30,6 +30,8 @@ namespace sparkcolumnarplugin {
 namespace codegen {
 namespace arrowcompute {
 namespace extra {
+
+#define MAXBATCHNUMROWS 4096
 
 ///////////////  SplitArrayListWithAction  ////////////////
 class SplitArrayListWithActionKernel::Impl {
@@ -234,7 +236,7 @@ class ShuffleArrayListKernel::Impl {
       auto col_list = input_cache_[i];
       auto action = action_list_[i];
       std::function<arrow::Status(uint64_t, uint64_t)> func;
-      action->Submit(col_list, 4096, &func);
+      action->Submit(col_list, MAXBATCHNUMROWS, &func);
       eval_func_list.push_back(func);
     }
 
@@ -269,20 +271,23 @@ class ShuffleArrayListKernel::Impl {
     }
 
     bool HasNext() {
-      if (row_id_ < total_length_)
+      if (row_id_ < total_length_) {
         return true;
-      else
+      } else {
         return false;
+      }
     }
 
     arrow::Status Next(std::shared_ptr<arrow::RecordBatch>* out) {
       int output_num_rows = 0;
-      for (; output_num_rows < 4096; output_num_rows++) {
+      for (; output_num_rows < MAXBATCHNUMROWS; output_num_rows++) {
         ArrayItemIndex* item = data_ + row_id_;
         for (auto eval_func : eval_func_list_) {
           eval_func(item->array_id, item->id);
         }
-        if (row_id_++ >= total_length_) break;
+        if (row_id_++ >= total_length_) {
+          break;
+        }
       }
 
       std::vector<std::shared_ptr<arrow::Array>> out_array_list;
@@ -344,7 +349,8 @@ arrow::Status ShuffleArrayListKernel::MakeResultIterator(
 ///////////////  SortArraysToIndices  ////////////////
 class SortArraysToIndicesKernel::Impl {
  public:
-  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  Impl(arrow::compute::FunctionContext* ctx, bool nulls_first, bool asc)
+      : ctx_(ctx), nulls_first_(nulls_first), asc_(asc) {}
   ~Impl() {}
   arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
     if (in->length() == 0) {
@@ -355,24 +361,28 @@ class SortArraysToIndicesKernel::Impl {
   }
 
   arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
-    RETURN_NOT_OK(arrow::compute::SortArraysToIndices(ctx_, array_cache_, out));
+    RETURN_NOT_OK(
+        arrow::compute::SortArraysToIndices(ctx_, array_cache_, out, nulls_first_, asc_));
     return arrow::Status::OK();
   }
 
  private:
   arrow::compute::FunctionContext* ctx_;
+  bool nulls_first_;
+  bool asc_;
   std::vector<std::shared_ptr<arrow::Array>> array_cache_;
 };
 
 arrow::Status SortArraysToIndicesKernel::Make(arrow::compute::FunctionContext* ctx,
-                                              std::shared_ptr<KernalBase>* out) {
-  *out = std::make_shared<SortArraysToIndicesKernel>(ctx);
+                                              std::shared_ptr<KernalBase>* out,
+                                              bool nulls_first, bool asc) {
+  *out = std::make_shared<SortArraysToIndicesKernel>(ctx, nulls_first, asc);
   return arrow::Status::OK();
 }
 
-SortArraysToIndicesKernel::SortArraysToIndicesKernel(
-    arrow::compute::FunctionContext* ctx) {
-  impl_.reset(new Impl(ctx));
+SortArraysToIndicesKernel::SortArraysToIndicesKernel(arrow::compute::FunctionContext* ctx,
+                                                     bool nulls_first, bool asc) {
+  impl_.reset(new Impl(ctx, nulls_first, asc));
   kernel_name_ = "SortArraysToIndicesKernelKernel";
 }
 
@@ -499,7 +509,7 @@ class ProbeArrayKernel::Impl {
     return arrow::Status::OK();
   }
 
- //TODO: move to private
+  // TODO: move to private
  public:
   std::shared_ptr<arrow::Array> member_set_;
 
@@ -509,7 +519,7 @@ class ProbeArrayKernel::Impl {
 };
 
 arrow::Status ProbeArrayKernel::Make(arrow::compute::FunctionContext* ctx,
-                                   std::shared_ptr<KernalBase>* out) {
+                                     std::shared_ptr<KernalBase>* out) {
   *out = std::make_shared<ProbeArrayKernel>(ctx);
   return arrow::Status::OK();
 }
@@ -519,7 +529,7 @@ ProbeArrayKernel::ProbeArrayKernel(arrow::compute::FunctionContext* ctx) {
 }
 
 arrow::Status ProbeArrayKernel::SetMember(const std::shared_ptr<arrow::RecordBatch>& ms) {
-  //TODO: check if multiple columns found
+  // TODO: check if multiple columns found
   impl_->member_set_ = ms->column(0);
   return arrow::Status::OK();
 }
@@ -554,7 +564,7 @@ class TakeArrayKernel::Impl {
     return arrow::Status::OK();
   }
 
- //TODO: move to private
+  // TODO: move to private
  public:
   std::shared_ptr<arrow::Array> member_set_;
 
@@ -564,7 +574,7 @@ class TakeArrayKernel::Impl {
 };
 
 arrow::Status TakeArrayKernel::Make(arrow::compute::FunctionContext* ctx,
-                                   std::shared_ptr<KernalBase>* out) {
+                                    std::shared_ptr<KernalBase>* out) {
   *out = std::make_shared<TakeArrayKernel>(ctx);
   return arrow::Status::OK();
 }
@@ -574,7 +584,7 @@ TakeArrayKernel::TakeArrayKernel(arrow::compute::FunctionContext* ctx) {
 }
 
 arrow::Status TakeArrayKernel::SetMember(const std::shared_ptr<arrow::RecordBatch>& ms) {
-  //TODO: check if multiple columns found
+  // TODO: check if multiple columns found
   impl_->member_set_ = ms->column(0);
   return arrow::Status::OK();
 }
@@ -599,7 +609,7 @@ class NTakeArrayKernel::Impl {
     arrow::NumericBuilder<arrow::UInt32Type> new_builder(ctx_->memory_pool());
     new_builder.Resize(member_set_->length());
 
-    for(int id = 0; id < member_set_->length(); id++) {
+    for (int id = 0; id < member_set_->length(); id++) {
       if (member_set_->IsNull(id)) {
         new_builder.AppendNull();
       } else {
@@ -623,7 +633,7 @@ class NTakeArrayKernel::Impl {
     return arrow::Status::OK();
   }
 
- //TODO: move to private
+  // TODO: move to private
  public:
   std::shared_ptr<arrow::Array> member_set_;
 
@@ -634,7 +644,7 @@ class NTakeArrayKernel::Impl {
 };
 
 arrow::Status NTakeArrayKernel::Make(arrow::compute::FunctionContext* ctx,
-                                   std::shared_ptr<KernalBase>* out) {
+                                     std::shared_ptr<KernalBase>* out) {
   *out = std::make_shared<NTakeArrayKernel>(ctx);
   return arrow::Status::OK();
 }
@@ -644,7 +654,7 @@ NTakeArrayKernel::NTakeArrayKernel(arrow::compute::FunctionContext* ctx) {
 }
 
 arrow::Status NTakeArrayKernel::SetMember(const std::shared_ptr<arrow::RecordBatch>& ms) {
-  //TODO: check if multiple columns found
+  // TODO: check if multiple columns found
   impl_->member_set_ = ms->column(0);
   return arrow::Status::OK();
 }
@@ -656,7 +666,6 @@ arrow::Status NTakeArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in
 arrow::Status NTakeArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
   return impl_->Finish(out);
 }
-
 
 ///////////////  SumArray  ////////////////
 class SumArrayKernel::Impl {
