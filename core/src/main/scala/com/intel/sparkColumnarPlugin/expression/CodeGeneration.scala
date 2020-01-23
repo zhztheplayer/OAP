@@ -2,12 +2,15 @@ package com.intel.sparkColumnarPlugin.expression
 
 import org.apache.arrow.vector.Float4Vector
 import org.apache.arrow.vector.IntVector
-import org.apache.arrow.vector.types.FloatingPointPrecision
+import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, TimeUnit}
 import org.apache.arrow.vector.types.pojo.ArrowType
 
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+import org.apache.spark.sql.util.ArrowUtils
 
 object CodeGeneration {
+  val timeZoneId = SQLConf.get.sessionLocalTimeZone
 
   def getResultType(left: ArrowType, right: ArrowType): ArrowType = {
     if (left.equals(right)) {
@@ -18,7 +21,12 @@ object CodeGeneration {
     }
   }
 
-  def getResultType(dataType: DataType): ArrowType = dataType match {
+  def getResultType(dataType: DataType): ArrowType = {
+    dataType match {
+      case other =>
+        ArrowUtils.toArrowType(dataType, timeZoneId)
+    }
+    /*dataType match {
     case t: IntegerType =>
       new ArrowType.Int(32, true)
     case l: LongType =>
@@ -29,10 +37,11 @@ object CodeGeneration {
       new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)
     case d: DecimalType =>
       new ArrowType.Decimal(d.precision, d.scale)
-    case d: StringType =>
+    case s: StringType =>
       new ArrowType.Utf8()
     case other =>
       throw new UnsupportedOperationException(s"getResultType doesn't support $other.")
+      */
   }
 
   def getResultType(): ArrowType = {
