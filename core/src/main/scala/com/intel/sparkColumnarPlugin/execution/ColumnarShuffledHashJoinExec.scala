@@ -72,6 +72,11 @@ class ColumnarShuffledHashJoinExec(
     left,
     right) {
 
+  override lazy val metrics = Map(
+    "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
+    "joinTime" -> SQLMetrics.createTimingMetric(sparkContext, "join time"),
+    "buildTime" -> SQLMetrics.createTimingMetric(sparkContext, "time to build hash map"))
+
   override def supportsColumnar = true
 
   //TODO() Disable code generation
@@ -79,12 +84,18 @@ class ColumnarShuffledHashJoinExec(
 
   override def doExecuteColumnar(): RDD[ColumnarBatch] = {
     val numOutputRows = longMetric("numOutputRows")
+    val joinTime = longMetric("joinTime")
+    val buildTime = longMetric("buildTime")
     val resultSchema = this.schema
     streamedPlan.executeColumnar().zipPartitions(buildPlan.executeColumnar()) { (streamIter, buildIter) =>
       //val hashed = buildHashedRelation(buildIter)
       //join(streamIter, hashed, numOutputRows)
-      val vjoin = ColumnarShuffledHashJoin.create(resultSchema, joinType, condition)
-      vjoin.columnarInnerJoin(streamIter, buildIter)
+      val vjoin = ColumnarShuffledHashJoin.create(leftKeys, rightKeys, resultSchema, joinType, condition, left, right, buildTime, joinTime, numOutputRows)
+      val vjoinResult = vjoin.columnarInnerJoin(streamIter, buildIter)
+      TaskContext.get().addTaskCompletionListener[Unit](_ => {
+        vjoin.close()
+      })
+      vjoinResult
     }
   }
 }

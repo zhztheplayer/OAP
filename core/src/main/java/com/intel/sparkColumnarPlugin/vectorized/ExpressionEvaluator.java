@@ -114,6 +114,10 @@ public class ExpressionEvaluator {
     return new BatchIterator(batchIteratorInstance);
   }
 
+  public void setDependency(BatchIterator child, int index) throws RuntimeException, IOException {
+    jniWrapper.nativeSetDependency(nativeHandler, child.getInstanceId(), index);
+  }
+
   public void close() {
     jniWrapper.nativeClose(nativeHandler);
   }

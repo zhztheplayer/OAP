@@ -26,12 +26,14 @@ using FunctionNode = gandiva::FunctionNode;
   } while (false);
 
 #define ARROW_ASSIGN_OR_THROW_IMPL(status_name, lhs, rexpr) \
-  auto status_name = (rexpr);                               \
-  auto __s = status_name.status();                          \
-  if (!__s.ok()) {                                          \
-    throw std::runtime_error(__s.message());                \
-  }                                                         \
-  lhs = std::move(status_name).ValueOrDie();
+  do {                                                      \
+    auto status_name = (rexpr);                             \
+    auto __s = status_name.status();                        \
+    if (!__s.ok()) {                                        \
+      throw std::runtime_error(__s.message());              \
+    }                                                       \
+    lhs = std::move(status_name).ValueOrDie();              \
+  } while (false);
 
 #define ARROW_ASSIGN_OR_THROW_NAME(x, y) ARROW_CONCAT(x, y)
 
@@ -56,4 +58,26 @@ Status Equals(const T& expected, const T& actual) {
   return Status::Invalid("Expected RecordBatch is ", pp_expected.str(), " with schema ",
                          expected.schema()->ToString(), ", while actual is ",
                          pp_actual.str(), " with schema ", actual.schema()->ToString());
+}
+
+void MakeInputBatch(std::vector<std::string> input_data,
+                    std::shared_ptr<arrow::Schema> sch,
+                    std::shared_ptr<arrow::RecordBatch>* input_batch) {
+  // prepare input record Batch
+  std::vector<std::shared_ptr<Array>> array_list;
+  int length = -1;
+  int i = 0;
+  for (auto data : input_data) {
+    std::shared_ptr<Array> a0;
+    ASSERT_NOT_OK(
+        arrow::ipc::internal::json::ArrayFromJSON(sch->field(i++)->type(), data, &a0));
+    if (length == -1) {
+      length = a0->length();
+    }
+    assert(length == a0->length());
+    array_list.push_back(a0);
+  }
+
+  *input_batch = RecordBatch::Make(sch, length, array_list);
+  return;
 }

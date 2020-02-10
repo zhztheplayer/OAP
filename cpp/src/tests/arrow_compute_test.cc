@@ -1,32 +1,12 @@
+#include <arrow/array.h>
 #include <gtest/gtest.h>
+#include <memory>
 #include "codegen/code_generator.h"
 #include "codegen/code_generator_factory.h"
 #include "tests/test_utils.h"
 
 namespace sparkcolumnarplugin {
 namespace codegen {
-
-void MakeInputBatch(std::vector<std::string> input_data,
-                    std::shared_ptr<arrow::Schema> sch,
-                    std::shared_ptr<arrow::RecordBatch>* input_batch) {
-  // prepare input record Batch
-  std::vector<std::shared_ptr<Array>> array_list;
-  int length = -1;
-  int i = 0;
-  for (auto data : input_data) {
-    std::shared_ptr<Array> a0;
-    ASSERT_NOT_OK(
-        arrow::ipc::internal::json::ArrayFromJSON(sch->field(i++)->type(), data, &a0));
-    if (length == -1) {
-      length = a0->length();
-    }
-    assert(length == a0->length());
-    array_list.push_back(a0);
-  }
-
-  *input_batch = RecordBatch::Make(sch, length, array_list);
-  return;
-}
 
 TEST(TestArrowCompute, AggregateTest) {
   ////////////////////// prepare expr_vector ///////////////////////
@@ -591,7 +571,8 @@ TEST(TestArrowCompute, SortTestNullsFirstAsc) {
 
   std::shared_ptr<arrow::RecordBatch> expected_result;
   std::vector<std::string> expected_result_string = {
-      "[null, null, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, "
+      "[null, null, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, "
+      "21, "
       "22, 23, 30, "
       "32, 33, 35, 37, 41, 42, 43, 50, 52, 59, 64]",
       "[34, 67, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, null, 16, 18, 19, 20, 21, 22, "
@@ -657,7 +638,8 @@ TEST(TestArrowCompute, SortTestNullsLastAsc) {
 
   std::shared_ptr<arrow::RecordBatch> expected_result;
   std::vector<std::string> expected_result_string = {
-      "[1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 30, "
+      "[1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, "
+      "30, "
       "32, 33, 35, 37, 41, 42, 43, 50, 52, 59, 64, null, null]",
       "[2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, null, 16, 18, 19, 20, 21, 22, 23, 24,"
       "31, 33, 34, 36, 38, 42, 43, 44, 51, null, 60, 65, 34, 67]"};

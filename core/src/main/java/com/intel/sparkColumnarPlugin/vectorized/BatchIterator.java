@@ -2,9 +2,19 @@ package com.intel.sparkColumnarPlugin.vectorized;
 
 import java.io.IOException;
 import org.apache.arrow.vector.ipc.message.ArrowRecordBatch;
+import org.apache.arrow.vector.types.pojo.Schema;
+import java.util.List;
+import io.netty.buffer.ArrowBuf;
+import java.io.ByteArrayOutputStream;
+import java.nio.channels.Channels;
+import org.apache.arrow.vector.ipc.WriteChannel;
+import org.apache.arrow.vector.ipc.message.ArrowBuffer;
+import org.apache.arrow.vector.ipc.message.MessageSerializer;
 
 public class BatchIterator {
   private native ArrowRecordBatchBuilder nativeNext(long nativeHandler);
+  private native ArrowRecordBatchBuilder nativeProcess(long nativeHandler, byte[] schemaBuf, int numRows, long[] bufAddrs, long[] bufSizes);
+  private native void nativeProcessAndCacheOne(long nativeHandler, byte[] schemaBuf, int numRows, long[] bufAddrs, long[] bufSizes);
 
   private native void nativeClose(long nativeHandler);
 
@@ -32,10 +42,75 @@ public class BatchIterator {
     return resRecordBatchBuilderImpl.build();
   }
 
+  public ArrowRecordBatch process(Schema schema, ArrowRecordBatch recordBatch) throws IOException {
+    int num_rows = recordBatch.getLength();
+    List<ArrowBuf> buffers = recordBatch.getBuffers();
+    List<ArrowBuffer> buffersLayout = recordBatch.getBuffersLayout();
+
+    long[] bufAddrs = new long[buffers.size()];
+    long[] bufSizes = new long[buffers.size()];
+
+    int idx = 0;
+    for (ArrowBuf buf : buffers) {
+      bufAddrs[idx++] = buf.memoryAddress();
+    }
+
+    idx = 0;
+    for (ArrowBuffer bufLayout : buffersLayout) {
+      bufSizes[idx++] = bufLayout.getSize();
+    }
+
+    if (nativeHandler == 0) {
+      return null;
+    }
+    ArrowRecordBatchBuilder resRecordBatchBuilder = nativeProcess(nativeHandler, getSchemaBytesBuf(schema), num_rows, bufAddrs, bufSizes);
+    if (resRecordBatchBuilder == null) {
+      return null;
+    }
+    ArrowRecordBatchBuilderImpl resRecordBatchBuilderImpl =
+        new ArrowRecordBatchBuilderImpl(resRecordBatchBuilder);
+    return resRecordBatchBuilderImpl.build();
+  }
+
+  public void processAndCacheOne(Schema schema, ArrowRecordBatch recordBatch) throws IOException {
+    int num_rows = recordBatch.getLength();
+    List<ArrowBuf> buffers = recordBatch.getBuffers();
+    List<ArrowBuffer> buffersLayout = recordBatch.getBuffersLayout();
+
+    long[] bufAddrs = new long[buffers.size()];
+    long[] bufSizes = new long[buffers.size()];
+
+    int idx = 0;
+    for (ArrowBuf buf : buffers) {
+      bufAddrs[idx++] = buf.memoryAddress();
+    }
+
+    idx = 0;
+    for (ArrowBuffer bufLayout : buffersLayout) {
+      bufSizes[idx++] = bufLayout.getSize();
+    }
+
+    if (nativeHandler == 0) {
+      return;
+    }
+    nativeProcessAndCacheOne(nativeHandler, getSchemaBytesBuf(schema), num_rows, bufAddrs, bufSizes);
+  }
+
   public void close() {
     if (!closed) {
       nativeClose(nativeHandler);
       closed = true;
     }
   }
+
+  byte[] getSchemaBytesBuf(Schema schema) throws IOException {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    MessageSerializer.serialize(new WriteChannel(Channels.newChannel(out)), schema);
+    return out.toByteArray();
+  }
+
+  long getInstanceId() {
+    return nativeHandler;
+  }
+
 }

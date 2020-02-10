@@ -75,6 +75,15 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     return arrow::Status::OK();
   }
 
+  arrow::Status SetDependency(
+      const std::shared_ptr<ResultIterator<arrow::RecordBatch>>& dependency_iter,
+      int index) {
+    for (auto visitor : visitor_list_) {
+      RETURN_NOT_OK(visitor->SetDependency(dependency_iter, index));
+    }
+    return arrow::Status::OK();
+  }
+
   arrow::Status evaluate(const std::shared_ptr<arrow::RecordBatch>& in,
                          std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
     arrow::Status status = arrow::Status::OK();
@@ -99,6 +108,7 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
         auto status = arrow::PrettyPrint(*record_batch.get(), 2, &std::cout);
 #endif
         out->push_back(record_batch);
+        // arrow::PrettyPrint(*record_batch.get(), 2, &std::cout);
       }
 
       // we need to clean up this visitor chain result for next record_batch.

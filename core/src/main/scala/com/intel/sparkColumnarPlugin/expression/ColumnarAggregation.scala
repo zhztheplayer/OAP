@@ -52,6 +52,7 @@ class ColumnarAggregation(
   var elapseTime_make: Long = 0
   var rowId: Int = 0
   var processedNumRows: Int = 0
+  val inputBatchHolder = new ListBuffer[ArrowRecordBatch]() 
 
   logInfo(
     s"groupingExpressions: $groupingExpressions,\noriginalInputAttributes: $originalInputAttributes,\naggregateExpressions: $aggregateExpressions,\naggregateAttributes: $aggregateAttributes,\nresultExpressions: $resultExpressions")
@@ -62,17 +63,63 @@ class ColumnarAggregation(
   // 3. different size: inputField contains groupFields and aggrField and other columns due to wholestagecodegen, and output contains groupFields and aggrField
   // 4. different size: inputField contains groupFields and aggrField and other columns due to wholestagecodegen, and output contains aggrField
   //
+  val inputAttributeSeq: AttributeSeq = originalInputAttributes
+  val mode = aggregateExpressions(0).mode
+  val aggregateBufferAttributes = {
+    mode match {
+      case Partial =>
+        aggregateExpressions.map(_.aggregateFunction.children(0))
+      case Final =>
+        aggregateExpressions.flatMap(_.aggregateFunction.aggBufferAttributes)
+        //aggregateExpressions.map(_.aggregateFunction.asInstanceOf[DeclarativeAggregate].evaluateExpression)
+      case _ =>
+        throw new UnsupportedOperationException(s"get aggregation Attribute failed support ${mode}")
+    }
+  }
+  val keyInputList = groupingExpressions.map(expr => {
+    BindReferences.bindReference(expr.asInstanceOf[Expression], originalInputAttributes)
+  })
+  val aggrInputList = aggregateBufferAttributes.map(expr => {
+    var res = BindReferences.bindReference(expr.asInstanceOf[Expression], originalInputAttributes, true)
+    if (!res.isInstanceOf[BoundReference]) {
+      var ordinal = -1
+      val a = getAttrFromExpr(expr)
+      for (i <- 0 until originalInputAttributes.length) {
+        if (a.name == originalInputAttributes(i).name) {
+          ordinal = i
+        }
+      }
+      if (ordinal == -1) {
+        throw new UnsupportedOperationException(s"Couldn't find $a in ${originalInputAttributes.attrs.mkString("[", ",", "]")}")
+      }
+      res = BoundReference(ordinal, a.dataType, originalInputAttributes(ordinal).nullable) 
+    }
+    res
+  })
+  val keyInputOrdinalList = keyInputList.map(expr => getOrdinalFromExpr(expr)).toList
+  val aggrInputOrdinalList = aggrInputList.map(expr => getOrdinalFromExpr(expr)).toList
+  logInfo(s"keyInputList is ${keyInputOrdinalList}, aggrInputList is ${aggrInputOrdinalList}")
+
+  var usedInputIndices: List[Int] = keyInputOrdinalList ::: aggrInputOrdinalList
+  logInfo(s"indices is ${usedInputIndices}")
+
+  logInfo(s"keyInputList is ${keyInputList}, aggrInputList is ${aggrInputList}, indices is ${usedInputIndices}")
+
   val keyFieldList: List[Field] = groupingExpressions.toList.map(attr => {
     Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
   })
 
-  val aggrFieldList: List[Field] = originalInputAttributes.toList.filter(attr => !ifIn(s"${attr.name}#${attr.exprId.id}", groupingExpressions)).map( expr => {
+  val aggrFieldList: List[Field] = aggregateExpressions.toList.map(expr => { 
     val attr = getAttrFromExpr(expr)
-    //val attr = BindReferences.bindReference(attrExpr, originalInputAttributes)
     Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
   })
 
-  val inputFieldList = keyFieldList ::: aggrFieldList
+  val inputFieldList = usedInputIndices.map(i => {
+    val expr = originalInputAttributes(i)
+    val attr = getAttrFromExpr(expr)
+    Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
+  })
+
   val outputFieldList: List[Field] = resultExpressions.toList.map( expr => {
     val attr = getAttrFromExpr(expr)
     Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
@@ -93,15 +140,10 @@ class ColumnarAggregation(
       a.resultId).asInstanceOf[ColumnarAggregateExpressionBase]
   })
 
-  // TODO: will there be aggr field is in middle of other fields?
-  val actualInputFieldList: List[Field] = originalInputAttributes.toList.filter(attr => ifIn(s"${attr.name}#${attr.exprId.id}", resultExpressions)).map( expr => {
-    val attr = getAttrFromExpr(expr)
-    Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
-  }) ::: aggrFieldList
-
   val expressions = groupExpression ::: aggrExpression
 
-  val fieldPairList = (actualInputFieldList zip outputFieldList).map {
+  logInfo(s"inputFieldList is ${inputFieldList}, outputFieldList is ${outputFieldList}")
+  val fieldPairList = (inputFieldList zip outputFieldList).map {
       case (inputField, outputField) => 
         (inputField, outputField)
   }
@@ -116,7 +158,7 @@ class ColumnarAggregation(
   val gandivaExpressionTree: List[(ExpressionTree, ExpressionTree)] = expressions.map( expr => {
     val resultField = expr.getResultField
     val (node, finalNode) =
-      expr.doColumnarCodeGen_ext((keyFieldList, actualInputFieldList, resultType, resultField))
+      expr.doColumnarCodeGen_ext((keyFieldList, inputFieldList, resultType, resultField))
     if (node == null) {
       null
     } else if (finalNode == null) {
@@ -129,8 +171,6 @@ class ColumnarAggregation(
         TreeBuilder.makeExpression(finalNode, resultField))
     }
   }).filter(_ != null)
-
-  logInfo(s"Input Schema fields: $inputFieldList, aggregate input fields: $actualInputFieldList, result fields: $outputFieldList")
 
   var aggregator = new ExpressionEvaluator()
   val arrowSchema = new Schema(inputFieldList.asJava)
@@ -151,6 +191,15 @@ class ColumnarAggregation(
     res.length > 0
   }
 
+  def getOrdinalFromExpr(expr: Expression): Int = {
+    expr match {
+      case e: BoundReference =>
+        e.ordinal
+      case other =>
+        throw new UnsupportedOperationException(s"getOrdinalFromExpr is unable to parse from $other (${other.getClass}).")
+    }
+  }
+
   def getAttrFromExpr(fieldExpr: Expression): AttributeReference = {
     fieldExpr match {
       case a: AggregateExpression =>
@@ -162,7 +211,7 @@ class ColumnarAggregation(
       case a: Alias =>
         getAttrFromExpr(a.child)
       case other =>
-        throw new UnsupportedOperationException(s"makeStructField is unable to parse from $other (${other.getClass}).")
+        throw new UnsupportedOperationException(s"getAttrFromExpr is unable to parse from $other (${other.getClass}).")
     }
   }
 
@@ -170,38 +219,40 @@ class ColumnarAggregation(
     logInfo("ColumnarAggregation ExpressionEvaluator closed");
     aggregator.close()
     aggregator = null
+    ConverterUtils.releaseArrowRecordBatchList(inputBatchHolder.toArray)
   }
 
   def updateAggregationResult(columnarBatch: ColumnarBatch): Unit = {
-    val inputRecordBatch = createArrowRecordBatch(columnarBatch)
+    val cols = usedInputIndices.map(i => {
+      columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
+    })
+    val inputRecordBatch: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(columnarBatch.numRows, cols)
     val resultRecordBatchList = aggregator.evaluate(inputRecordBatch)
-    releaseArrowRecordBatch(inputRecordBatch)
-    releaseArrowRecordBatchList(resultRecordBatchList)
+   
+    inputBatchHolder += inputRecordBatch
+    ConverterUtils.releaseArrowRecordBatch(inputRecordBatch)
+    ConverterUtils.releaseArrowRecordBatchList(resultRecordBatchList)
   }
 
   def getAggregationResult(): ColumnarBatch = {
-    val resultSchema = StructType(resultExpressions.map(fieldExpr => {
-      val attr = getAttrFromExpr(fieldExpr)
-      StructField(s"${attr.name}", attr.dataType, true)
-    }).toArray)
-
+    val resultSchema = new Schema(outputFieldList.asJava)
+    val resultStructType = ArrowUtils.fromArrowSchema(resultSchema)
     if (processedNumRows == 0) {
       val resultColumnVectors =
-        ArrowWritableColumnVector.allocateColumns(0, resultSchema).toArray
+        ArrowWritableColumnVector.allocateColumns(0, resultStructType).toArray
       return new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), 0)
     } else {
       val finalResultRecordBatchList = aggregator.finish()
       if (finalResultRecordBatchList.size == 0) {
         val resultColumnVectors =
-          ArrowWritableColumnVector.allocateColumns(0, resultSchema).toArray
+          ArrowWritableColumnVector.allocateColumns(0, resultStructType).toArray
         return new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), 0)
       }
       // Since grouping column may be removed in output, we need to check here.
-      val recordBatchSchema = new Schema(outputFieldList.asJava)
-      val resultColumnVectorList = fromArrowRecordBatch(recordBatchSchema, finalResultRecordBatchList(0))
+      val resultColumnVectorList = ConverterUtils.fromArrowRecordBatch(resultSchema, finalResultRecordBatchList(0))
 
       val finalColumnarBatch = new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]), finalResultRecordBatchList(0).getLength())
-      releaseArrowRecordBatchList(finalResultRecordBatchList)
+      ConverterUtils.releaseArrowRecordBatchList(finalResultRecordBatchList)
       finalColumnarBatch
     }
   }
@@ -233,13 +284,14 @@ class ColumnarAggregation(
           numInputBatches += 1
           eval_elapse += System.nanoTime() - beforeEval
         }
+        logInfo(s"start to do Final Aggregation")
         val beforeEval = System.nanoTime()
         val outputBatch = getAggregationResult()
         eval_elapse += System.nanoTime() - beforeEval
         val elapse = System.nanoTime() - beforeAgg
         aggrTime.set(NANOSECONDS.toMillis(eval_elapse))
         elapseTime.set(NANOSECONDS.toMillis(elapse))
-        logInfo(s"HasgAggregate Completed, total processed ${numInputBatches.value} batches, took ${NANOSECONDS.toMillis(elapse)} ms handling one file(including fetching + processing), took ${NANOSECONDS.toMillis(eval_elapse)} ms doing evaluation.");
+        logInfo(s"HashAggregate Completed, total processed ${numInputBatches.value} batches, took ${NANOSECONDS.toMillis(elapse)} ms handling one file(including fetching + processing), took ${NANOSECONDS.toMillis(eval_elapse)} ms doing evaluation.");
         numOutputBatches += 1
         numOutputRows += outputBatch.numRows
         if (cb != null) {
@@ -251,36 +303,6 @@ class ColumnarAggregation(
     }
   }
 
-  def createArrowRecordBatch(columnarBatch: ColumnarBatch): ArrowRecordBatch = {
-    val fieldNodes = new ListBuffer[ArrowFieldNode]()
-    val inputData = new ListBuffer[ArrowBuf]()
-    val numRowsInBatch = columnarBatch.numRows()
-    for (i <- 0 until columnarBatch.numCols()) {
-      val inputVector =
-        columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
-      fieldNodes += new ArrowFieldNode(numRowsInBatch, inputVector.getNullCount())
-      inputData += inputVector.getValidityBuffer()
-      inputData += inputVector.getDataBuffer()
-    }
-    new ArrowRecordBatch(numRowsInBatch, fieldNodes.toList.asJava, inputData.toList.asJava)
-  }
-
-  def fromArrowRecordBatch(recordBatchSchema: Schema, recordBatch: ArrowRecordBatch): Array[ArrowWritableColumnVector] = {
-    val numRows = recordBatch.getLength();
-    ArrowWritableColumnVector.loadColumns(numRows, recordBatchSchema, recordBatch)
-  }
-
-  def releaseArrowRecordBatch(recordBatch: ArrowRecordBatch): Unit = {
-    if (recordBatch != null)
-      recordBatch.close()
-  }
-
-  def releaseArrowRecordBatchList(recordBatchList: Array[ArrowRecordBatch]): Unit = {
-    recordBatchList.foreach({ recordBatch =>
-      if (recordBatch != null)
-        recordBatch.close()
-    })
-  }
 }
 
 object ColumnarAggregation {

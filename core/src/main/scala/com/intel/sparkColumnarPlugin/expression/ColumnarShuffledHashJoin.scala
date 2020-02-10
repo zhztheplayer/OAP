@@ -21,13 +21,14 @@ import java.util.concurrent.TimeUnit._
 
 import org.apache.spark.TaskContext
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen._
+import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution.{BinaryExecNode, CodegenSupport, SparkPlan}
-import org.apache.spark.sql.execution.metric.SQLMetrics
+import org.apache.spark.sql.execution.metric.SQLMetric
 
 
 import scala.collection.JavaConverters._
@@ -44,321 +45,213 @@ import org.apache.arrow.gandiva.expression._
 import org.apache.arrow.gandiva.evaluator._
 import org.apache.spark.sql.util.ArrowUtils
 
-
 import io.netty.buffer.ArrowBuf
 import com.google.common.collect.Lists;
 
 import org.apache.spark.sql.types.{DataType, StructType}
 import com.intel.sparkColumnarPlugin.vectorized.ExpressionEvaluator
+import com.intel.sparkColumnarPlugin.vectorized.BatchIterator
 
 /**
  * Performs a hash join of two child relations by first shuffling the data using the join keys.
  */
 class ColumnarShuffledHashJoin(
+    leftKeys: Seq[Expression],
+    rightKeys: Seq[Expression],
     resultSchema: StructType,
     joinType: JoinType,
-    condition: Option[Expression]) extends Logging{
-    val schema = resultSchema
+    condition: Option[Expression],
+    left: SparkPlan,
+    right: SparkPlan,
+    buildTime: SQLMetric,
+    joinTime: SQLMetric,
+    totalOutputNumRows: SQLMetric
+    ) extends Logging{
 
-  def columnarInnerJoin(
-      streamIter: Iterator[ColumnarBatch],
-      buildIter: Iterator[ColumnarBatch]): Iterator[ColumnarBatch] = {
+    val inputBatchHolder = new ListBuffer[ArrowRecordBatch]() 
+    // TODO
+    val l_input_schema: Seq[Attribute] = left.output
+    val r_input_schema: Seq[Attribute] = right.output
 
-      val a = Field.nullable("a", new ArrowType.Int(32, true))
-      val args = Lists.newArrayList(TreeBuilder.makeField(a))
-      val retType = Field.nullable("c", new ArrowType.Int(32, true))
-      val cols = Lists.newArrayList(a)
-      val bschema = new Schema(cols)
-
-      val prober = new ExpressionEvaluator()
-      val isin_node = TreeBuilder.makeFunction("probeArray", args, new ArrowType.Int(32, true))
-      val isin_root = TreeBuilder.makeExpression(isin_node, retType)
-      prober.build(bschema, Lists.newArrayList(isin_root), true)
-
-      val appender = new ExpressionEvaluator()
-      val append_node = TreeBuilder.makeFunction("append", args, new ArrowType.Int(32, true))
-      val append_root = TreeBuilder.makeExpression(append_node, retType)
-      appender.build(bschema, Lists.newArrayList(append_root), true)
-
-      val appender_rb = new ExpressionEvaluator()
-      val append_node_rb = TreeBuilder.makeFunction("append", args, new ArrowType.Int(32, true))
-      val append_root_rb = TreeBuilder.makeExpression(append_node_rb, retType)
-      appender_rb.build(bschema, Lists.newArrayList(append_root_rb), true)
-
-
-      val taker = new ExpressionEvaluator()
-      val taker_node = TreeBuilder.makeFunction("takeArray", args, new ArrowType.Int(32, true))
-      val taker_root = TreeBuilder.makeExpression(taker_node, retType)
-      taker.build(bschema, Lists.newArrayList(taker_root), true)
-
-      val ntaker = new ExpressionEvaluator()
-      val ntaker_node = TreeBuilder.makeFunction("ntakeArray", args, new ArrowType.Int(32, true))
-      val ntaker_root = TreeBuilder.makeExpression(ntaker_node, retType)
-      ntaker.build(bschema, Lists.newArrayList(ntaker_root), true)
-
-
-
-
-/*
-      while (buildIter.hasNext) {
-        val buildCb = buildIter.next()
-        val rescolumns = ArrowWritableColumnVector.allocateColumns(buildCb.numRows(), ArrowUtils.fromArrowSchema(bschema)).toArray
-        val outputVectors = rescolumns.map(columnVector => columnVector.getValueVector()).toList.asJava
-        val input = createArrowRecordBatch(buildCb)
-        eval.evaluate(input, outputVectors)
-
-        val resultColumnarBatch = new ColumnarBatch(rescolumns.map(_.asInstanceOf[ColumnVector]), buildCb.numRows())
-        
-        logInfo(s"build cb: ${buildCb.numRows()}")
-        logInfo(s"hash result row: ${resultColumnarBatch.numRows()}")
-        logInfo(s"hash result: ${resultColumnarBatch.column(0)}")
-      }
-
-*/
-
-    while (buildIter.hasNext) {
-      val build_cb = buildIter.next()
-      // save to a big record batch
-      val build_rb = createArrowRecordBatch(build_cb)
-      appender_rb.evaluate(build_rb)
-
-      val hash_cb = calcHashOne(build_cb)
-
-      val hash_rb = createArrowRecordBatch(hash_cb)
-      appender.evaluate(hash_rb)
-
-    }
-    val full_hash_rblist = appender.finish()
-    logInfo(s"ht combined batch ${full_hash_rblist(0)}")
-
-    val final_build_rblist = appender_rb.finish()
-    logInfo(s"build combined batch ${final_build_rblist(0)}")
-
-    prober.SetMember(full_hash_rblist(0))
-
-
-    //TODO: build entire hash table
-    //val buildCB = buildIter.next()
-    //val hashCB = calcHashOne(buildCB)
-    //val ht = createArrowRecordBatch(hashCB)
-    //logInfo(s"ht batch ${ht}")
-
-    val localSchema = this.schema
-    //val buildSchema = buildCB.schema
-
-    streamIter.map(cb => {
-      //val buildCb = cb
-      //val input = createArrowRecordBatch(buildCb)
-      //val resultRecordBatchList = eval.evaluate(input)
-      //val rescolumns = ArrowWritableColumnVector.allocateColumns(buildCb.numRows(), ArrowUtils.fromArrowSchema(bschema)).toArray
-      //val outputVectors = rescolumns.map(columnVector => columnVector.getValueVector()).toList.asJava
-      //eval.evaluate(input, outputVectors)
-
-      //val resultColumnarBatch = new ColumnarBatch(rescolumns.map(_.asInstanceOf[ColumnVector]), buildCb.numRows())
-      logInfo(s"cb row: ${cb.numRows()}")
-
-      ////probeBatch(resultColumnarBatch, resultColumnarBatch)
-
-      val stream_orig_rb = createArrowRecordBatch(cb)
-
-      val stream_hash_cb = calcHashOne(cb)
-      val stream_hash_rb = createArrowRecordBatch(stream_hash_cb)
-
-      //val build_record_batch = createArrowRecordBatch(buildCB)
-      prober.evaluate(stream_hash_rb)
-      val indexList = prober.finish()
-      logInfo(s"index list: ${indexList(0)}")
-
-      taker.SetMember(indexList(0))
-      taker.evaluate(final_build_rblist(0))
-      val left_list = taker.finish()
-      logInfo(s"left result list: ${left_list(0)}")
-
-      //val buildResultList = taker.evaluate(build_record_batch, indexList(0))
-      ntaker.SetMember(indexList(0))
-      ntaker.evaluate(stream_orig_rb)
-      val right_list = ntaker.finish()
-      logInfo(s"right result list: ${right_list(0)}")
-      ////val joinedResultList = taker.evaluate(final_build_rblist(0))
-      //val joinedResultList = ntaker.evaluate(stream_orig_rb)
-      //val joinedResultList = ntaker.evaluate(final_build_rblist(0))
-      
-      //logInfo(s"stream result list: ${joinedResultList(0)}")
-
-      //val joinedRecordBatch = combineArrowRecordBatch(buildResultList(0), streamResultList(0))
-
-      //val resultColumnVectorList = fromArrowRecordBatch(ArrowUtils.toArrowSchema(localSchema, null), joinedRecordBatch)
-      //val joinedCB = new ColumnarBatch(resultColumnVectorList.map(_.asInstanceOf[ColumnVector]), joinedRecordBatch.getLength())
-      cb.retain()
-      cb
+    val l_input_field_list: List[Field] = l_input_schema.toList.map(attr => {
+      Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
+    })
+    val r_input_field_list: List[Field] = r_input_schema.toList.map(attr => {
+      Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
     })
 
-/*
-    Field a = Field.nullable("a", int32);
-    List<Field> args = Lists.newArrayList(a);
+    val l_input_arrow_schema: Schema = new Schema(l_input_field_list.asJava)
+    val r_input_arrow_schema: Schema = new Schema(r_input_field_list.asJava)
 
-    Field retType = Field.nullable("c", int32);
-    ExpressionTree root = TreeBuilder.makeExpression("hash32", args, retType);
+    logInfo(s"\nleftKeys is ${leftKeys}, \nrightKeys is ${rightKeys}, \nresultSchema is ${resultSchema}, \njoinType is ${joinType}, \ncondition is ${condition}")
 
-*/
+    logInfo(s"\nleft input schema is ${l_input_schema}, \nright input schema is ${r_input_schema}, \nl_input_field_list is ${l_input_field_list}, \nr_input_field_list is ${r_input_field_list}")
 
-/*
-    val joinRow = new JoinedRow
-    val JoinKeys = tstreamSideKeyGenerator()
-    val localSchema = this.schema
-    streamIter.map( cb => {
-      val converter = new RowToColumnConverter(localSchema)
-      val columns = ArrowWritableColumnVector.allocateColumns(4096, localSchema)
-      val batch = new ColumnarBatch(columns.toArray, 4096)
+    val l_key_expr_list = bindReferences(leftKeys, l_input_schema)
+    val r_key_expr_list = bindReferences(rightKeys, r_input_schema)
 
-      var numRows = 0
-      val input = cb.rowIterator().asScala
-      while (input.hasNext) {
-        val sRow = input.next()
-        val matches = hashedRelation.get(JoinKeys(sRow))
-        if (matches != null) {
-          numRows += 1
-          joinRow.withLeft(sRow)
-          matches.map(joinRow.withRight(_))
-          converter.convert(matches.next(), columns.toArray)
-        }
+
+    val lkeyFieldList: List[Field] = leftKeys.toList.map(expr => {
+        val attr = ConverterUtils.getAttrFromExpr(expr)
+        Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(expr.dataType))
+    })
+
+    val rkeyFieldList: List[Field] = rightKeys.toList.map(expr => {
+        val attr = ConverterUtils.getAttrFromExpr(expr)
+        Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(expr.dataType))
+    })
+    
+    val r_key_indices = r_key_expr_list.toList.map(expr => expr.asInstanceOf[BoundReference].ordinal)
+
+    val r_key_arrow_schema: Schema = new Schema(rkeyFieldList.asJava)
+    logInfo(s"\nl_key_expr_list is ${l_key_expr_list}, \nr_key_expr_list is ${r_key_expr_list}, \nlkeyFieldList is ${lkeyFieldList}, \nrkeyFieldList is ${rkeyFieldList}")
+
+    // only support single primary key here
+    if (lkeyFieldList.size != 1) {
+      throw new UnsupportedOperationException("Only support single join key currently.")
+    }
+
+    /////////////////////////////// Create Prober /////////////////////////////
+    // Prober is used to insert left table primary key into hashMap
+    // Then use iterator to probe right table primary key from hashmap
+    // to get corresponding indices of left table
+    //
+    var prober = new ExpressionEvaluator()
+    val probe_node = TreeBuilder.makeFunction(
+      "probeArraysInner", 
+      lkeyFieldList.map(field => {
+        TreeBuilder.makeField(field)
+      }).asJava, 
+      new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
+    val retType = Field.nullable("res", new ArrowType.Int(32, true))
+    val probe_expr = TreeBuilder.makeExpression(probe_node, retType)
+
+    prober.build(l_input_arrow_schema, Lists.newArrayList(probe_expr), true)
+
+    /////////////////////////////// Create Shuffler /////////////////////////////
+    // Shuffler will use input indices array to shuffle current table
+    // output a new table with new sequence.
+    var left_shuffler = new ExpressionEvaluator()
+    val left_shuffle_node = TreeBuilder.makeFunction(
+      "shuffleArrayList", 
+      l_input_field_list.map(field => {
+        TreeBuilder.makeField(field)
+      }).asJava, 
+      new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
+    val l_action_expr_list = l_input_field_list.map(field => {
+      TreeBuilder.makeExpression(
+        TreeBuilder.makeFunction(
+          "action_dono",
+          Lists.newArrayList(
+            left_shuffle_node,
+            TreeBuilder.makeField(field)),
+          field.getType),
+        field)
+    }).asJava
+
+    left_shuffler.build(l_input_arrow_schema, l_action_expr_list, true)
+
+    var right_shuffler = new ExpressionEvaluator()
+    val right_shuffle_node = TreeBuilder.makeFunction(
+      "shuffleArrayList", 
+      r_input_field_list.map(field => {
+        TreeBuilder.makeField(field)
+      }).asJava, 
+      new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
+    val r_action_expr_list = r_input_field_list.map(field => {
+      TreeBuilder.makeExpression(
+        TreeBuilder.makeFunction(
+          "action_dono",
+          Lists.newArrayList(
+            right_shuffle_node,
+            TreeBuilder.makeField(field)),
+          field.getType),
+        field)
+    }).asJava
+
+    right_shuffler.build(r_input_arrow_schema, r_action_expr_list, false)
+
+    var probe_iterator: BatchIterator = _
+    var left_shuffle_iterator: BatchIterator = _
+
+  def columnarInnerJoin(
+    streamIter: Iterator[ColumnarBatch],
+    buildIter: Iterator[ColumnarBatch]): Iterator[ColumnarBatch] = {
+
+    val beforeBuild = System.nanoTime()
+    var build_cb : ColumnarBatch = null
+    while (buildIter.hasNext) {
+      if (build_cb != null) {
+        build_cb.close()
       }
-      batch.setNumRows(numRows)
-      batch
+      build_cb = buildIter.next()
+      val build_rb = ConverterUtils.createArrowRecordBatch(build_cb)
+      inputBatchHolder += build_rb
+      prober.evaluate(build_rb)
+      left_shuffler.evaluate(build_rb)
     }
-   )
-*/
-  }
 
-  private def probeBatch(cb: ColumnarBatch, 
-                         hashcb: ColumnarBatch) = {
-/*
-    val prober = new ExpressionEvaluator()
-    val arrowSchema = new Schema(inputFieldList.asJava)
-    if (keyFieldList.length > 0) {
-    aggregator.build(
-      arrowSchema,
-      gandivaExpressionTree.map(_._1).asJava, true)
-    } else {
-    aggregator.build(
-      arrowSchema,
-      gandivaExpressionTree.map(_._1).asJava, gandivaExpressionTree.map(_._2).asJava)
-    }
-*/
-    cb
-  }
+    probe_iterator = prober.finishByIterator();
+    left_shuffler.setDependency(probe_iterator, 0)
+    right_shuffler.setDependency(probe_iterator, 1)
+    left_shuffle_iterator = left_shuffler.finishByIterator();
+    buildTime += NANOSECONDS.toMillis(System.nanoTime() - beforeBuild)
 
-  private def calcHash(arbIter: Iterator[ColumnarBatch]): ColumnarBatch = {
-    //val a = Field.nullable("a", int32)
-    //List<Field> args = Lists.newArrayList(a);
-
-    //Field retType = Field.nullable("c", int32);
-    //ExpressionTree root = TreeBuilder.makeExpression("hash32", args, retType);
-
-    //List<ExpressionTree> exprs = Lists.newArrayList(root);
-
-    //Schema schema = new Schema(args);
-    //Projector eval = Projector.make(schema, exprs);
-
-      val a = Field.nullable("a", new ArrowType.Int(32, true))
-      val args = Lists.newArrayList(TreeBuilder.makeField(a))
-      val retType = Field.nullable("c", new ArrowType.Int(32, true))
-      //val root = TreeBuilder.makeExpression("hash32", args, retType)
-      val node = TreeBuilder.makeFunction("hash32", args, new ArrowType.Int(32, true))
-      val root = TreeBuilder.makeExpression(node, retType)
-
-      val cols = Lists.newArrayList(a)
-      val bschema = new Schema(cols)
-      val eval = Projector.make(bschema, Lists.newArrayList(root))
-
-      if (arbIter.hasNext) {
-        val buildCb = arbIter.next()
-        val rescolumns = ArrowWritableColumnVector.allocateColumns(buildCb.numRows(), ArrowUtils.fromArrowSchema(bschema)).toArray
-        val outputVectors = rescolumns.map(columnVector => columnVector.getValueVector()).toList.asJava
-        val input = createArrowRecordBatch(buildCb)
-        eval.evaluate(input, outputVectors)
-
-        new ColumnarBatch(rescolumns.map(_.asInstanceOf[ColumnVector]), buildCb.numRows())
+    var last_cb: ColumnarBatch = null
+    
+    streamIter.map(cb => {
+      if (last_cb != null) {
+        last_cb.close()
       }
-      arbIter.next()
-  }
+      val beforeJoin = System.nanoTime()
+      last_cb = cb
+      val r_key_cols = r_key_indices.map(i => {
+        cb.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
+      })
+      val process_input_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb.numRows, r_key_cols)
+      val right_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb)
+      probe_iterator.processAndCacheOne(r_key_arrow_schema, process_input_rb)
+      val l_output_rb: ArrowRecordBatch = left_shuffle_iterator.next()
+      val r_output_rb: ArrowRecordBatch = right_shuffler.evaluate(right_rb)(0)
+      val outputNumRows = r_output_rb.getLength()
 
-  private def calcHashOne(cb: ColumnarBatch): ColumnarBatch = {
-    //val a = Field.nullable("a", int32)
-    //List<Field> args = Lists.newArrayList(a);
+      val l_output = ConverterUtils.fromArrowRecordBatch(l_input_arrow_schema, l_output_rb)
+      val r_output = ConverterUtils.fromArrowRecordBatch(r_input_arrow_schema, r_output_rb)
 
-    //Field retType = Field.nullable("c", int32);
-    //ExpressionTree root = TreeBuilder.makeExpression("hash32", args, retType);
-
-    //List<ExpressionTree> exprs = Lists.newArrayList(root);
-
-    //Schema schema = new Schema(args);
-    //Projector eval = Projector.make(schema, exprs);
-
-      val a = Field.nullable("a", new ArrowType.Int(32, true))
-      val args = Lists.newArrayList(TreeBuilder.makeField(a))
-      val retType = Field.nullable("c", new ArrowType.Int(32, true))
-      //val root = TreeBuilder.makeExpression("hash32", args, retType)
-      val node = TreeBuilder.makeFunction("hash32", args, new ArrowType.Int(32, true))
-      val root = TreeBuilder.makeExpression(node, retType)
-
-      val cols = Lists.newArrayList(a)
-      val bschema = new Schema(cols)
-      val eval = Projector.make(bschema, Lists.newArrayList(root))
-
-      val buildCb = cb
-      val rescolumns = ArrowWritableColumnVector.allocateColumns(buildCb.numRows(), ArrowUtils.fromArrowSchema(bschema)).toArray
-      val outputVectors = rescolumns.map(columnVector => columnVector.getValueVector()).toList.asJava
-      val input = createArrowRecordBatch(buildCb)
-      eval.evaluate(input, outputVectors)
-
-      new ColumnarBatch(rescolumns.map(_.asInstanceOf[ColumnVector]), buildCb.numRows())
-  }
-
-  private def createArrowRecordBatch(columnarBatch: ColumnarBatch): ArrowRecordBatch = {
-    val fieldNodes = new ListBuffer[ArrowFieldNode]()
-    val inputData = new ListBuffer[ArrowBuf]()
-    val numRowsInBatch = columnarBatch.numRows()
-    for (i <- 0 until columnarBatch.numCols()) {
-      val inputVector =
-        columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
-      fieldNodes += new ArrowFieldNode(numRowsInBatch, inputVector.getNullCount())
-      inputData += inputVector.getValidityBuffer()
-      inputData += inputVector.getDataBuffer()
-    }
-    new ArrowRecordBatch(numRowsInBatch, fieldNodes.toList.asJava, inputData.toList.asJava)
-  }
-
-  private def fromArrowRecordBatch(recordBatchSchema: Schema, recordBatch: ArrowRecordBatch): Array[ArrowWritableColumnVector] = {
-    val numRows = recordBatch.getLength();
-    ArrowWritableColumnVector.loadColumns(numRows, recordBatchSchema, recordBatch)
-  }
-
-  private def combineArrowRecordBatch(rb1: ArrowRecordBatch, rb2: ArrowRecordBatch): ArrowRecordBatch = {
-     val numRows = rb1.getLength()
-     val rb1_nodes = rb1.getNodes()
-     val rb2_nodes = rb2.getNodes()
-     val rb1_bufferlist = rb1.getBuffers()
-     val rb2_bufferlist = rb2.getBuffers()
-
-     val combined_nodes = rb1_nodes.addAll(rb2_nodes)
-     val combined_bufferlist = rb1_bufferlist.addAll(rb2_bufferlist)
-     new ArrowRecordBatch(numRows, rb1_nodes, rb1_bufferlist)
-  }
-
-  def releaseArrowRecordBatch(recordBatch: ArrowRecordBatch): Unit = {
-    if (recordBatch != null)
-      recordBatch.close()
-  }
-
-  def releaseArrowRecordBatchList(recordBatchList: Array[ArrowRecordBatch]): Unit = {
-    recordBatchList.foreach({ recordBatch =>
-      if (recordBatch != null)
-        recordBatch.close()
+      // TODO
+      val resultColumnVectorList = l_output.toList ::: r_output.toList
+      ConverterUtils.releaseArrowRecordBatch(process_input_rb)
+      ConverterUtils.releaseArrowRecordBatch(right_rb)
+      ConverterUtils.releaseArrowRecordBatch(l_output_rb)
+      ConverterUtils.releaseArrowRecordBatch(r_output_rb)
+      totalOutputNumRows += outputNumRows
+      joinTime += NANOSECONDS.toMillis(System.nanoTime() - beforeJoin)
+      new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]).toArray, outputNumRows)
     })
   }
 
   def close(): Unit = {
+    ConverterUtils.releaseArrowRecordBatchList(inputBatchHolder.toArray)
+    if (prober != null) {
+      prober.close()
+      prober = null
+    }
+    if (left_shuffler != null) {
+      left_shuffler.close()
+      left_shuffler = null
+    }
+    if (right_shuffler != null) {
+      right_shuffler.close()
+      right_shuffler = null
+    }
+    if (probe_iterator != null) {
+      probe_iterator.close()
+      probe_iterator = null
+    }
+    if (left_shuffle_iterator != null) {
+      left_shuffle_iterator.close()
+      left_shuffle_iterator = null
+    }
   }
 
 }
@@ -366,20 +259,20 @@ class ColumnarShuffledHashJoin(
 object ColumnarShuffledHashJoin {
   var columnarShuffedHahsJoin: ColumnarShuffledHashJoin = _
   def create(
-    resultSchema: StructType,
-    joinType: JoinType,
-    condition: Option[Expression]): ColumnarShuffledHashJoin = synchronized {
-    columnarShuffedHahsJoin = new ColumnarShuffledHashJoin(resultSchema, joinType, condition)
-    columnarShuffedHahsJoin
-  }
-/*
     leftKeys: Seq[Expression],
     rightKeys: Seq[Expression],
+    resultSchema: StructType,
     joinType: JoinType,
     condition: Option[Expression],
     left: SparkPlan,
-    right: SparkPlan
-*/
+    right: SparkPlan,
+    buildTime: SQLMetric,
+    joinTime: SQLMetric,
+    numOutputRows: SQLMetric
+    ): ColumnarShuffledHashJoin = synchronized {
+    columnarShuffedHahsJoin = new ColumnarShuffledHashJoin(leftKeys, rightKeys, resultSchema, joinType, condition, left, right, buildTime, joinTime, numOutputRows)
+    columnarShuffedHahsJoin
+  }
 
   def close(): Unit = {
     if (columnarShuffedHahsJoin != null) {

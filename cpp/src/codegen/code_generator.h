@@ -22,6 +22,11 @@ class CodeGenerator {
     return arrow::Status::NotImplemented(
         "Finish return with ResultIterator is not NotImplemented");
   }
+  virtual arrow::Status SetDependency(
+      const std::shared_ptr<ResultIterator<arrow::RecordBatch>>& dependency_iter,
+      int index = -1) {
+    return arrow::Status::NotImplemented("SetDependency is not NotImplemented");
+  }
 };
 }  // namespace codegen
 }  // namespace sparkcolumnarplugin

@@ -89,6 +89,7 @@ arrow::Status MakeRecordBatch(const std::shared_ptr<arrow::Schema>& schema, int 
     auto array_data = arrow::ArrayData::Make(field->type(), num_rows, std::move(buffers));
     arrays.push_back(array_data);
   }
+
   *batch = arrow::RecordBatch::Make(schema, num_rows, arrays);
   return arrow::Status::OK();
 }

@@ -190,6 +190,14 @@ arrow::Status ExprVisitor::MakeExprVisitorImpl(const std::string& func_name,
     RETURN_NOT_OK(TakeVisitorImpl::Make(p, &impl_));
     goto finish;
   }
+  if (func_name.compare("probeArraysInner") == 0) {
+    RETURN_NOT_OK(ProbeArraysVisitorImpl::Make(p, &impl_, 0));
+    goto finish;
+  }
+  if (func_name.compare("probeArraysRight") == 0) {
+    RETURN_NOT_OK(ProbeArraysVisitorImpl::Make(p, &impl_, 2));
+    goto finish;
+  }
   if (func_name.compare("sortArraysToIndicesNullsFirstAsc") == 0) {
     RETURN_NOT_OK(SortArraysToIndicesVisitorImpl::Make(p, &impl_, true, true));
     goto finish;
@@ -228,6 +236,13 @@ arrow::Status ExprVisitor::SetMember(const std::shared_ptr<arrow::RecordBatch>& 
 #endif
   member_record_batch_ = ms;
   impl_->SetMember();
+  return arrow::Status::OK();
+}
+
+arrow::Status ExprVisitor::SetDependency(
+    const std::shared_ptr<ResultIterator<arrow::RecordBatch>>& dependency_iter,
+    int index) {
+  impl_->SetDependency(dependency_iter, index);
   return arrow::Status::OK();
 }
 
@@ -399,11 +414,9 @@ arrow::Status ExprVisitor::MakeResultIterator(
     *out = result_batch_iterator_;
   } else {
     return arrow::Status::NotImplemented(
-        "FinishVsitor MakeResultIterator is not tested, so mark as not implemented here, "
+        "FinishVsitor MakeResultIterator is not tested, so mark as not implemented "
+        "here, "
         "codes are commented.");
-    /*RETURN_NOT_OK(impl_->Finish());
-    RETURN_NOT_OK(finish_visitor_->Eval());
-    RETURN_NOT_OK(finish_visitor_->MakeResultIterator(schema, out));*/
   }
   return arrow::Status::OK();
 }

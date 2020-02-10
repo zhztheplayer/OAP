@@ -3,6 +3,7 @@
 #include <arrow/array.h>
 #include <arrow/compute/context.h>
 #include <arrow/status.h>
+#include <arrow/type_fwd.h>
 #include "codegen/common/result_iterator.h"
 
 using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
@@ -21,6 +22,11 @@ class KernalBase {
   virtual arrow::Status Evaluate(const ArrayList& in) {
     return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
                                          kernel_name_, ", input is arrayList.");
+  }
+  virtual arrow::Status Evaluate(const ArrayList& in, ArrayList* out) {
+    return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
+                                         kernel_name_,
+                                         ", input is arrayList, output is arrayList.");
   }
   virtual arrow::Status Evaluate(const ArrayList& in,
                                  const std::shared_ptr<arrow::Array>& dict) {
@@ -63,7 +69,11 @@ class KernalBase {
     return arrow::Status::NotImplemented("SetDependencyInput is abstract interface for ",
                                          kernel_name_, ", input is array");
   }
-
+  virtual arrow::Status SetDependencyIter(
+      const std::shared_ptr<ResultIterator<arrow::RecordBatch>>& in, int index) {
+    return arrow::Status::NotImplemented("SetDependencyIter is abstract interface for ",
+                                         kernel_name_, ", input is array");
+  }
   virtual arrow::Status MakeResultIterator(
       std::shared_ptr<arrow::Schema> schema,
       std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) {
@@ -101,8 +111,11 @@ class ShuffleArrayListKernel : public KernalBase {
   ShuffleArrayListKernel(arrow::compute::FunctionContext* ctx,
                          std::vector<std::shared_ptr<arrow::DataType>> type_list);
   arrow::Status Evaluate(const ArrayList& in) override;
+  arrow::Status Evaluate(const ArrayList& in, ArrayList* out) override;
   arrow::Status Finish(ArrayList* out) override;
   arrow::Status SetDependencyInput(const std::shared_ptr<arrow::Array>& in) override;
+  arrow::Status SetDependencyIter(
+      const std::shared_ptr<ResultIterator<arrow::RecordBatch>>& in, int index) override;
   arrow::Status MakeResultIterator(
       std::shared_ptr<arrow::Schema> schema,
       std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) override;
@@ -151,6 +164,24 @@ class ConcatArrayKernel : public KernalBase {
                     std::vector<std::shared_ptr<arrow::DataType>> type_list);
   arrow::Status Evaluate(const ArrayList& in,
                          std::shared_ptr<arrow::Array>* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class ProbeArraysKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<arrow::DataType> type, int join_type,
+                            std::shared_ptr<KernalBase>* out);
+  ProbeArraysKernel(arrow::compute::FunctionContext* ctx,
+                    std::shared_ptr<arrow::DataType> type, int join_type);
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
+  arrow::Status MakeResultIterator(
+      std::shared_ptr<arrow::Schema> schema,
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) override;
 
  private:
   class Impl;

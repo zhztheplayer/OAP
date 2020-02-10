@@ -41,12 +41,18 @@ class ActionBase {
   }
   virtual arrow::Status Submit(std::vector<std::shared_ptr<arrow::Array>> in,
                                uint64_t reserved_length,
-                               std::function<arrow::Status(uint64_t, uint64_t)>* out) {
+                               std::function<arrow::Status(uint64_t, uint64_t)>* on_valid,
+                               std::function<arrow::Status()>* on_null) {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
   }
   virtual arrow::Status Submit(const std::shared_ptr<arrow::Array>& in,
                                std::stringstream* ss,
                                std::function<arrow::Status(int)>* out) {
+    return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
+  }
+  virtual arrow::Status Submit(std::shared_ptr<arrow::Array> in, uint64_t reserved_length,
+                               std::function<arrow::Status(uint32_t)>* on_valid,
+                               std::function<arrow::Status()>* on_null) {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
   }
   virtual arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
@@ -286,22 +292,64 @@ class ShuffleAction : public ActionBase {
 
   arrow::Status Submit(std::vector<std::shared_ptr<arrow::Array>> in,
                        uint64_t reserved_length,
-                       std::function<arrow::Status(uint64_t, uint64_t)>* out) override {
+                       std::function<arrow::Status(uint64_t, uint64_t)>* on_valid,
+                       std::function<arrow::Status()>* on_null) override {
+    reserved_length_ = reserved_length;
     for (auto array : in) {
       typed_arrays_.push_back(std::dynamic_pointer_cast<ResArrayType>(array));
     }
-    std::unique_ptr<arrow::ArrayBuilder> builder;
-    RETURN_NOT_OK(arrow::MakeBuilder(
-        ctx_->memory_pool(), arrow::TypeTraits<ResDataType>::type_singleton(), &builder));
-    builder_.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
-    builder_->Reserve(reserved_length);
+    if (!builder_) {
+      std::unique_ptr<arrow::ArrayBuilder> builder;
+      RETURN_NOT_OK(arrow::MakeBuilder(ctx_->memory_pool(),
+                                       arrow::TypeTraits<ResDataType>::type_singleton(),
+                                       &builder));
+      builder_.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
+      builder_->Reserve(reserved_length);
+    }
     // prepare evaluate lambda
-    *out = [this](uint64_t array_id, uint64_t id) {
+    *on_valid = [this](uint64_t array_id, uint64_t id) {
       if (typed_arrays_[array_id]->IsNull(id)) {
         builder_->UnsafeAppendNull();
       } else {
         builder_->UnsafeAppend(typed_arrays_[array_id]->Value(id));
       }
+      return arrow::Status::OK();
+    };
+    *on_null = [this]() {
+      builder_->UnsafeAppendNull();
+      return arrow::Status::OK();
+    };
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Submit(std::shared_ptr<arrow::Array> in, uint64_t reserved_length,
+                       std::function<arrow::Status(uint32_t)>* on_valid,
+                       std::function<arrow::Status()>* on_null) override {
+    reserved_length_ = reserved_length;
+    if (typed_arrays_.size() == 0) {
+      typed_arrays_.push_back(std::dynamic_pointer_cast<ResArrayType>(in));
+    } else {
+      typed_arrays_[0] = std::dynamic_pointer_cast<ResArrayType>(in);
+    }
+    if (!builder_) {
+      std::unique_ptr<arrow::ArrayBuilder> builder;
+      RETURN_NOT_OK(arrow::MakeBuilder(ctx_->memory_pool(),
+                                       arrow::TypeTraits<ResDataType>::type_singleton(),
+                                       &builder));
+      builder_.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
+      builder_->Reserve(reserved_length);
+    }
+    // prepare evaluate lambda
+    *on_valid = [this](uint64_t id) {
+      if (typed_arrays_[0]->IsNull(id)) {
+        builder_->UnsafeAppendNull();
+      } else {
+        builder_->UnsafeAppend(typed_arrays_[0]->Value(id));
+      }
+      return arrow::Status::OK();
+    };
+    *on_null = [this]() {
+      builder_->UnsafeAppendNull();
       return arrow::Status::OK();
     };
     return arrow::Status::OK();
@@ -315,6 +363,7 @@ class ShuffleAction : public ActionBase {
   arrow::Status FinishAndReset(std::shared_ptr<arrow::Array>* out) override {
     RETURN_NOT_OK(builder_->Finish(out));
     builder_->Reset();
+    builder_->Reserve(reserved_length_);
     return arrow::Status::OK();
   }
 
@@ -325,6 +374,7 @@ class ShuffleAction : public ActionBase {
   // input
   arrow::compute::FunctionContext* ctx_;
   std::vector<std::shared_ptr<ResArrayType>> typed_arrays_;
+  uint64_t reserved_length_;
   // result
   std::shared_ptr<BuilderType> builder_;
 };

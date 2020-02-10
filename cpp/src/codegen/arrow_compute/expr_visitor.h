@@ -95,6 +95,9 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   arrow::Status Eval(const std::shared_ptr<arrow::RecordBatch>& in);
   arrow::Status Eval();
   arrow::Status SetMember(const std::shared_ptr<arrow::RecordBatch>& ms);
+  arrow::Status SetDependency(
+      const std::shared_ptr<ResultIterator<arrow::RecordBatch>>& dependency_iter,
+      int index);
   arrow::Status GetResultFromDependency();
   arrow::Status Reset();
   arrow::Status ResetDependency();
@@ -102,7 +105,6 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   arrow::Status MakeResultIterator(
       std::shared_ptr<arrow::Schema> schema,
       std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out);
-
   std::string GetName() { return func_name_; }
 
   ArrowComputeResultType GetResultType();

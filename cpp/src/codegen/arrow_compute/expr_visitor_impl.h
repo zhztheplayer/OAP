@@ -1,3 +1,4 @@
+#include <arrow/pretty_print.h>
 #include <arrow/status.h>
 #include <arrow/type_fwd.h>
 #include <codegen/arrow_compute/expr_visitor.h>
@@ -28,6 +29,12 @@ class ExprVisitorImpl {
 
   virtual arrow::Status SetMember() {
     return arrow::Status::NotImplemented("ExprVisitorImpl Init is abstract.");
+  }
+
+  virtual arrow::Status SetDependency(
+      const std::shared_ptr<ResultIterator<arrow::RecordBatch>>& dependency_iter,
+      int index) {
+    return arrow::Status::NotImplemented("ExprVisitorImpl SetDependency is abstract.");
   }
 
   virtual arrow::Status Finish() {
@@ -632,21 +639,25 @@ class ShuffleArrayListVisitorImpl : public ExprVisitorImpl {
   }
 
   arrow::Status Eval() override {
+    ArrayList col_list;
+    for (auto col_id : col_id_list_) {
+      if (col_id >= p_->in_record_batch_->num_columns()) {
+        return arrow::Status::Invalid(
+            "ShuffleArrayListVisitorImpl Eval col_id is bigger than input "
+            "batch numColumns.");
+      }
+      auto col = p_->in_record_batch_->column(col_id);
+      col_list.push_back(col);
+    }
     switch (p_->dependency_result_type_) {
       case ArrowComputeResultType::None: {
         // This indicates shuffle indices was not cooked yet.
-        ArrayList col_list;
-        for (auto col_id : col_id_list_) {
-          if (col_id >= p_->in_record_batch_->num_columns()) {
-            return arrow::Status::Invalid(
-                "ShuffleArrayListVisitorImpl Eval col_id is bigger than input "
-                "batch numColumns.");
-          }
-          auto col = p_->in_record_batch_->column(col_id);
-          col_list.push_back(col);
-        }
         RETURN_NOT_OK(kernel_->Evaluate(col_list));
         finish_return_type_ = ArrowComputeResultType::Batch;
+      } break;
+      case ArrowComputeResultType::BatchIterator: {
+        RETURN_NOT_OK(kernel_->Evaluate(col_list, &p_->result_batch_));
+        p_->return_type_ = ArrowComputeResultType::Batch;
       } break;
       default:
         return arrow::Status::NotImplemented(
@@ -679,16 +690,20 @@ class ShuffleArrayListVisitorImpl : public ExprVisitorImpl {
     return arrow::Status::OK();
   }
 
+  arrow::Status SetDependency(
+      const std::shared_ptr<ResultIterator<arrow::RecordBatch>>& dependency_iter,
+      int index) override {
+    RETURN_NOT_OK(kernel_->SetDependencyIter(dependency_iter, index));
+    p_->dependency_result_type_ = ArrowComputeResultType::BatchIterator;
+    return arrow::Status::OK();
+  }
+
   arrow::Status MakeResultIterator(
       std::shared_ptr<arrow::Schema> schema,
       std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) override {
-    if (!p_->in_array_) {
-      return arrow::Status::Invalid(
-          "ShuffleArrayListVisitorImpl depends on an indices array to indicate "
-          "shuffle, "
-          "while input_array is invalid.");
+    if (p_->in_array_) {
+      RETURN_NOT_OK(kernel_->SetDependencyInput(p_->in_array_));
     }
-    RETURN_NOT_OK(kernel_->SetDependencyInput(p_->in_array_));
     switch (finish_return_type_) {
       case ArrowComputeResultType::Batch: {
         TIME_MICRO_OR_RAISE(p_->elapse_time_, kernel_->MakeResultIterator(schema, out));
@@ -705,6 +720,80 @@ class ShuffleArrayListVisitorImpl : public ExprVisitorImpl {
 
  private:
   std::vector<int> col_id_list_;
+};
+
+////////////////////////// ProbeArraysVisitorImpl ///////////////////////
+class ProbeArraysVisitorImpl : public ExprVisitorImpl {
+ public:
+  ProbeArraysVisitorImpl(ExprVisitor* p, int type)
+      : ExprVisitorImpl(p), join_type_(type) {}
+  static arrow::Status Make(ExprVisitor* p, std::shared_ptr<ExprVisitorImpl>* out,
+                            int type = 0) {
+    auto impl = std::make_shared<ProbeArraysVisitorImpl>(p, type);
+    *out = impl;
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Init() override {
+    if (initialized_) {
+      return arrow::Status::OK();
+    }
+    if (p_->param_field_names_.size() != 1) {
+      return arrow::Status::Invalid("ProbeArraysVisitorImpl expects only one parameter.");
+    }
+    std::shared_ptr<arrow::Field> field;
+    RETURN_NOT_OK(GetColumnIdAndFieldByName(p_->schema_, p_->param_field_names_[0],
+                                            &col_id_, &field));
+    auto data_type = field->type();
+    RETURN_NOT_OK(
+        extra::ProbeArraysKernel::Make(&p_->ctx_, data_type, join_type_, &kernel_));
+
+    auto out_type = std::make_shared<arrow::FixedSizeBinaryType>(sizeof(ArrayItemIndex) /
+                                                                 sizeof(int32_t));
+    auto result_field = arrow::field("res", out_type);
+    p_->result_fields_.push_back(result_field);
+    initialized_ = true;
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Eval() override {
+    switch (p_->dependency_result_type_) {
+      case ArrowComputeResultType::None: {
+        auto col = p_->in_record_batch_->column(col_id_);
+        TIME_MICRO_OR_RAISE(p_->elapse_time_, kernel_->Evaluate(col));
+        finish_return_type_ = ArrowComputeResultType::Batch;
+      } break;
+      default:
+        return arrow::Status::NotImplemented(
+            "ProbeArraysVisitorImpl: Does not support this type of input.");
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish() override { return arrow::Status::OK(); }
+
+  arrow::Status MakeResultIterator(
+      std::shared_ptr<arrow::Schema> schema,
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) override {
+    switch (finish_return_type_) {
+      case ArrowComputeResultType::Batch: {
+        TIME_MICRO_OR_RAISE(p_->elapse_time_, kernel_->MakeResultIterator(schema, out));
+      } break;
+      default:
+        return arrow::Status::NotImplemented(
+            "ProbeArraysVisitorImpl MakeResultIterator: Does not support this type of "
+            "input");
+    }
+    return arrow::Status::OK();
+  }
+
+ private:
+  int col_id_;
+  struct ArrayItemIndex {
+    uint64_t id = 0;
+    uint64_t array_id = 0;
+  };
+  int join_type_;
 };
 
 }  // namespace arrowcompute

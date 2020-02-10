@@ -71,10 +71,19 @@ public class ExpressionEvaluatorJniWrapper {
   /**
    * Call Finish to get result, result will be as a iterator.
    *
-   * @param nativeHandler nativeHandler that needs to be closed
+   * @param nativeHandler nativeHandler of this expression
    * @return iterator instance id
    */
   native long nativeFinishByIterator(long nativeHandler) throws RuntimeException;
+
+  /**
+   * Set another evaluator's iterator as this one's dependency.
+   *
+   * @param nativeHandler nativeHandler of this expression
+   * @param childInstanceId childInstanceId of a child BatchIterator
+   * @param index exptected index of the output of BatchIterator
+   */
+  native void nativeSetDependency(long nativeHandler, long childInstanceId, int index) throws RuntimeException;
 
   /**
    * Closes the projector referenced by nativeHandler.
