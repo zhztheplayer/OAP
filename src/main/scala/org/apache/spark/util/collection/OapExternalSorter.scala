@@ -722,7 +722,7 @@ private[spark] class OapExternalSorter[K, V, C](
         val inMemoryIterator = new WritablePartitionedIterator {
           private[this] var cur = if (upstream.hasNext) upstream.next() else null
 
-          def writeNext(writer: DiskBlockObjectWriter): Unit = {
+          def writeNext(writer: PairsWriter): Unit = {
             writer.write(cur._1._2, cur._2)
             cur = if (upstream.hasNext) upstream.next() else null
           }

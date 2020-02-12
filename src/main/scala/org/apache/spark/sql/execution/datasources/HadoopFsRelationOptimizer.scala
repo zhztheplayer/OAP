@@ -132,7 +132,7 @@ object HadoopFsRelationOptimizer extends Logging {
           logDebug(s"config - ${OapConf.OAP_ORC_DATA_CACHE_ENABLED.key} is $cacheEnabled")
           val ret = cacheEnabled && runtimeConf.get(SQLConf.ORC_VECTORIZED_READER_ENABLED) &&
             runtimeConf.get(SQLConf.WHOLESTAGE_CODEGEN_ENABLED) &&
-            runtimeConf.get(SQLConf.ORC_COPY_BATCH_TO_SPARK) &&
+//            runtimeConf.get(SQLConf.ORC_COPY_BATCH_TO_SPARK) &&
             outputSchema.forall(_.dataType.isInstanceOf[AtomicType])
           if (ret) {
             logInfo("data cache enable and suitable for use , " +
