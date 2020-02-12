@@ -161,7 +161,7 @@ class ColumnarConditionProjector(
       columnarBatch
     } else {
       val resultColumnVectors =
-        ArrowWritableColumnVector.allocateColumns(columnarBatch.numRows(), schema).toArray
+        ArrowWritableColumnVector.allocateColumns(columnarBatch.numRows(), resultSchema).toArray
       new ColumnarBatch(
         resultColumnVectors.map(_.asInstanceOf[ColumnVector]),
         columnarBatch.numRows())
