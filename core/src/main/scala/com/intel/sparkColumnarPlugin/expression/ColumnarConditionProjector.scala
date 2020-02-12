@@ -129,6 +129,8 @@ class ColumnarConditionProjector(
     val outputBatch = if (skip != true && columnarBatch.numRows() != 0) {
       val eval_start = System.nanoTime()
       val input = ConverterUtils.createArrowRecordBatch(columnarBatch)
+
+      //TODO(): do not create selection buffer if filter = none
       val selectionBuffer = allocator.buffer(columnarBatch.numRows() * 2)
       val selectionVector = new SelectionVectorInt16(selectionBuffer)
       val numRows = if (filter != null) {
@@ -138,24 +140,35 @@ class ColumnarConditionProjector(
         columnarBatch.numRows
       }
 
-      val resultColumnVectors = ArrowWritableColumnVector
-        .allocateColumns(numRows, resultSchema)
-        .toArray
-      val outputVectors =
-        resultColumnVectors.map(columnVector =>
-          columnVector.getValueVector()).toList.asJava
+      if (numRows == 0) {
+        // skip projector evaluate
+        val resultColumnVectors = ArrowWritableColumnVector
+          .allocateColumns(0, resultSchema)
+          .toArray
+        ConverterUtils.releaseArrowRecordBatch(input)
+        selectionBuffer.close()
 
-      if(filter != null) {
-        projector.evaluate(input, selectionVector, outputVectors);
+        new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), 0)
       } else {
-        projector.evaluate(input, outputVectors);
+        val resultColumnVectors = ArrowWritableColumnVector
+          .allocateColumns(numRows, resultSchema)
+          .toArray
+        val outputVectors =
+          resultColumnVectors.map(columnVector =>
+            columnVector.getValueVector()).toList.asJava
+
+        if(filter != null) {
+          projector.evaluate(input, selectionVector, outputVectors);
+        } else {
+          projector.evaluate(input, outputVectors);
+        }
+
+        ConverterUtils.releaseArrowRecordBatch(input)
+        selectionBuffer.close()
+
+        numOutputRows += numRows
+        new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), numRows)
       }
-
-      ConverterUtils.releaseArrowRecordBatch(input)
-      selectionBuffer.close()
-
-      numOutputRows += numRows
-      new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), numRows)
     } else if (skip == true){
       columnarBatch.retain()
       columnarBatch

@@ -7,7 +7,7 @@ import org.apache.spark.sql.execution.vectorized.ArrowWritableColumnVector
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
-import org.apache.arrow.vector.ValueVector
+import org.apache.arrow.vector._
 import org.apache.arrow.vector.ipc.message.ArrowFieldNode
 import org.apache.arrow.vector.ipc.message.ArrowRecordBatch
 import org.apache.arrow.vector.types.pojo.Schema
@@ -27,6 +27,9 @@ object ConverterUtils {
         columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
       fieldNodes += new ArrowFieldNode(numRowsInBatch, inputVector.getNullCount())
       inputData += inputVector.getValidityBuffer()
+      if (inputVector.isInstanceOf[VarCharVector]) {
+        inputData += inputVector.getOffsetBuffer()
+      }
       inputData += inputVector.getDataBuffer()
     }
     new ArrowRecordBatch(numRowsInBatch, fieldNodes.toList.asJava, inputData.toList.asJava)

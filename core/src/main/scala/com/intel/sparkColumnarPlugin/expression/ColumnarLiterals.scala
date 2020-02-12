@@ -19,7 +19,7 @@ class ColumnarLiteral(lit: Literal)
     val resultType = CodeGeneration.getResultType(dataType)
     dataType match {
       case t: StringType =>
-        (TreeBuilder.makeStringLiteral(value.asInstanceOf[String]), resultType)
+        (TreeBuilder.makeStringLiteral(value.toString().asInstanceOf[String]), resultType)
       case t: IntegerType =>
         (TreeBuilder.makeLiteral(value.asInstanceOf[Integer]), resultType)
       case t: LongType =>
