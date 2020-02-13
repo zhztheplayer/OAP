@@ -273,7 +273,6 @@ class EncodeVisitorImpl : public ExprVisitorImpl {
     // create a new kernel to memcpy all keys as one binary array
     if (type_list.size() > 1) {
       RETURN_NOT_OK(
-          // extra::ConcatArrayKernel::Make(&p_->ctx_, type_list, &concat_kernel_));
           extra::HashAggrArrayKernel::Make(&p_->ctx_, type_list, &concat_kernel_));
     }
 
@@ -309,10 +308,7 @@ class EncodeVisitorImpl : public ExprVisitorImpl {
     return arrow::Status::OK();
   }
 
-  arrow::Status Finish() override {
-    std::cout << "Concat took " << TIME_TO_STRING(concat_elapse_time) << std::endl;
-    return arrow::Status::OK();
-  }
+  arrow::Status Finish() override { return arrow::Status::OK(); }
 
  private:
   std::vector<int> col_id_list_;

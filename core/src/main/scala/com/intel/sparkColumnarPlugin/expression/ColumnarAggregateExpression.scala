@@ -1,6 +1,5 @@
 package com.intel.sparkColumnarPlugin.expression
 
-import com.google.common.collect.Lists
 import scala.collection.immutable.List
 import scala.collection.JavaConverters._
 import org.apache.arrow.gandiva.expression._
@@ -13,41 +12,14 @@ import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.types._
 
 trait ColumnarAggregateExpressionBase extends ColumnarExpression with Logging {
-  def getFieldName: String
-  def getResultFieldName: String
-  def getField: Field
-  def getResultField: Field
-  def setField(inField: Field, outField: Field): Unit
+  def requiredColNum: Int = 1
+  def setInputFields(fieldList: List[Field]): Unit = {}
   def doColumnarCodeGen_ext(args: Object): (TreeNode, TreeNode) = {
     throw new UnsupportedOperationException(s"ColumnarAggregateExpressionBase doColumnarCodeGen_ext is a abstract function.")
   }
 }
 
-class ColumnarUniqueAggregateExpression() extends ColumnarAggregateExpressionBase with Logging {
-
-  var aggrField : Field = _
-  var resField : Field = _
-
-  override def setField(inField: Field, outField: Field): Unit = {
-    aggrField = inField
-    resField = outField
-  }
-
-  override def getFieldName: String = {
-    aggrField.getName()
-  }
-
-  override def getField: Field = {
-    aggrField
-  }
-
-  override def getResultFieldName: String = {
-    resField.getName
-  }
-
-  override def getResultField: Field = {
-    resField
-  }
+class ColumnarUniqueAggregateExpression(aggrFieldList: List[Field]) extends ColumnarAggregateExpressionBase with Logging {
 
   override def doColumnarCodeGen_ext(args: Object): (TreeNode, TreeNode) = {
     val (keyFieldList, inputFieldList, resultType, resultField) =
@@ -57,24 +29,22 @@ class ColumnarUniqueAggregateExpression() extends ColumnarAggregateExpressionBas
       // if keyList has keys, we need to do groupby by these keys.
       var inputFieldNode = 
         keyFieldList.map({field => TreeBuilder.makeField(field)}).asJava
-      logInfo(s"encodeArray($keyFieldList)")
       val encodeNode = TreeBuilder.makeFunction(
         "encodeArray",
         inputFieldNode,
         resultType/*this arg won't be used*/)
       inputFieldNode = 
         (encodeNode :: inputFieldList.map({field => TreeBuilder.makeField(field)})).asJava
-      logInfo(s"splitArrayListWithAction($inputFieldList)")
       val groupByFuncNode = TreeBuilder.makeFunction(
         "splitArrayListWithAction",
         inputFieldNode,
         resultType/*this arg won't be used*/)
-      Lists.newArrayList(groupByFuncNode, TreeBuilder.makeField(aggrField))
+      List(groupByFuncNode) ::: aggrFieldList.map(field => TreeBuilder.makeField(field))
     }
-    logInfo(s"$funcName($inputNode)")
+    logInfo(s"${funcName}(${inputNode})")
     val aggregateNode = TreeBuilder.makeFunction(
         funcName,
-        inputNode,
+        inputNode.asJava,
         resultType)
     (aggregateNode, null)
   }
@@ -89,83 +59,70 @@ class ColumnarAggregateExpression(
     with ColumnarAggregateExpressionBase
     with Logging {
 
-  var aggrField : Field = _
-  var resField : Field = _
-
-  override def setField(inField: Field, outField: Field): Unit = {
-    aggrField = inField
-    resField = outField
+  var aggrFieldList: List[Field] = _
+  val (funcName, argSize) = mode match {
+    case Partial => 
+      aggregateFunction.prettyName match {
+        case "avg" => ("sum_count", 1)
+        case other => (aggregateFunction.prettyName, 1)
+      }
+    case Final =>
+      aggregateFunction.prettyName match {
+        case "count" => ("sum", 1)
+        case "avg" => ("avgByCount", 2)
+        case other => (aggregateFunction.prettyName, 1)
+      }
+    case _ =>
+      throw new UnsupportedOperationException("doesn't support this mode")
   }
 
-  override def getFieldName: String = {
-    aggrField.getName()
+  val finalFuncName = funcName match {
+    case "count" => "sum"
+    case other => other
   }
+  logInfo(s"funcName is $funcName, finalFuncName is $finalFuncName, mode is $mode")
 
-  override def getField: Field = {
-    aggrField
-  }
-
-  override def getResultFieldName: String = {
-    resField.getName
-  }
-
-  override def getResultField: Field = {
-    resField
+  override def requiredColNum: Int = argSize
+  override def setInputFields(fieldList: List[Field]): Unit = {
+    aggrFieldList = fieldList
   }
 
   override def doColumnarCodeGen_ext(args: Object): (TreeNode, TreeNode) = {
     val (keyFieldList, inputFieldList, resultType, resultField) =
       args.asInstanceOf[(List[Field], List[Field], ArrowType, Field)]
-    val funcName = mode match {
-      case Partial => aggregateFunction.prettyName
-      case Final =>
-        aggregateFunction.prettyName match {
-          case "count" => "sum"
-          case other => aggregateFunction.prettyName
-        }
-      case _ =>
-        throw new UnsupportedOperationException("doesn't support this mode")
-    }
-
-    val finalFuncName = funcName match {
-      case "count" => "sum"
-      case other => other
-    }
-    logInfo(s"funcName is $funcName, finalFuncName is $finalFuncName, mode is $mode")
     val (aggregateNode, finalFuncNode) = if (keyFieldList.isEmpty != true) {
       // if keyList has keys, we need to do groupby by these keys.
       var inputFieldNode = 
         keyFieldList.map({field => TreeBuilder.makeField(field)}).asJava
-      logInfo(s"encodeArray($keyFieldList)")
       val encodeNode = TreeBuilder.makeFunction(
         "encodeArray",
         inputFieldNode,
         resultType/*this arg won't be used*/)
       inputFieldNode = 
         (encodeNode :: inputFieldList.map({field => TreeBuilder.makeField(field)})).asJava
-      logInfo(s"splitArrayListWithAction($inputFieldList)")
       val groupByFuncNode = TreeBuilder.makeFunction(
         "splitArrayListWithAction",
         inputFieldNode,
         resultType/*this arg won't be used*/)
-      inputFieldNode = 
-        Lists.newArrayList(groupByFuncNode, TreeBuilder.makeField(aggrField))
+      val inputAggrFieldNode = 
+        List(groupByFuncNode) ::: aggrFieldList.map(field => TreeBuilder.makeField(field))
       val aggregateFuncName = "action_" + funcName
-      logInfo(s"$aggregateFuncName($aggrField)")
+      logInfo(s"${aggregateFuncName}(${inputAggrFieldNode})")
       (TreeBuilder.makeFunction(
         aggregateFuncName,
-        inputFieldNode,
+        inputAggrFieldNode.asJava,
         resultType), null)
     } else {
-      val inputFieldNode = Lists.newArrayList(TreeBuilder.makeField(aggrField))
-      logInfo(s"$funcName($inputFieldNode)")
+      val inputFieldNode = 
+        aggrFieldList.map(field => TreeBuilder.makeField(field))
+      logInfo(s"${funcName}(${inputFieldNode})")
       (TreeBuilder.makeFunction(
         funcName,
-        inputFieldNode,
+        inputFieldNode.asJava,
         resultType),
       TreeBuilder.makeFunction(
         finalFuncName,
-        inputFieldNode,
+        inputFieldNode.asJava,
         resultType))
     }
     (aggregateNode, finalFuncNode)

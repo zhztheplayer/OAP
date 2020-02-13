@@ -1,3 +1,4 @@
+#include <arrow/pretty_print.h>
 #include <google/protobuf/io/coded_stream.h>
 
 #include <map>
@@ -64,15 +65,6 @@ arrow::Status MakeRecordBatch(const std::shared_ptr<arrow::Schema>& schema, int 
         new arrow::Buffer(reinterpret_cast<uint8_t*>(validity_addr), validity_size));
     buffers.push_back(validity);
 
-    if (buf_idx >= in_bufs_len) {
-      return arrow::Status::Invalid("insufficient number of in_buf_addrs");
-    }
-    int64_t value_addr = in_buf_addrs[buf_idx++];
-    int64_t value_size = in_buf_sizes[sz_idx++];
-    auto data = std::shared_ptr<arrow::Buffer>(
-        new arrow::Buffer(reinterpret_cast<uint8_t*>(value_addr), value_size));
-    buffers.push_back(data);
-
     if (arrow::is_binary_like(field->type()->id())) {
       if (buf_idx >= in_bufs_len) {
         return arrow::Status::Invalid("insufficient number of in_buf_addrs");
@@ -85,6 +77,15 @@ arrow::Status MakeRecordBatch(const std::shared_ptr<arrow::Schema>& schema, int 
           new arrow::Buffer(reinterpret_cast<uint8_t*>(offsets_addr), offsets_size));
       buffers.push_back(offsets);
     }
+
+    if (buf_idx >= in_bufs_len) {
+      return arrow::Status::Invalid("insufficient number of in_buf_addrs");
+    }
+    int64_t value_addr = in_buf_addrs[buf_idx++];
+    int64_t value_size = in_buf_sizes[sz_idx++];
+    auto data = std::shared_ptr<arrow::Buffer>(
+        new arrow::Buffer(reinterpret_cast<uint8_t*>(value_addr), value_size));
+    buffers.push_back(data);
 
     auto array_data = arrow::ArrayData::Make(field->type(), num_rows, std::move(buffers));
     arrays.push_back(array_data);

@@ -40,6 +40,16 @@ public class ExpressionEvaluatorJniWrapper {
   native long nativeBuildWithFinish(byte[] schemaBuf, byte[] exprListBuf, byte[] finishExprListBuf) throws RuntimeException;
 
   /**
+   * Set return schema for this expressionTree.
+   *
+   * @param nativeHandler nativeHandler representing expressions. Created using a call to
+   *     buildNativeCode
+   * @param schemaBuf The schema serialized as a protobuf. See Types.proto to see the protobuf
+   *     specification
+   */
+  native void nativeSetReturnFields(long nativeHandler, byte[] schemaBuf) throws RuntimeException;
+
+  /**
    * Evaluate the expressions represented by the nativeHandler on a record batch and store the
    * output in ValueVectors. Throws an exception in case of errors
    *

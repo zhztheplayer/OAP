@@ -45,23 +45,31 @@ class SplitArrayListWithActionKernel::Impl {
   ~Impl() {}
 
   arrow::Status InitActionList(std::vector<std::shared_ptr<arrow::DataType>> type_list) {
-    if (action_name_list_.size() != type_list.size()) {
-      return arrow::Status::Invalid(
-          "SplitArrayListWithActionKernel Init expects same size action list and array "
-          "type list.");
-    }
-    for (int col_id = 0; col_id < type_list.size(); col_id++) {
+    int type_id = 0;
+#ifdef DEBUG
+    std::cout << "action_name_list_ has " << action_name_list_.size()
+              << " elements, and type_list has " << type_list.size() << " elements."
+              << std::endl;
+#endif
+    for (int action_id = 0; action_id < action_name_list_.size(); action_id++) {
       std::shared_ptr<ActionBase> action;
-      if (action_name_list_[col_id].compare("action_unique") == 0) {
-        RETURN_NOT_OK(MakeUniqueAction(ctx_, type_list[col_id], &action));
-      } else if (action_name_list_[col_id].compare("action_count") == 0) {
+      if (action_name_list_[action_id].compare("action_unique") == 0) {
+        RETURN_NOT_OK(MakeUniqueAction(ctx_, type_list[type_id], &action));
+      } else if (action_name_list_[action_id].compare("action_count") == 0) {
         RETURN_NOT_OK(MakeCountAction(ctx_, &action));
-      } else if (action_name_list_[col_id].compare("action_sum") == 0) {
-        RETURN_NOT_OK(MakeSumAction(ctx_, type_list[col_id], &action));
+      } else if (action_name_list_[action_id].compare("action_sum") == 0) {
+        RETURN_NOT_OK(MakeSumAction(ctx_, type_list[type_id], &action));
+      } else if (action_name_list_[action_id].compare("action_avg") == 0) {
+        RETURN_NOT_OK(MakeAvgAction(ctx_, type_list[type_id], &action));
+      } else if (action_name_list_[action_id].compare("action_sum_count") == 0) {
+        RETURN_NOT_OK(MakeSumCountAction(ctx_, type_list[type_id], &action));
+      } else if (action_name_list_[action_id].compare("action_avgByCount") == 0) {
+        RETURN_NOT_OK(MakeAvgByCountAction(ctx_, type_list[type_id], &action));
       } else {
-        return arrow::Status::NotImplemented(action_name_list_[col_id],
+        return arrow::Status::NotImplemented(action_name_list_[action_id],
                                              " is not implementetd.");
       }
+      type_id += action->RequiredColNum();
       action_list_.push_back(action);
     }
     return arrow::Status::OK();
@@ -71,11 +79,6 @@ class SplitArrayListWithActionKernel::Impl {
                          const std::shared_ptr<arrow::Array>& in_dict) {
     if (!in_dict) {
       return arrow::Status::Invalid("input data is invalid");
-    }
-
-    if (in.size() != action_list_.size()) {
-      return arrow::Status::Invalid(
-          "SplitArrayListWithAction input arrayList size does not match numActions");
     }
 
     // TODO: We used to use arrow::Minmax, while I noticed when there is null or -1 data
@@ -91,11 +94,16 @@ class SplitArrayListWithActionKernel::Impl {
     }
 
     std::vector<std::function<arrow::Status(int)>> eval_func_list;
-    for (int i = 0; i < in.size(); i++) {
-      auto col = in[i];
+    int col_id = 0;
+    ArrayList cols;
+    for (int i = 0; i < action_list_.size(); i++) {
+      cols.clear();
       auto action = action_list_[i];
+      for (int j = 0; j < action->RequiredColNum(); j++) {
+        cols.push_back(in[col_id++]);
+      }
       std::function<arrow::Status(int)> func;
-      action->Submit(col, max_group_id, &func);
+      action->Submit(cols, max_group_id, &func);
       eval_func_list.push_back(func);
     }
 
@@ -111,9 +119,7 @@ class SplitArrayListWithActionKernel::Impl {
 
   arrow::Status Finish(ArrayList* out) {
     for (auto action : action_list_) {
-      std::shared_ptr<arrow::Array> arr_out;
-      RETURN_NOT_OK(action->Finish(&arr_out));
-      out->push_back(arr_out);
+      RETURN_NOT_OK(action->Finish(out));
     }
     return arrow::Status::OK();
   }
@@ -234,9 +240,7 @@ class ShuffleArrayListKernel::Impl {
     }
 
     for (auto action : action_list_) {
-      std::shared_ptr<arrow::Array> arr_out;
-      RETURN_NOT_OK(action->FinishAndReset(&arr_out));
-      out->push_back(arr_out);
+      RETURN_NOT_OK(action->FinishAndReset(out));
     }
     return arrow::Status::OK();
   }
@@ -305,9 +309,7 @@ class ShuffleArrayListKernel::Impl {
       }
     }
     for (auto action : action_list_) {
-      std::shared_ptr<arrow::Array> arr_out;
-      RETURN_NOT_OK(action->Finish(&arr_out));
-      out->push_back(arr_out);
+      RETURN_NOT_OK(action->Finish(out));
     }
     return arrow::Status::OK();
   }
@@ -460,9 +462,7 @@ class ShuffleArrayListKernel::Impl {
 
       std::vector<std::shared_ptr<arrow::Array>> out_array_list;
       for (auto action : action_list_) {
-        std::shared_ptr<arrow::Array> arr_out;
-        RETURN_NOT_OK(action->FinishAndReset(&arr_out));
-        out_array_list.push_back(arr_out);
+        RETURN_NOT_OK(action->FinishAndReset(&out_array_list));
       }
 
       *out = arrow::RecordBatch::Make(schema_, output_num_rows, out_array_list);
@@ -1031,90 +1031,15 @@ arrow::Status EncodeArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& i
   } break;
       PROCESS_SUPPORTED_TYPES(PROCESS)
 #undef PROCESS
-      default:
-        break;
+      default: {
+        std::cout << "EncodeArrayKernel type not found, type is " << in->type()
+                  << std::endl;
+      } break;
     }
   }
   return impl_->Evaluate(in, out);
 }
 #undef PROCESS_SUPPORTED_TYPES
-
-///////////////  ConcatArray  ////////////////
-class ConcatArrayKernel::Impl {
- public:
-  Impl(arrow::compute::FunctionContext* ctx,
-       std::vector<std::shared_ptr<arrow::DataType>> type_list)
-      : ctx_(ctx) {
-    // create a new result array type here
-    for (auto type : type_list) {
-      std::shared_ptr<ActionBase> action;
-      MakeConcatAction(ctx_, type, &action);
-      action_list_.push_back(action);
-    }
-    builder_.reset(new arrow::StringBuilder(ctx_->memory_pool()));
-  }
-
-  arrow::Status Evaluate(const ArrayList& in, std::shared_ptr<arrow::Array>* out) {
-    auto length = in[0]->length();
-    auto num_columns = in.size();
-
-    std::stringstream ss;
-    std::vector<std::function<arrow::Status(int)>> func_list;
-    for (int i = 0; i < num_columns; i++) {
-      auto col = in[i];
-      std::function<arrow::Status(int)> func;
-      action_list_[i]->Submit(col, &ss, &func);
-      func_list.push_back(func);
-    }
-
-    std::vector<std::string> concat_res;
-    std::vector<uint8_t> concat_valid;
-    concat_res.resize(length, "");
-    concat_valid.resize(length, 0);
-    for (int i = 0; i < length; i++) {
-      bool is_null = true;
-      ss.str("");
-      for (auto eval_func : func_list) {
-        eval_func(i);
-      }
-      if (concat_res.size() >= 0) {
-        concat_res[i] = ss.str();
-        concat_valid[i] = 1;
-      }
-    }
-    RETURN_NOT_OK(builder_->ReserveData(length));
-    RETURN_NOT_OK(builder_->AppendValues(concat_res, concat_valid.data()));
-    RETURN_NOT_OK(builder_->Finish(out));
-    builder_->Reset();
-
-    return arrow::Status::OK();
-  }
-
- private:
-  arrow::compute::FunctionContext* ctx_;
-  std::vector<std::shared_ptr<ActionBase>> action_list_;
-  std::unique_ptr<arrow::StringBuilder> builder_;
-};
-
-arrow::Status ConcatArrayKernel::Make(
-    arrow::compute::FunctionContext* ctx,
-    std::vector<std::shared_ptr<arrow::DataType>> type_list,
-    std::shared_ptr<KernalBase>* out) {
-  *out = std::make_shared<ConcatArrayKernel>(ctx, type_list);
-  return arrow::Status::OK();
-}
-
-ConcatArrayKernel::ConcatArrayKernel(
-    arrow::compute::FunctionContext* ctx,
-    std::vector<std::shared_ptr<arrow::DataType>> type_list) {
-  impl_.reset(new Impl(ctx, type_list));
-  kernel_name_ = "ConcatArrayKernel";
-}
-
-arrow::Status ConcatArrayKernel::Evaluate(const ArrayList& in,
-                                          std::shared_ptr<arrow::Array>* out) {
-  return impl_->Evaluate(in, out);
-}
 
 ///////////////  HashAggrArray  ////////////////
 class HashAggrArrayKernel::Impl {

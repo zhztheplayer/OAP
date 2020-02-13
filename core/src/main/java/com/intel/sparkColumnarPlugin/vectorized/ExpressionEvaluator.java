@@ -42,6 +42,11 @@ public class ExpressionEvaluator {
     nativeHandler = jniWrapper.nativeBuildWithFinish(getSchemaBytesBuf(schema), getExprListBytesBuf(exprs), getExprListBytesBuf(finish_exprs));
   }
 
+  /** Set result Schema in some special cases */
+  public void setReturnFields(Schema schema) throws RuntimeException, IOException, GandivaException {
+    jniWrapper.nativeSetReturnFields(nativeHandler, getSchemaBytesBuf(schema));
+  }
+
   /** Evaluate input data using builded native function, and output as recordBatch. */
   public ArrowRecordBatch[] evaluate(ArrowRecordBatch recordBatch)
       throws RuntimeException, IOException {

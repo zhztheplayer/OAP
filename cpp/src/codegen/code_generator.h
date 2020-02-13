@@ -20,12 +20,15 @@ class CodeGenerator {
   virtual arrow::Status finish(std::vector<std::shared_ptr<arrow::RecordBatch>>* out) = 0;
   virtual arrow::Status finish(std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) {
     return arrow::Status::NotImplemented(
-        "Finish return with ResultIterator is not NotImplemented");
+        "Finish return with ResultIterator is not Implemented");
   }
   virtual arrow::Status SetDependency(
       const std::shared_ptr<ResultIterator<arrow::RecordBatch>>& dependency_iter,
       int index = -1) {
-    return arrow::Status::NotImplemented("SetDependency is not NotImplemented");
+    return arrow::Status::NotImplemented("SetDependency is not Implemented");
+  }
+  virtual arrow::Status SetResSchema(const std::shared_ptr<arrow::Schema>& in) {
+    return arrow::Status::NotImplemented("setResSchema is not Implemented.");
   }
 };
 }  // namespace codegen

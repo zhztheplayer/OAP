@@ -41,6 +41,9 @@ object ConverterUtils {
     cols.foreach(inputVector => {
       fieldNodes += new ArrowFieldNode(numRowsInBatch, inputVector.getNullCount())
       inputData += inputVector.getValidityBuffer()
+      if (inputVector.isInstanceOf[VarCharVector]) {
+        inputData += inputVector.getOffsetBuffer()
+      }
       inputData += inputVector.getDataBuffer()
     })
     new ArrowRecordBatch(numRowsInBatch, fieldNodes.toList.asJava, inputData.toList.asJava)

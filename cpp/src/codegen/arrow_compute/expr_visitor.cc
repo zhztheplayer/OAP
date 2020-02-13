@@ -79,10 +79,10 @@ arrow::Status BuilderVisitor::Visit(const gandiva::FunctionNode& node) {
   auto func_name = desc->name();
   if (func_name.compare(0, 7, "action_") == 0) {
     if (dependency) {
-      if (param_names.size() != 1) {
+      if (param_names.size() < 1) {
         return arrow::Status::Invalid("BuilderVisitor Action Parameter should be one.");
       }
-      RETURN_NOT_OK(dependency->AppendAction(func_name, param_names[0]));
+      RETURN_NOT_OK(dependency->AppendAction(func_name, param_names));
       expr_visitor_ = dependency;
 #ifdef DEBUG
       std::cout << "Build ExprVisitor for " << node_id_ << ", return ExprVisitor is "
@@ -224,9 +224,11 @@ unrecognizedFail:
 }
 
 arrow::Status ExprVisitor::AppendAction(const std::string& func_name,
-                                        const std::string& param_name) {
+                                        std::vector<std::string> param_name) {
   action_name_list_.push_back(func_name);
-  action_param_list_.push_back(param_name);
+  for (auto name : param_name) {
+    action_param_list_.push_back(name);
+  }
   return arrow::Status::OK();
 }
 

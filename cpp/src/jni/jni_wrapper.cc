@@ -236,6 +236,24 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
 }
 
 JNIEXPORT void JNICALL
+Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeSetReturnFields(
+    JNIEnv* env, jobject obj, jlong id, jbyteArray schema_arr) {
+  std::shared_ptr<arrow::Schema> schema;
+  arrow::Status msg = MakeSchema(env, schema_arr, &schema);
+  if (!msg.ok()) {
+    std::string error_message = "failed to readSchema, err msg is " + msg.message();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+  std::shared_ptr<CodeGenerator> handler = GetCodeGenerator(env, id);
+  msg = handler->SetResSchema(schema);
+  if (!msg.ok()) {
+    std::string error_message =
+        "failed to set result schema, err msg is " + msg.message();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+}
+
+JNIEXPORT void JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeClose(
     JNIEnv* env, jobject obj, jlong id) {
   handler_holder_.Erase(id);

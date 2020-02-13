@@ -90,7 +90,8 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
 #endif
   }
   arrow::Status MakeExprVisitorImpl(const std::string& func_name, ExprVisitor* p);
-  arrow::Status AppendAction(const std::string& func_name, const std::string& param_name);
+  arrow::Status AppendAction(const std::string& func_name,
+                             std::vector<std::string> param_name);
   arrow::Status Init();
   arrow::Status Eval(const std::shared_ptr<arrow::RecordBatch>& in);
   arrow::Status Eval();

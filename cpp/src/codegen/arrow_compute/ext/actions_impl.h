@@ -3,6 +3,7 @@
 #include <arrow/compute/context.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
+#include <arrow/type_fwd.h>
 #include <arrow/type_traits.h>
 #include <arrow/util/checked_cast.h>
 #include <memory>
@@ -35,7 +36,9 @@ struct FindAccumulatorType<I, arrow::enable_if_floating_point<I>> {
 
 class ActionBase {
  public:
-  virtual arrow::Status Submit(const std::shared_ptr<arrow::Array>& in, int max_group_id,
+  virtual int RequiredColNum() { return 1; }
+
+  virtual arrow::Status Submit(ArrayList in, int max_group_id,
                                std::function<arrow::Status(int)>* out) {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
   }
@@ -50,15 +53,16 @@ class ActionBase {
                                std::function<arrow::Status(int)>* out) {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
   }
-  virtual arrow::Status Submit(std::shared_ptr<arrow::Array> in, uint64_t reserved_length,
+  virtual arrow::Status Submit(const std::shared_ptr<arrow::Array>& in,
+                               uint64_t reserved_length,
                                std::function<arrow::Status(uint32_t)>* on_valid,
                                std::function<arrow::Status()>* on_null) {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
   }
-  virtual arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
+  virtual arrow::Status Finish(ArrayList* out) {
     return arrow::Status::NotImplemented("ActionBase Finish is abstract.");
   }
-  virtual arrow::Status FinishAndReset(std::shared_ptr<arrow::Array>* out) {
+  virtual arrow::Status FinishAndReset(ArrayList* out) {
     return arrow::Status::NotImplemented("ActionBase FinishAndReset is abstract.");
   }
 };
@@ -68,8 +72,13 @@ template <typename DataType>
 class UniqueAction : public ActionBase {
  public:
   UniqueAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
-    MakeArrayBuilder<ResArrayType, DataType>(
-        arrow::TypeTraits<DataType>::type_singleton(), ctx_->memory_pool(), &builder_);
+#ifdef DEBUG
+    std::cout << "Construct UniqueAction" << std::endl;
+#endif
+    std::unique_ptr<arrow::ArrayBuilder> array_builder;
+    arrow::MakeBuilder(ctx_->memory_pool(), arrow::TypeTraits<DataType>::type_singleton(),
+                       &array_builder);
+    builder_.reset(arrow::internal::checked_cast<BuilderType*>(array_builder.release()));
   }
   ~UniqueAction() {
 #ifdef DEBUG
@@ -77,67 +86,57 @@ class UniqueAction : public ActionBase {
 #endif
   }
 
-  arrow::Status Submit(const std::shared_ptr<arrow::Array>& in, int max_group_id,
-                       std::function<arrow::Status(int)>* out) override {
-    // resize result data
-    if (cache_validity_.size() <= max_group_id) {
-      cache_validity_.resize(max_group_id + 1, false);
-      cache_.resize(max_group_id + 1, 0);
-    }
+  int RequiredColNum() { return 1; }
 
+  arrow::Status Submit(ArrayList in_list, int max_group_id,
+                       std::function<arrow::Status(int)>* out) override {
+    auto in = std::dynamic_pointer_cast<ArrayType>(in_list[0]);
     // prepare evaluate lambda
-    auto data = in->data()->GetValues<CType>(1);
-    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
-        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
-    row_id = 0;
+    row_id_ = 0;
     if (in->null_count()) {
-      *out = [this, data](int dest_group_id) {
-        const bool is_null = valid_reader->IsNotSet();
-        valid_reader->Next();
-        if (!cache_validity_[dest_group_id]) {
-          cache_validity_[dest_group_id] = true;
-          if (!is_null) {
-            cache_[dest_group_id] = data[row_id];
+      *out = [this, in](int dest_group_id) {
+        if (dest_group_id >= out_size_) {
+          if (in->IsNull(row_id_)) {
+            builder_->AppendNull();
+          } else {
+            builder_->Append(in->GetView(row_id_));
           }
+          out_size_++;
         }
-        row_id++;
+        row_id_++;
         return arrow::Status::OK();
       };
     } else {
-      *out = [this, data](int dest_group_id) {
-        if (!cache_validity_[dest_group_id]) {
-          cache_validity_[dest_group_id] = true;
-          cache_[dest_group_id] = data[row_id];
+      *out = [this, in](int dest_group_id) {
+        if (dest_group_id >= out_size_) {
+          builder_->Append(in->GetView(row_id_));
+          out_size_++;
         }
-        row_id++;
+        row_id_++;
         return arrow::Status::OK();
       };
     }
     return arrow::Status::OK();
   }
 
-  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override {
-    int group_id = 0;
-    RETURN_NOT_OK(
-        builder_->template AppendValues<DataType>(group_id, cache_, cache_validity_));
-    RETURN_NOT_OK(builder_->Finish(out));
+  arrow::Status Finish(ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
+    out->push_back(arr_out);
 
     return arrow::Status::OK();
   }
 
  private:
-  using CType = typename arrow::TypeTraits<DataType>::CType;
-  using ResDataType = typename FindAccumulatorType<DataType>::Type;
-  using ResCType = typename arrow::TypeTraits<ResDataType>::CType;
-  using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
+  using ArrayType = typename arrow::TypeTraits<DataType>::ArrayType;
+  using BuilderType = typename arrow::TypeTraits<DataType>::BuilderType;
   // input
+  int row_id_ = 0;
   arrow::compute::FunctionContext* ctx_;
   std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
-  int row_id;
   // output
-  std::vector<CType> cache_;
-  std::vector<bool> cache_validity_;
-  std::shared_ptr<ArrayBuilderImpl<ResArrayType, DataType>> builder_;
+  uint64_t out_size_ = 0;
+  std::unique_ptr<BuilderType> builder_;
 };
 
 //////////////// CountAction ///////////////
@@ -145,8 +144,9 @@ template <typename DataType>
 class CountAction : public ActionBase {
  public:
   CountAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
-    MakeArrayBuilder<ResArrayType, DataType>(
-        arrow::TypeTraits<DataType>::type_singleton(), ctx_->memory_pool(), &builder_);
+#ifdef DEBUG
+    std::cout << "Construct CountAction" << std::endl;
+#endif
   }
   ~CountAction() {
 #ifdef DEBUG
@@ -154,7 +154,9 @@ class CountAction : public ActionBase {
 #endif
   }
 
-  arrow::Status Submit(const std::shared_ptr<arrow::Array>& in, int max_group_id,
+  int RequiredColNum() { return 1; }
+
+  arrow::Status Submit(ArrayList in_list, int max_group_id,
                        std::function<arrow::Status(int)>* out) override {
     // resize result data
     if (cache_validity_.size() <= max_group_id) {
@@ -162,6 +164,7 @@ class CountAction : public ActionBase {
       cache_.resize(max_group_id + 1, 0);
     }
 
+    auto in = in_list[0];
     // prepare evaluate lambda
     valid_reader = std::make_shared<arrow::internal::BitmapReader>(
         in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
@@ -185,17 +188,25 @@ class CountAction : public ActionBase {
     return arrow::Status::OK();
   }
 
-  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override {
-    int group_id = 0;
-    RETURN_NOT_OK(
-        builder_->template AppendValues<DataType>(group_id, cache_, cache_validity_));
-    RETURN_NOT_OK(builder_->Finish(out));
+  arrow::Status Finish(ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    std::unique_ptr<arrow::ArrayBuilder> array_builder;
+    arrow::MakeBuilder(ctx_->memory_pool(), arrow::TypeTraits<DataType>::type_singleton(),
+                       &array_builder);
+
+    std::unique_ptr<ResBuilderType> builder;
+    builder.reset(
+        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
+    RETURN_NOT_OK(builder->AppendValues(cache_, cache_validity_));
+    RETURN_NOT_OK(builder->Finish(&arr_out));
+    out->push_back(arr_out);
 
     return arrow::Status::OK();
   }
 
  private:
   using ResArrayType = typename arrow::TypeTraits<DataType>::ArrayType;
+  using ResBuilderType = typename arrow::TypeTraits<DataType>::BuilderType;
   // input
   arrow::compute::FunctionContext* ctx_;
   std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
@@ -203,7 +214,6 @@ class CountAction : public ActionBase {
   using CType = typename arrow::TypeTraits<DataType>::CType;
   std::vector<CType> cache_;
   std::vector<bool> cache_validity_;
-  std::shared_ptr<ArrayBuilderImpl<ResArrayType, DataType>> builder_;
 };
 
 //////////////// SumAction ///////////////
@@ -211,8 +221,9 @@ template <typename DataType>
 class SumAction : public ActionBase {
  public:
   SumAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
-    MakeArrayBuilder<ResArrayType, ResDataType>(
-        arrow::TypeTraits<ResDataType>::type_singleton(), ctx_->memory_pool(), &builder_);
+#ifdef DEBUG
+    std::cout << "Construct SumAction" << std::endl;
+#endif
   }
   ~SumAction() {
 #ifdef DEBUG
@@ -220,7 +231,9 @@ class SumAction : public ActionBase {
 #endif
   }
 
-  arrow::Status Submit(const std::shared_ptr<arrow::Array>& in, int max_group_id,
+  int RequiredColNum() { return 1; }
+
+  arrow::Status Submit(ArrayList in_list, int max_group_id,
                        std::function<arrow::Status(int)>* out) override {
     // resize result data
     if (cache_validity_.size() <= max_group_id) {
@@ -228,6 +241,7 @@ class SumAction : public ActionBase {
       cache_.resize(max_group_id + 1, 0);
     }
 
+    auto in = in_list[0];
     // prepare evaluate lambda
     auto data = in->data()->GetValues<CType>(1);
     valid_reader = std::make_shared<arrow::internal::BitmapReader>(
@@ -255,11 +269,102 @@ class SumAction : public ActionBase {
     return arrow::Status::OK();
   }
 
-  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override {
-    int group_id = 0;
-    RETURN_NOT_OK(
-        builder_->template AppendValues<ResDataType>(group_id, cache_, cache_validity_));
-    RETURN_NOT_OK(builder_->Finish(out));
+  arrow::Status Finish(ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    std::unique_ptr<arrow::ArrayBuilder> array_builder;
+    arrow::MakeBuilder(ctx_->memory_pool(),
+                       arrow::TypeTraits<ResDataType>::type_singleton(), &array_builder);
+
+    std::unique_ptr<ResBuilderType> builder;
+    builder.reset(
+        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
+    RETURN_NOT_OK(builder->AppendValues(cache_, cache_validity_));
+    RETURN_NOT_OK(builder->Finish(&arr_out));
+    out->push_back(arr_out);
+
+    return arrow::Status::OK();
+  }
+
+ private:
+  using CType = typename arrow::TypeTraits<DataType>::CType;
+  using ResDataType = typename FindAccumulatorType<DataType>::Type;
+  using ResCType = typename arrow::TypeTraits<ResDataType>::CType;
+  using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
+  using ResBuilderType = typename arrow::TypeTraits<ResDataType>::BuilderType;
+  // input
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  int row_id;
+  // result
+  std::vector<ResCType> cache_;
+  std::vector<bool> cache_validity_;
+};
+
+//////////////// AvgAction ///////////////
+template <typename DataType>
+class AvgAction : public ActionBase {
+ public:
+  AvgAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
+#ifdef DEBUG
+    std::cout << "Construct AvgAction" << std::endl;
+#endif
+  }
+  ~AvgAction() {
+#ifdef DEBUG
+    std::cout << "Destruct AvgAction" << std::endl;
+#endif
+  }
+
+  int RequiredColNum() { return 1; }
+
+  arrow::Status Submit(ArrayList in_list, int max_group_id,
+                       std::function<arrow::Status(int)>* out) override {
+    // resize result data
+    if (cache_validity_.size() <= max_group_id) {
+      cache_validity_.resize(max_group_id + 1, false);
+      cache_sum_.resize(max_group_id + 1, 0);
+      cache_count_.resize(max_group_id + 1, 0);
+    }
+
+    auto in = in_list[0];
+    // prepare evaluate lambda
+    auto data = in->data()->GetValues<CType>(1);
+    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
+        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
+    row_id = 0;
+    if (in->null_count()) {
+      *out = [this, data](int dest_group_id) {
+        const bool is_null = valid_reader->IsNotSet();
+        valid_reader->Next();
+        if (!is_null) {
+          cache_validity_[dest_group_id] = true;
+          cache_sum_[dest_group_id] += data[row_id];
+          cache_count_[dest_group_id] += 1;
+        }
+        row_id++;
+        return arrow::Status::OK();
+      };
+    } else {
+      *out = [this, data](int dest_group_id) {
+        cache_validity_[dest_group_id] = true;
+        cache_sum_[dest_group_id] += data[row_id];
+        cache_count_[dest_group_id] += 1;
+        row_id++;
+        return arrow::Status::OK();
+      };
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(ArrayList* out) override {
+    for (int i = 0; i < cache_sum_.size(); i++) {
+      cache_sum_[i] /= cache_count_[i];
+    }
+    std::shared_ptr<arrow::Array> arr_out;
+    auto builder = new arrow::DoubleBuilder(ctx_->memory_pool());
+    RETURN_NOT_OK(builder->AppendValues(cache_sum_, cache_validity_));
+    RETURN_NOT_OK(builder->Finish(&arr_out));
+    out->push_back(arr_out);
 
     return arrow::Status::OK();
   }
@@ -274,16 +379,197 @@ class SumAction : public ActionBase {
   std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
   int row_id;
   // result
-  std::vector<ResCType> cache_;
+  std::vector<double> cache_sum_;
+  std::vector<uint64_t> cache_count_;
   std::vector<bool> cache_validity_;
-  std::shared_ptr<ArrayBuilderImpl<ResArrayType, ResDataType>> builder_;
+};
+
+//////////////// SumCountAction ///////////////
+template <typename DataType>
+class SumCountAction : public ActionBase {
+ public:
+  SumCountAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
+#ifdef DEBUG
+    std::cout << "Construct SumCountAction" << std::endl;
+#endif
+  }
+  ~SumCountAction() {
+#ifdef DEBUG
+    std::cout << "Destruct SumCountAction" << std::endl;
+#endif
+  }
+
+  int RequiredColNum() { return 1; }
+
+  arrow::Status Submit(ArrayList in_list, int max_group_id,
+                       std::function<arrow::Status(int)>* out) override {
+    // resize result data
+    if (cache_validity_.size() <= max_group_id) {
+      cache_validity_.resize(max_group_id + 1, false);
+      cache_sum_.resize(max_group_id + 1, 0);
+      cache_count_.resize(max_group_id + 1, 0);
+    }
+
+    auto in = in_list[0];
+    // prepare evaluate lambda
+    auto data = in->data()->GetValues<CType>(1);
+    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
+        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
+    row_id = 0;
+    if (in->null_count()) {
+      *out = [this, data](int dest_group_id) {
+        const bool is_null = valid_reader->IsNotSet();
+        valid_reader->Next();
+        if (!is_null) {
+          cache_validity_[dest_group_id] = true;
+          cache_sum_[dest_group_id] += data[row_id];
+          cache_count_[dest_group_id] += 1;
+        }
+        row_id++;
+        return arrow::Status::OK();
+      };
+    } else {
+      *out = [this, data](int dest_group_id) {
+        cache_validity_[dest_group_id] = true;
+        cache_sum_[dest_group_id] += data[row_id];
+        cache_count_[dest_group_id] += 1;
+        row_id++;
+        return arrow::Status::OK();
+      };
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(ArrayList* out) override {
+    std::shared_ptr<arrow::Array> sum_array;
+    auto sum_builder = new arrow::DoubleBuilder(ctx_->memory_pool());
+    RETURN_NOT_OK(sum_builder->AppendValues(cache_sum_, cache_validity_));
+    RETURN_NOT_OK(sum_builder->Finish(&sum_array));
+
+    // get count
+    std::shared_ptr<arrow::Array> count_array;
+    auto count_builder = new arrow::Int64Builder(ctx_->memory_pool());
+    RETURN_NOT_OK(count_builder->AppendValues(cache_count_, cache_validity_));
+    RETURN_NOT_OK(count_builder->Finish(&count_array));
+    out->push_back(sum_array);
+    out->push_back(count_array);
+
+    return arrow::Status::OK();
+  }
+
+ private:
+  using CType = typename arrow::TypeTraits<DataType>::CType;
+  using ResDataType = typename FindAccumulatorType<DataType>::Type;
+  using ResCType = typename arrow::TypeTraits<ResDataType>::CType;
+  using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
+  // input
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  int row_id;
+  // result
+  std::vector<double> cache_sum_;
+  std::vector<int64_t> cache_count_;
+  std::vector<bool> cache_validity_;
+};
+
+//////////////// AvgByCountAction ///////////////
+template <typename DataType>
+class AvgByCountAction : public ActionBase {
+ public:
+  AvgByCountAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
+#ifdef DEBUG
+    std::cout << "Construct AvgByCountAction" << std::endl;
+#endif
+  }
+  ~AvgByCountAction() {
+#ifdef DEBUG
+    std::cout << "Destruct AvgByCountAction" << std::endl;
+#endif
+  }
+
+  int RequiredColNum() { return 2; }
+
+  arrow::Status Submit(ArrayList in_list, int max_group_id,
+                       std::function<arrow::Status(int)>* out) override {
+    // resize result data
+    if (cache_validity_.size() <= max_group_id) {
+      cache_validity_.resize(max_group_id + 1, false);
+      cache_sum_.resize(max_group_id + 1, 0);
+      cache_count_.resize(max_group_id + 1, 0);
+    }
+
+    auto in_sum = in_list[0];
+    auto in_count = in_list[1];
+    // prepare evaluate lambda
+    auto data_sum = std::dynamic_pointer_cast<arrow::DoubleArray>(in_sum)->raw_values();
+    auto data_count =
+        std::dynamic_pointer_cast<arrow::Int64Array>(in_count)->raw_values();
+    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
+        in_sum->data()->buffers[0]->data(), in_sum->data()->offset,
+        in_sum->data()->length);
+    row_id = 0;
+    if (in_sum->null_count()) {
+      *out = [this, data_sum, data_count](int dest_group_id) {
+        const bool is_null = valid_reader->IsNotSet();
+        valid_reader->Next();
+        if (!is_null) {
+          cache_validity_[dest_group_id] = true;
+          cache_sum_[dest_group_id] += data_sum[row_id];
+          cache_count_[dest_group_id] += data_count[row_id];
+        }
+        row_id++;
+        return arrow::Status::OK();
+      };
+    } else {
+      *out = [this, data_sum, data_count](int dest_group_id) {
+        cache_validity_[dest_group_id] = true;
+        cache_sum_[dest_group_id] += data_sum[row_id];
+        cache_count_[dest_group_id] += data_count[row_id];
+        row_id++;
+        return arrow::Status::OK();
+      };
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(ArrayList* out) override {
+    std::shared_ptr<arrow::Array> out_arr;
+    for (int i = 0; i < cache_sum_.size(); i++) {
+      cache_sum_[i] /= cache_count_[i];
+    }
+    auto builder = new arrow::DoubleBuilder(ctx_->memory_pool());
+    RETURN_NOT_OK(builder->AppendValues(cache_sum_, cache_validity_));
+    RETURN_NOT_OK(builder->Finish(&out_arr));
+    out->push_back(out_arr);
+
+    return arrow::Status::OK();
+  }
+
+ private:
+  using CType = typename arrow::TypeTraits<DataType>::CType;
+  using ArrayType = typename arrow::TypeTraits<DataType>::ArrayType;
+  using ResDataType = typename FindAccumulatorType<DataType>::Type;
+  using ResCType = typename arrow::TypeTraits<ResDataType>::CType;
+  using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
+  // input
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  int row_id;
+  // result
+  std::vector<double> cache_sum_;
+  std::vector<int64_t> cache_count_;
+  std::vector<bool> cache_validity_;
 };
 
 //////////////// ShuffleAction ///////////////
 template <typename DataType>
 class ShuffleAction : public ActionBase {
  public:
-  ShuffleAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  ShuffleAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
+#ifdef DEBUG
+    std::cout << "Construct ShuffleAction" << std::endl;
+#endif
+  }
   ~ShuffleAction() {
 #ifdef DEBUG
     std::cout << "Destruct ShuffleAction" << std::endl;
@@ -322,7 +608,7 @@ class ShuffleAction : public ActionBase {
     return arrow::Status::OK();
   }
 
-  arrow::Status Submit(std::shared_ptr<arrow::Array> in, uint64_t reserved_length,
+  arrow::Status Submit(const std::shared_ptr<arrow::Array>& in, uint64_t reserved_length,
                        std::function<arrow::Status(uint32_t)>* on_valid,
                        std::function<arrow::Status()>* on_null) override {
     reserved_length_ = reserved_length;
@@ -355,13 +641,17 @@ class ShuffleAction : public ActionBase {
     return arrow::Status::OK();
   }
 
-  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override {
-    RETURN_NOT_OK(builder_->Finish(out));
+  arrow::Status Finish(ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
+    out->push_back(arr_out);
     return arrow::Status::OK();
   }
 
-  arrow::Status FinishAndReset(std::shared_ptr<arrow::Array>* out) override {
-    RETURN_NOT_OK(builder_->Finish(out));
+  arrow::Status FinishAndReset(ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
+    out->push_back(arr_out);
     builder_->Reset();
     builder_->Reserve(reserved_length_);
     return arrow::Status::OK();
@@ -379,40 +669,6 @@ class ShuffleAction : public ActionBase {
   std::shared_ptr<BuilderType> builder_;
 };
 
-//////////////// ConcatAction ///////////////
-template <typename DataType>
-class ConcatAction : public ActionBase {
- public:
-  ConcatAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
-  ~ConcatAction() {
-#ifdef DEBUG
-    std::cout << "Destruct ConcatAction" << std::endl;
-#endif
-  }
-
-  arrow::Status Submit(const std::shared_ptr<arrow::Array>& in, std::stringstream* ss,
-                       std::function<arrow::Status(int)>* out) override {
-    ss_ = ss;
-    typed_array_ = std::dynamic_pointer_cast<ResArrayType>(in);
-    std::unique_ptr<arrow::ArrayBuilder> builder;
-    // prepare evaluate lambda
-    *out = [this](int id) {
-      *ss_ << typed_array_->GetView(id);
-      return arrow::Status::OK();
-    };
-    return arrow::Status::OK();
-  }
-
- private:
-  using ResDataType = DataType;
-  using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
-  using BuilderType = typename arrow::TypeTraits<ResDataType>::BuilderType;
-  // input
-  arrow::compute::FunctionContext* ctx_;
-  std::shared_ptr<ResArrayType> typed_array_;
-  std::stringstream* ss_;
-};
-
 ///////////////////// Public Functions //////////////////
 #define PROCESS_SUPPORTED_TYPES(PROCESS) \
   PROCESS(arrow::UInt8Type)              \
@@ -422,39 +678,10 @@ class ConcatAction : public ActionBase {
   PROCESS(arrow::UInt32Type)             \
   PROCESS(arrow::Int32Type)              \
   PROCESS(arrow::UInt64Type)             \
-  PROCESS(arrow::Int64Type)
+  PROCESS(arrow::Int64Type)              \
+  PROCESS(arrow::FloatType)              \
+  PROCESS(arrow::DoubleType)
 
-/*  PROCESS(arrow::FloatType)              \
-  PROCESS(arrow::DoubleType)             \
-  PROCESS(arrow::BooleanType)            \
-  PROCESS(arrow::Date32Type)             \
-  PROCESS(arrow::Date64Type)             \
-  PROCESS(arrow::Time32Type)             \
-  PROCESS(arrow::Time64Type)             \
-  PROCESS(arrow::TimestampType)          \
-///////////////////// Public Functions //////////////////
-#define PROCESS_SUPPORTED_TYPES(PROCESS) \
-  PROCESS(arrow::UInt8Type)              \
-  PROCESS(arrow::Int8Type)               \
-  PROCESS(arrow::UInt16Type)             \
-  PROCESS(arrow::Int16Type)              \
-  PROCESS(arrow::UInt32Type)             \
-  PROCESS(arrow::Int32Type)              \
-  PROCESS(arrow::UInt64Type)             \
-  PROCESS(arrow::Int64Type)
-
-/*  PROCESS(arrow::FloatType)              \
-  PROCESS(arrow::DoubleType)             \
-  PROCESS(arrow::BooleanType)            \
-  PROCESS(arrow::Date32Type)             \
-  PROCESS(arrow::Date64Type)             \
-  PROCESS(arrow::Time32Type)             \
-  PROCESS(arrow::Time64Type)             \
-  PROCESS(arrow::TimestampType)          \
-  PROCESS(arrow::BinaryType)             \
-  PROCESS(arrow::StringType)             \
-  PROCESS(arrow::FixedSizeBinaryType)    \
-  PROCESS(arrow::Decimal128Type)*/
 arrow::Status MakeUniqueAction(arrow::compute::FunctionContext* ctx,
                                std::shared_ptr<arrow::DataType> type,
                                std::shared_ptr<ActionBase>* out) {
@@ -466,8 +693,14 @@ arrow::Status MakeUniqueAction(arrow::compute::FunctionContext* ctx,
   } break;
     PROCESS_SUPPORTED_TYPES(PROCESS)
 #undef PROCESS
-    default:
-      break;
+    case arrow::StringType::type_id: {
+      auto action_ptr = std::make_shared<UniqueAction<arrow::StringType>>(ctx);
+      *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);
+    } break;
+    default: {
+      std::cout << "Not Found " << type->ToString() << ", type id is " << type->id()
+                << std::endl;
+    } break;
   }
   return arrow::Status::OK();
 }
@@ -496,6 +729,57 @@ arrow::Status MakeSumAction(arrow::compute::FunctionContext* ctx,
   return arrow::Status::OK();
 }
 
+arrow::Status MakeAvgAction(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<arrow::DataType> type,
+                            std::shared_ptr<ActionBase>* out) {
+  switch (type->id()) {
+#define PROCESS(InType)                                         \
+  case InType::type_id: {                                       \
+    auto action_ptr = std::make_shared<AvgAction<InType>>(ctx); \
+    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);   \
+  } break;
+    PROCESS_SUPPORTED_TYPES(PROCESS)
+#undef PROCESS
+    default:
+      break;
+  }
+  return arrow::Status::OK();
+}
+
+arrow::Status MakeSumCountAction(arrow::compute::FunctionContext* ctx,
+                                 std::shared_ptr<arrow::DataType> type,
+                                 std::shared_ptr<ActionBase>* out) {
+  switch (type->id()) {
+#define PROCESS(InType)                                              \
+  case InType::type_id: {                                            \
+    auto action_ptr = std::make_shared<SumCountAction<InType>>(ctx); \
+    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);        \
+  } break;
+    PROCESS_SUPPORTED_TYPES(PROCESS)
+#undef PROCESS
+    default:
+      break;
+  }
+  return arrow::Status::OK();
+}
+
+arrow::Status MakeAvgByCountAction(arrow::compute::FunctionContext* ctx,
+                                   std::shared_ptr<arrow::DataType> type,
+                                   std::shared_ptr<ActionBase>* out) {
+  switch (type->id()) {
+#define PROCESS(InType)                                                \
+  case InType::type_id: {                                              \
+    auto action_ptr = std::make_shared<AvgByCountAction<InType>>(ctx); \
+    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);          \
+  } break;
+    PROCESS_SUPPORTED_TYPES(PROCESS)
+#undef PROCESS
+    default:
+      break;
+  }
+  return arrow::Status::OK();
+}
+
 arrow::Status MakeShuffleAction(arrow::compute::FunctionContext* ctx,
                                 std::shared_ptr<arrow::DataType> type,
                                 std::shared_ptr<ActionBase>* out) {
@@ -513,22 +797,6 @@ arrow::Status MakeShuffleAction(arrow::compute::FunctionContext* ctx,
   return arrow::Status::OK();
 }
 
-arrow::Status MakeConcatAction(arrow::compute::FunctionContext* ctx,
-                               std::shared_ptr<arrow::DataType> type,
-                               std::shared_ptr<ActionBase>* out) {
-  switch (type->id()) {
-#define PROCESS(InType)                                            \
-  case InType::type_id: {                                          \
-    auto action_ptr = std::make_shared<ConcatAction<InType>>(ctx); \
-    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);      \
-  } break;
-    PROCESS_SUPPORTED_TYPES(PROCESS)
-#undef PROCESS
-    default:
-      break;
-  }
-  return arrow::Status::OK();
-}
 #undef PROCESS_SUPPORTED_TYPES
 
 }  // namespace extra

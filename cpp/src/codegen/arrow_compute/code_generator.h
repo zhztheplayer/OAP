@@ -77,10 +77,15 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
 
   arrow::Status SetDependency(
       const std::shared_ptr<ResultIterator<arrow::RecordBatch>>& dependency_iter,
-      int index) {
+      int index) override {
     for (auto visitor : visitor_list_) {
       RETURN_NOT_OK(visitor->SetDependency(dependency_iter, index));
     }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status SetResSchema(const std::shared_ptr<arrow::Schema>& in) override {
+    ret_types_ = in->fields();
     return arrow::Status::OK();
   }
 
