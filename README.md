@@ -34,11 +34,17 @@ yum install boost-devel
 make install -j
 
 git clone https://github.com/apache/parquet-mr.git
+cd parquet-mr
 git checkout apache-parquet-1.11.0
 mvn clean install -pl parquet-arrow -am -DskipTests
 ls /root/.m2/repository/org/apache/parquet/parquet-arrow/1.11.0/
 parquet-arrow-1.11.0.jar  parquet-arrow-1.11.0.jar.lastUpdated  parquet-arrow-1.11.0.pom  parquet-arrow-1.11.0.pom.lastUpdated  parquet-arrow-1.11.0-tests.jar  _remote.repositories
 ```
+
+#### Install Apache Arrow and Gandiva
+
+Please refer this markdown to install Apache Arrow and Gandiva.
+[Apache Arrow Installation](/resource/ApacheArrowInstallation.md)
 
 #### Build and install a columnarSupported spark
 
@@ -48,11 +54,17 @@ cd sparkv
 ./build/mvn -Pyarn -Phadoop-3.2 -Dhadoop.version=3.2.0 -DskipTests clean install
 ```
 
-#### Install Apache Arrow and Gandiva
+#### Install Googletest and Googlemock
 
-Please refer this markdown to install Apache Arrow and Gandiva.
-[Apache Arrow Installation](/resource/ApacheArrowInstallation.md)
-
+``` shell
+git clone https://github.com/google/googletest.git
+cd googletest
+mkdir build
+cd build
+cmake -DBUILD_GTEST=ON -DBUILD_GMOCK=ON -DINSTALL_GTEST=ON -DINSTALL_GMOCK=ON ..
+make -j
+make install
+```
 
 #### Build this project
 
@@ -66,6 +78,7 @@ cd build/
 cmake ..
 #cmake .. -DTESTS=ON
 make -j
+# copy all the missing dependencies from arrow/cpp/src/ to /usr/local/include/
 make install
 cd ../../core/
 mvn package
