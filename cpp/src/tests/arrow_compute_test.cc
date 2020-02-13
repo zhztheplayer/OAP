@@ -445,6 +445,65 @@ TEST(TestArrowCompute, GroupByAvgWithMultipleBatchTest) {
   ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
 }
 
+TEST(TestArrowCompute, GroupByCountAllWithMultipleBatchTest) {
+  ////////////////////// prepare expr_vector ///////////////////////
+  auto f0 = field("f0", utf8());
+  auto f_unique = field("unique", utf8());
+  auto f_count = field("avg", uint64());
+
+  auto arg0 = TreeExprBuilder::MakeField(f0);
+  auto n_pre = TreeExprBuilder::MakeFunction("encodeArray", {arg0}, utf8());
+
+  auto n_split =
+      TreeExprBuilder::MakeFunction("splitArrayListWithAction", {n_pre, arg0}, uint32());
+
+  auto n_unique = TreeExprBuilder::MakeFunction("action_unique", {n_split, arg0}, utf8());
+  auto n_count =
+      TreeExprBuilder::MakeFunction("action_countLiteral_1", {n_split}, uint32());
+
+  auto unique_expr = TreeExprBuilder::MakeExpression(n_unique, f_unique);
+  auto count_expr = TreeExprBuilder::MakeExpression(n_count, f_count);
+
+  std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {unique_expr,
+                                                                     count_expr};
+  auto sch = arrow::schema({f0, f_count});
+  std::vector<std::shared_ptr<Field>> ret_types = {f_unique, f_count};
+
+  /////////////////////// Create Expression Evaluator ////////////////////
+  std::shared_ptr<CodeGenerator> expr;
+  ASSERT_NOT_OK(CreateCodeGenerator(sch, expr_vector, ret_types, &expr, true));
+  std::shared_ptr<arrow::RecordBatch> input_batch;
+  std::vector<std::shared_ptr<arrow::RecordBatch>> output_batch_list;
+
+  ////////////////////// calculation /////////////////////
+  std::vector<std::string> input_data = {
+      R"(["BJ", "SH", "SZ", "HZ", "WH", "WH", "HZ", "BJ", "SH", "SH", "BJ", "BJ", "BJ", "HZ", "HZ", "SZ", "WH", "WH", "WH", "WH"])"};
+  MakeInputBatch(input_data, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &output_batch_list));
+
+  std::vector<std::string> input_data_2 = {
+      R"(["CD", "DL", "NY", "LA", "AU", "AU", "LA", "CD", "DL", "DL", "CD", "CD", "CD", "LA", "LA", "NY", "AU", "AU", "AU", "AU"])"};
+  MakeInputBatch(input_data_2, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &output_batch_list));
+
+  std::vector<std::string> input_data_3 = {
+      R"(["BJ", "SH", "SZ", "NY", "WH", "WH", "AU", "BJ", "SH", "DL", "CD", "CD", "BJ", "LA", "HZ", "LA", "WH", "NY", "WH", "WH"])"};
+  MakeInputBatch(input_data_3, sch, &input_batch);
+  ASSERT_NOT_OK(expr->evaluate(input_batch, &output_batch_list));
+
+  ////////////////////// Finish //////////////////////////
+  std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch;
+  ASSERT_NOT_OK(expr->finish(&result_batch));
+
+  std::shared_ptr<arrow::RecordBatch> expected_result;
+  std::vector<std::string> expected_result_string = {
+      R"(["BJ", "SH", "SZ", "HZ", "WH", "CD", "DL", "NY" ,"LA", "AU"])",
+      "[8, 5, 3, 5, 11, 7, 4, 4, 6, 7]"};
+  auto res_sch = arrow::schema({f_unique, f_count});
+  MakeInputBatch(expected_result_string, res_sch, &expected_result);
+  ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
+}
+
 TEST(TestArrowCompute, GroupByTwoAggregateWithMultipleBatchTest) {
   ////////////////////// prepare expr_vector ///////////////////////
   auto f0 = field("f0", uint32());
