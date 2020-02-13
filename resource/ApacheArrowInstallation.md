@@ -50,6 +50,7 @@ Arrow parquet will need this lib
 ``` shell
 git clone https://github.com/google/double-conversion.git
 cd double-conversion
+#checkout a stable release
 mkdir build
 cd build
 cmake -DBUILD_SHARED_LIBS=ON ..
