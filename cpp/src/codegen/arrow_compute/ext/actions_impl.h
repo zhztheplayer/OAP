@@ -90,16 +90,16 @@ class UniqueAction : public ActionBase {
 
   arrow::Status Submit(ArrayList in_list, int max_group_id,
                        std::function<arrow::Status(int)>* out) override {
-    auto in = std::dynamic_pointer_cast<ArrayType>(in_list[0]);
+    in_ = std::dynamic_pointer_cast<ArrayType>(in_list[0]);
     // prepare evaluate lambda
     row_id_ = 0;
-    if (in->null_count()) {
-      *out = [this, in](int dest_group_id) {
+    if (in_->null_count()) {
+      *out = [this](int dest_group_id) {
         if (dest_group_id >= out_size_) {
-          if (in->IsNull(row_id_)) {
+          if (in_->IsNull(row_id_)) {
             builder_->AppendNull();
           } else {
-            builder_->Append(in->GetView(row_id_));
+            builder_->Append(in_->GetView(row_id_));
           }
           out_size_++;
         }
@@ -107,9 +107,9 @@ class UniqueAction : public ActionBase {
         return arrow::Status::OK();
       };
     } else {
-      *out = [this, in](int dest_group_id) {
+      *out = [this](int dest_group_id) {
         if (dest_group_id >= out_size_) {
-          builder_->Append(in->GetView(row_id_));
+          builder_->Append(in_->GetView(row_id_));
           out_size_++;
         }
         row_id_++;
@@ -133,7 +133,7 @@ class UniqueAction : public ActionBase {
   // input
   int row_id_ = 0;
   arrow::compute::FunctionContext* ctx_;
-  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  std::shared_ptr<ArrayType> in_;
   // output
   uint64_t out_size_ = 0;
   std::unique_ptr<BuilderType> builder_;
@@ -306,25 +306,25 @@ class SumAction : public ActionBase {
 
     auto in = in_list[0];
     // prepare evaluate lambda
-    auto data = in->data()->GetValues<CType>(1);
+    data_ = const_cast<CType*>(in->data()->GetValues<CType>(1));
     valid_reader = std::make_shared<arrow::internal::BitmapReader>(
         in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
     row_id = 0;
     if (in->null_count()) {
-      *out = [this, data](int dest_group_id) {
+      *out = [this](int dest_group_id) {
         cache_validity_[dest_group_id] = true;
         const bool is_null = valid_reader->IsNotSet();
         valid_reader->Next();
         if (!is_null) {
-          cache_[dest_group_id] += data[row_id];
+          cache_[dest_group_id] += data_[row_id];
         }
         row_id++;
         return arrow::Status::OK();
       };
     } else {
-      *out = [this, data](int dest_group_id) {
+      *out = [this](int dest_group_id) {
         cache_validity_[dest_group_id] = true;
-        cache_[dest_group_id] += data[row_id];
+        cache_[dest_group_id] += data_[row_id];
         row_id++;
         return arrow::Status::OK();
       };
@@ -357,6 +357,7 @@ class SumAction : public ActionBase {
   // input
   arrow::compute::FunctionContext* ctx_;
   std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  CType* data_;
   int row_id;
   // result
   std::vector<ResCType> cache_;
@@ -391,26 +392,26 @@ class AvgAction : public ActionBase {
 
     auto in = in_list[0];
     // prepare evaluate lambda
-    auto data = in->data()->GetValues<CType>(1);
+    data_ = const_cast<CType*>(in->data()->GetValues<CType>(1));
     valid_reader = std::make_shared<arrow::internal::BitmapReader>(
         in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
     row_id = 0;
     if (in->null_count()) {
-      *out = [this, data](int dest_group_id) {
+      *out = [this](int dest_group_id) {
         const bool is_null = valid_reader->IsNotSet();
         valid_reader->Next();
         if (!is_null) {
           cache_validity_[dest_group_id] = true;
-          cache_sum_[dest_group_id] += data[row_id];
+          cache_sum_[dest_group_id] += data_[row_id];
           cache_count_[dest_group_id] += 1;
         }
         row_id++;
         return arrow::Status::OK();
       };
     } else {
-      *out = [this, data](int dest_group_id) {
+      *out = [this](int dest_group_id) {
         cache_validity_[dest_group_id] = true;
-        cache_sum_[dest_group_id] += data[row_id];
+        cache_sum_[dest_group_id] += data_[row_id];
         cache_count_[dest_group_id] += 1;
         row_id++;
         return arrow::Status::OK();
@@ -439,6 +440,7 @@ class AvgAction : public ActionBase {
   using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
   // input
   arrow::compute::FunctionContext* ctx_;
+  CType* data_;
   std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
   int row_id;
   // result
@@ -475,26 +477,26 @@ class SumCountAction : public ActionBase {
 
     auto in = in_list[0];
     // prepare evaluate lambda
-    auto data = in->data()->GetValues<CType>(1);
+    data_ = const_cast<CType*>(in->data()->GetValues<CType>(1));
     valid_reader = std::make_shared<arrow::internal::BitmapReader>(
         in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
     row_id = 0;
     if (in->null_count()) {
-      *out = [this, data](int dest_group_id) {
+      *out = [this](int dest_group_id) {
         const bool is_null = valid_reader->IsNotSet();
         valid_reader->Next();
         if (!is_null) {
           cache_validity_[dest_group_id] = true;
-          cache_sum_[dest_group_id] += data[row_id];
+          cache_sum_[dest_group_id] += data_[row_id];
           cache_count_[dest_group_id] += 1;
         }
         row_id++;
         return arrow::Status::OK();
       };
     } else {
-      *out = [this, data](int dest_group_id) {
+      *out = [this](int dest_group_id) {
         cache_validity_[dest_group_id] = true;
-        cache_sum_[dest_group_id] += data[row_id];
+        cache_sum_[dest_group_id] += data_[row_id];
         cache_count_[dest_group_id] += 1;
         row_id++;
         return arrow::Status::OK();
@@ -527,6 +529,7 @@ class SumCountAction : public ActionBase {
   using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
   // input
   arrow::compute::FunctionContext* ctx_;
+  CType* data_;
   std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
   int row_id;
   // result
@@ -564,30 +567,29 @@ class AvgByCountAction : public ActionBase {
     auto in_sum = in_list[0];
     auto in_count = in_list[1];
     // prepare evaluate lambda
-    auto data_sum = std::dynamic_pointer_cast<arrow::DoubleArray>(in_sum)->raw_values();
-    auto data_count =
-        std::dynamic_pointer_cast<arrow::Int64Array>(in_count)->raw_values();
+    data_sum_ = const_cast<double*>(in_sum->data()->GetValues<double>(1));
+    data_count_ = const_cast<int64_t*>(in_count->data()->GetValues<int64_t>(1));
     valid_reader = std::make_shared<arrow::internal::BitmapReader>(
         in_sum->data()->buffers[0]->data(), in_sum->data()->offset,
         in_sum->data()->length);
     row_id = 0;
     if (in_sum->null_count()) {
-      *out = [this, data_sum, data_count](int dest_group_id) {
+      *out = [this](int dest_group_id) {
         const bool is_null = valid_reader->IsNotSet();
         valid_reader->Next();
         if (!is_null) {
           cache_validity_[dest_group_id] = true;
-          cache_sum_[dest_group_id] += data_sum[row_id];
-          cache_count_[dest_group_id] += data_count[row_id];
+          cache_sum_[dest_group_id] += data_sum_[row_id];
+          cache_count_[dest_group_id] += data_count_[row_id];
         }
         row_id++;
         return arrow::Status::OK();
       };
     } else {
-      *out = [this, data_sum, data_count](int dest_group_id) {
+      *out = [this](int dest_group_id) {
         cache_validity_[dest_group_id] = true;
-        cache_sum_[dest_group_id] += data_sum[row_id];
-        cache_count_[dest_group_id] += data_count[row_id];
+        cache_sum_[dest_group_id] += data_sum_[row_id];
+        cache_count_[dest_group_id] += data_count_[row_id];
         row_id++;
         return arrow::Status::OK();
       };
@@ -616,6 +618,8 @@ class AvgByCountAction : public ActionBase {
   using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
   // input
   arrow::compute::FunctionContext* ctx_;
+  double* data_sum_;
+  int64_t* data_count_;
   std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
   int row_id;
   // result
