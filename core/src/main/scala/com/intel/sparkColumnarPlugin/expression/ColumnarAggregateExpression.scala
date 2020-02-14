@@ -64,6 +64,13 @@ class ColumnarAggregateExpression(
     case Partial => 
       aggregateFunction.prettyName match {
         case "avg" => ("sum_count", 1)
+        case "count" => {
+          if (aggregateFunction.children(0).isInstanceOf[Literal]) {
+            (s"countLiteral_${aggregateFunction.children(0)}", 0)
+          } else {
+            ("count", 1)
+          }
+        }
         case other => (aggregateFunction.prettyName, 1)
       }
     case Final =>

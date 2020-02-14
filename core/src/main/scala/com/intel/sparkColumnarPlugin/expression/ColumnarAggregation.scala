@@ -82,7 +82,7 @@ class ColumnarAggregation(
   val aggrInputList = aggregateBufferAttributes.map(expr => {
     var res = BindReferences.bindReference(expr.asInstanceOf[Expression], originalInputAttributes, true)
     if (!res.isInstanceOf[BoundReference]) {
-      logInfo(s"aggregateBufferAttributes $expr doesn't get bindreference")
+      logInfo(s"aggregateBufferAttributes ${expr.getClass} $expr doesn't get bindreference")
       if (expr.isInstanceOf[Literal]) {
         res = null
       } else {
@@ -94,7 +94,7 @@ class ColumnarAggregation(
           }
         }
         if (ordinal == -1) {
-          throw new UnsupportedOperationException(s"Couldn't find $a in ${originalInputAttributes.attrs.mkString("[", ",", "]")}")
+          throw new UnsupportedOperationException(s"Couldn't find ${a.getClass}$a in ${originalInputAttributes.attrs.mkString("[", ",", "]")}")
         }
         res = BoundReference(ordinal, a.dataType, originalInputAttributes(ordinal).nullable) 
       }

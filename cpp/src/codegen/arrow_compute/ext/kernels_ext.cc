@@ -65,6 +65,10 @@ class SplitArrayListWithActionKernel::Impl {
         RETURN_NOT_OK(MakeSumCountAction(ctx_, type_list[type_id], &action));
       } else if (action_name_list_[action_id].compare("action_avgByCount") == 0) {
         RETURN_NOT_OK(MakeAvgByCountAction(ctx_, type_list[type_id], &action));
+      } else if (action_name_list_[action_id].compare(0, 20, "action_countLiteral_") ==
+                 0) {
+        int arg = std::stoi(action_name_list_[action_id].substr(20));
+        RETURN_NOT_OK(MakeCountLiteralAction(ctx_, arg, &action));
       } else {
         return arrow::Status::NotImplemented(action_name_list_[action_id],
                                              " is not implementetd.");

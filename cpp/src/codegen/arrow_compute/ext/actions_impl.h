@@ -216,6 +216,69 @@ class CountAction : public ActionBase {
   std::vector<bool> cache_validity_;
 };
 
+//////////////// CountLiteralAction ///////////////
+template <typename DataType>
+class CountLiteralAction : public ActionBase {
+ public:
+  CountLiteralAction(arrow::compute::FunctionContext* ctx, int arg)
+      : ctx_(ctx), arg_(arg) {
+#ifdef DEBUG
+    std::cout << "Construct CountLiteralAction" << std::endl;
+#endif
+  }
+  ~CountLiteralAction() {
+#ifdef DEBUG
+    std::cout << "Destruct CountLiteralAction" << std::endl;
+#endif
+  }
+
+  int RequiredColNum() { return 0; }
+
+  arrow::Status Submit(ArrayList in_list, int max_group_id,
+                       std::function<arrow::Status(int)>* out) override {
+    // resize result data
+    if (cache_validity_.size() <= max_group_id) {
+      cache_validity_.resize(max_group_id + 1, false);
+      cache_.resize(max_group_id + 1, 0);
+    }
+
+    // prepare evaluate lambda
+    *out = [this](int dest_group_id) {
+      cache_validity_[dest_group_id] = true;
+      cache_[dest_group_id] += arg_;
+      return arrow::Status::OK();
+    };
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    std::unique_ptr<arrow::ArrayBuilder> array_builder;
+    arrow::MakeBuilder(ctx_->memory_pool(), arrow::TypeTraits<DataType>::type_singleton(),
+                       &array_builder);
+
+    std::unique_ptr<ResBuilderType> builder;
+    builder.reset(
+        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
+    RETURN_NOT_OK(builder->AppendValues(cache_, cache_validity_));
+    RETURN_NOT_OK(builder->Finish(&arr_out));
+    out->push_back(arr_out);
+
+    return arrow::Status::OK();
+  }
+
+ private:
+  using ResArrayType = typename arrow::TypeTraits<DataType>::ArrayType;
+  using ResBuilderType = typename arrow::TypeTraits<DataType>::BuilderType;
+  // input
+  arrow::compute::FunctionContext* ctx_;
+  int arg_;
+  // result
+  using CType = typename arrow::TypeTraits<DataType>::CType;
+  std::vector<CType> cache_;
+  std::vector<bool> cache_validity_;
+};
+
 //////////////// SumAction ///////////////
 template <typename DataType>
 class SumAction : public ActionBase {
@@ -708,6 +771,13 @@ arrow::Status MakeUniqueAction(arrow::compute::FunctionContext* ctx,
 arrow::Status MakeCountAction(arrow::compute::FunctionContext* ctx,
                               std::shared_ptr<ActionBase>* out) {
   auto action_ptr = std::make_shared<CountAction<arrow::UInt64Type>>(ctx);
+  *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);
+  return arrow::Status::OK();
+}
+
+arrow::Status MakeCountLiteralAction(arrow::compute::FunctionContext* ctx, int arg,
+                                     std::shared_ptr<ActionBase>* out) {
+  auto action_ptr = std::make_shared<CountLiteralAction<arrow::UInt64Type>>(ctx, arg);
   *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);
   return arrow::Status::OK();
 }

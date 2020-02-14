@@ -79,9 +79,6 @@ arrow::Status BuilderVisitor::Visit(const gandiva::FunctionNode& node) {
   auto func_name = desc->name();
   if (func_name.compare(0, 7, "action_") == 0) {
     if (dependency) {
-      if (param_names.size() < 1) {
-        return arrow::Status::Invalid("BuilderVisitor Action Parameter should be one.");
-      }
       RETURN_NOT_OK(dependency->AppendAction(func_name, param_names));
       expr_visitor_ = dependency;
 #ifdef DEBUG
