@@ -65,6 +65,14 @@ object ColumnarExpressionConverter extends Logging {
         replaceWithColumnarExpression(l.left),
         replaceWithColumnarExpression(l.right),
         expr)
+    case ss: Substring =>
+      check_if_no_calculation = false
+      logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
+      ColumnarTernaryOperator.create(
+        replaceWithColumnarExpression(ss.str),
+        replaceWithColumnarExpression(ss.pos),
+        replaceWithColumnarExpression(ss.len),
+        expr)
     case u: UnaryExpression =>
       if (!u.isInstanceOf[Cast]) {
         check_if_no_calculation = false
