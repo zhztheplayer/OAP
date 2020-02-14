@@ -308,7 +308,11 @@ class EncodeVisitorImpl : public ExprVisitorImpl {
     return arrow::Status::OK();
   }
 
-  arrow::Status Finish() override { return arrow::Status::OK(); }
+  arrow::Status Finish() override {
+    std::cout << "Concat keys took " << TIME_TO_STRING(concat_elapse_time) << std::endl;
+
+    return arrow::Status::OK();
+  }
 
  private:
   std::vector<int> col_id_list_;

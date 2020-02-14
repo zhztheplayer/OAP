@@ -1054,23 +1054,54 @@ class HashAggrArrayKernel::Impl {
     // create a new result array type here
     std::vector<std::shared_ptr<gandiva::Node>> func_node_list = {};
     std::vector<std::shared_ptr<arrow::Field>> field_list = {};
-    char index = '0';
+    bool allUtf8 = true;
     for (auto type : type_list) {
-      auto field = arrow::field(std::string(&index), type);
-      field_list.push_back(field);
-      auto field_node = gandiva::TreeExprBuilder::MakeField(field);
-      auto func_node =
-          gandiva::TreeExprBuilder::MakeFunction("hash64", {field_node}, arrow::int64());
-      func_node_list.push_back(func_node);
-      if (func_node_list.size() == 2) {
-        auto tmp_func_node =
-            gandiva::TreeExprBuilder::MakeFunction("add", func_node_list, arrow::int64());
-        func_node_list.clear();
-        func_node_list.push_back(tmp_func_node);
+      if (type->id() != arrow::StringType::type_id) {
+        allUtf8 = false;
+        break;
       }
     }
-    auto expr = gandiva::TreeExprBuilder::MakeExpression(
-        func_node_list[0], arrow::field("res", arrow::int64()));
+
+    gandiva::ExpressionPtr expr;
+    if (allUtf8) {
+      int index = 0;
+      for (auto type : type_list) {
+        auto field = arrow::field(std::to_string(index), type);
+        field_list.push_back(field);
+        auto field_node = gandiva::TreeExprBuilder::MakeField(field);
+        func_node_list.push_back(field_node);
+        if (func_node_list.size() == 2) {
+          auto tmp_func_node = gandiva::TreeExprBuilder::MakeFunction(
+              "concat", func_node_list, arrow::utf8());
+          func_node_list.clear();
+          func_node_list.push_back(tmp_func_node);
+        }
+        index++;
+      }
+      auto func_node = gandiva::TreeExprBuilder::MakeFunction(
+          "hash64", {func_node_list[0]}, arrow::int64());
+      expr = gandiva::TreeExprBuilder::MakeExpression(
+          func_node, arrow::field("res", arrow::int64()));
+    } else {
+      int index = 0;
+      for (auto type : type_list) {
+        auto field = arrow::field(std::to_string(index), type);
+        field_list.push_back(field);
+        auto field_node = gandiva::TreeExprBuilder::MakeField(field);
+        auto func_node = gandiva::TreeExprBuilder::MakeFunction("hash64", {field_node},
+                                                                arrow::int64());
+        func_node_list.push_back(func_node);
+        if (func_node_list.size() == 2) {
+          auto tmp_func_node = gandiva::TreeExprBuilder::MakeFunction(
+              "add", func_node_list, arrow::int64());
+          func_node_list.clear();
+          func_node_list.push_back(tmp_func_node);
+        }
+        index++;
+      }
+      expr = gandiva::TreeExprBuilder::MakeExpression(
+          func_node_list[0], arrow::field("res", arrow::int64()));
+    }
     // std::cout << expr->ToString() << std::endl;
     schema_ = arrow::schema(field_list);
     auto configuration = gandiva::ConfigurationBuilder().DefaultConfiguration();
