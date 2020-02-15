@@ -1,6 +1,7 @@
 package com.intel.sparkColumnarPlugin.expression
 
 import io.netty.buffer.ArrowBuf
+import java.util._
 import java.util.ArrayList
 import java.util.concurrent.TimeUnit._
 import util.control.Breaks._
@@ -23,6 +24,7 @@ import org.apache.spark.TaskContext
 import org.apache.arrow.gandiva.evaluator._
 import org.apache.arrow.gandiva.exceptions.GandivaException
 import org.apache.arrow.gandiva.expression._
+import org.apache.arrow.vector.ValueVector
 import org.apache.arrow.vector.ipc.message.ArrowFieldNode
 import org.apache.arrow.vector.ipc.message.ArrowRecordBatch
 import org.apache.arrow.vector.types.pojo.Schema
@@ -58,66 +60,67 @@ class ColumnarAggregation(
     s"\ngroupingExpressions: $groupingExpressions,\noriginalInputAttributes: $originalInputAttributes,\naggregateExpressions: $aggregateExpressions,\naggregateAttributes: $aggregateAttributes,\nresultExpressions: $resultExpressions")
 
   var resultTotalRows: Int = 0
-  // 1. same size: inputField contains groupFields and aggrField, and output contains groupFields and aggrField
-  // 2. different size: inputField contains groupFields and aggrField, and output contains aggrField
-  // 3. different size: inputField contains groupFields and aggrField and other columns due to wholestagecodegen, and output contains groupFields and aggrField
-  // 4. different size: inputField contains groupFields and aggrField and other columns due to wholestagecodegen, and output contains aggrField
-  //
   val inputAttributeSeq: AttributeSeq = originalInputAttributes
   val mode = aggregateExpressions(0).mode
-  val aggregateBufferAttributes = {
-    mode match {
-      case Partial =>
-        aggregateExpressions.map(_.aggregateFunction.children(0))
-      case Final =>
-        aggregateExpressions.flatMap(_.aggregateFunction.aggBufferAttributes)
-        //aggregateExpressions.map(_.aggregateFunction.asInstanceOf[DeclarativeAggregate].evaluateExpression)
-      case _ =>
-        throw new UnsupportedOperationException(s"get aggregation Attribute failed support ${mode}")
-    }
-  }
-  val keyInputList = groupingExpressions.map(expr => {
-    BindReferences.bindReference(expr.asInstanceOf[Expression], originalInputAttributes)
+  val keyOrdinalList: List[Int] = groupingExpressions.toList.map(expr => {
+    val bindReference = BindReferences.bindReference(expr.asInstanceOf[Expression], originalInputAttributes)
+    getOrdinalFromExpr(bindReference)
   })
-  val aggrInputList = aggregateBufferAttributes.map(expr => {
-    var res = BindReferences.bindReference(expr.asInstanceOf[Expression], originalInputAttributes, true)
-    if (!res.isInstanceOf[BoundReference]) {
-      logInfo(s"aggregateBufferAttributes ${expr.getClass} $expr doesn't get bindreference")
-      if (expr.isInstanceOf[Literal]) {
-        res = null
-      } else {
-        var ordinal = -1
-        val a = getAttrFromExpr(expr)
-        for (i <- 0 until originalInputAttributes.length) {
-          if (a.name == originalInputAttributes(i).name) {
-            ordinal = i
+  val keyFieldList: List[Field] = keyOrdinalList.map(i => {
+    val attr = getAttrFromExpr(originalInputAttributes(i))
+    Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
+  })
+  //////////////// Project original input to aggregate input //////////////////
+  var projector : Projector = _
+  var projOrdinalList : List[Int] = _
+  var aggrFieldList : List[Field] = _
+  var projInputList : java.util.List[Field] = _
+  var projArrowSchema: Schema = _
+  mode match {
+    case Partial => { 
+      projInputList = Lists.newArrayList()
+      val projPrepareList : Seq[(ExpressionTree, Field)] =
+        aggregateExpressions.flatMap(_.aggregateFunction.children).zipWithIndex
+          .filter{case (expr, i) => !expr.isInstanceOf[Literal]}
+          .map{
+          case (expr, i) => {
+            val columnarExpr: Expression =
+              ColumnarExpressionConverter.replaceWithColumnarExpression(expr, originalInputAttributes)
+            logInfo(s"columnarExpr is ${columnarExpr}")
+            val (node, resultType) =
+              columnarExpr.asInstanceOf[ColumnarExpression].doColumnarCodeGen(projInputList)
+            val result = Field.nullable(s"res_$i", resultType)
+            (TreeBuilder.makeExpression(node, result), result)
           }
         }
-        if (ordinal == -1) {
-          throw new UnsupportedOperationException(s"Couldn't find ${a.getClass}$a in ${originalInputAttributes.attrs.mkString("[", ",", "]")}")
-        }
-        res = BoundReference(ordinal, a.dataType, originalInputAttributes(ordinal).nullable) 
+      Collections.sort(projInputList, (l: Field, r: Field) => { l.getName.compareTo(r.getName)})
+      projOrdinalList = projInputList.asScala.toList.map(field => {
+        field.getName.replace("c_", "").toInt
+      })
+      aggrFieldList = projPrepareList.map(_._2).toList
+    
+      projArrowSchema = new Schema(projInputList) 
+      if (projPrepareList.length > 0) {
+        projector = Projector.make(projArrowSchema, projPrepareList.map(_._1).toList.asJava)
       }
     }
-    res
-  }).filter(_ != null)
-  val keyInputOrdinalList = keyInputList.map(expr => getOrdinalFromExpr(expr)).toList
-  val aggrInputOrdinalList = aggrInputList.map(expr => getOrdinalFromExpr(expr)).toList
-
-  logInfo(s"keyInputList is ${keyInputList} ${keyInputOrdinalList}, aggrInputList is ${aggrInputList} ${aggrInputOrdinalList}")
-  val usedInputIndices = keyInputOrdinalList ::: aggrInputOrdinalList
-
-  val keyFieldList = keyInputOrdinalList.map(i => {
-    val expr = originalInputAttributes(i)
-    val attr = getAttrFromExpr(expr)
-    Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
-  })
-
-  val aggrFieldList = aggrInputOrdinalList.map(i => {
-    val expr = originalInputAttributes(i)
-    val attr = getAttrFromExpr(expr)
-    Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
-  })
+    case Final => {
+      val ordinal_field_list : List[(Int, Field)] = originalInputAttributes.toList.zipWithIndex
+        .filter{case(expr, i) => !keyOrdinalList.contains(i)}
+        .map{case(expr, i) => {
+          val attr = getAttrFromExpr(expr)
+          (i, Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType)))
+        }}
+      projOrdinalList = ordinal_field_list.map(_._1)
+      aggrFieldList = ordinal_field_list.map(_._2)
+      projInputList = aggrFieldList.asJava
+      projArrowSchema = new Schema(projInputList)
+    }
+    case _ =>
+      throw new UnsupportedOperationException("doesn't support this mode")
+  }
+  logInfo(s"Project input ordinal is ${projOrdinalList}, Schema is ${projArrowSchema}")
+  /////////////////////////////////////////////////////////////////////////////
 
   val inputFieldList = keyFieldList ::: aggrFieldList
 
@@ -196,7 +199,6 @@ class ColumnarAggregation(
     attrList.foreach(attr => {
       if (attr.getName == name) {
         found = true
-        logInfo(s"Found ${name} in ${attrList}")
       }
     })
     found
@@ -228,21 +230,42 @@ class ColumnarAggregation(
 
   def close(): Unit = {
     logInfo("ColumnarAggregation ExpressionEvaluator closed");
-    aggregator.close()
-    aggregator = null
     ConverterUtils.releaseArrowRecordBatchList(inputBatchHolder.toArray)
+    if (aggregator != null) {
+      aggregator.close()
+      aggregator = null
+    }
+    if (projector != null) {
+      projector.close()
+      projector = null
+    }
   }
 
   def updateAggregationResult(columnarBatch: ColumnarBatch): Unit = {
-    val cols = usedInputIndices.map(i => {
+    val numRows = columnarBatch.numRows
+    val projCols = projOrdinalList.map(i => {
       columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
     })
-    val inputRecordBatch: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(columnarBatch.numRows, cols)
-    val resultRecordBatchList = aggregator.evaluate(inputRecordBatch)
+    val aggrCols : Array[ValueVector] = if (projector != null) {
+      val inputProjRecordBatch: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(numRows, projCols)
+      val aggrArrowSchema = new Schema(aggrFieldList.asJava)
+      val aggrSchema = ArrowUtils.fromArrowSchema(aggrArrowSchema)
+      val outputVectors = ArrowWritableColumnVector.allocateColumns(numRows, aggrSchema)
+        .toArray.map(columnVector => columnVector.getValueVector())
+      projector.evaluate(inputProjRecordBatch, outputVectors.toList.asJava)
+      ConverterUtils.releaseArrowRecordBatch(inputProjRecordBatch)
+      outputVectors
+    } else {
+      projCols.toArray
+    }
+    val groupCols = keyOrdinalList.map(i => {
+      columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
+    })
+    val inputAggrRecordBatch: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(numRows, groupCols ++ aggrCols)
+    val resultRecordBatchList = aggregator.evaluate(inputAggrRecordBatch)
    
-    inputBatchHolder += inputRecordBatch
-    ConverterUtils.releaseArrowRecordBatch(inputRecordBatch)
-    ConverterUtils.releaseArrowRecordBatchList(resultRecordBatchList)
+    inputBatchHolder += inputAggrRecordBatch
+    aggrCols.map(v => v.close())
   }
 
   def getAggregationResult(): ColumnarBatch = {
