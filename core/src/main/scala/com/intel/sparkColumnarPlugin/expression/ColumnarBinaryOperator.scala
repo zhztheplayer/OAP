@@ -49,6 +49,57 @@ class ColumnarOr(left: Expression, right: Expression, original: Expression)
   }
 }
 
+class ColumnarEndsWith(left: Expression, right: Expression, original: Expression)
+    extends EndsWith(left: Expression, right: Expression)
+    with ColumnarExpression
+    with Logging {
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) =
+      left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    val (right_node, right_type): (TreeNode, ArrowType) =
+      right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val resultType = new ArrowType.Bool()
+    val funcNode =
+      TreeBuilder.makeFunction("ends_with", Lists.newArrayList(left_node, right_node), resultType)
+    (funcNode, resultType)
+  }
+}
+
+class ColumnarStartsWith(left: Expression, right: Expression, original: Expression)
+    extends StartsWith(left: Expression, right: Expression)
+    with ColumnarExpression
+    with Logging {
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) =
+      left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    val (right_node, right_type): (TreeNode, ArrowType) =
+      right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val resultType = new ArrowType.Bool()
+    val funcNode =
+      TreeBuilder.makeFunction("starts_with", Lists.newArrayList(left_node, right_node), resultType)
+    (funcNode, resultType)
+  }
+}
+
+class ColumnarLike(left: Expression, right: Expression, original: Expression)
+    extends Like(left: Expression, right: Expression)
+    with ColumnarExpression
+    with Logging {
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) =
+      left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    val (right_node, right_type): (TreeNode, ArrowType) =
+      right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val resultType = new ArrowType.Bool()
+    val funcNode =
+      TreeBuilder.makeFunction("like", Lists.newArrayList(left_node, right_node), resultType)
+    (funcNode, resultType)
+  }
+}
+
 class ColumnarEqualTo(left: Expression, right: Expression, original: Expression)
     extends EqualTo(left: Expression, right: Expression)
     with ColumnarExpression
@@ -177,6 +228,12 @@ object ColumnarBinaryOperator {
         new ColumnarGreaterThan(left, right, g)
       case g: GreaterThanOrEqual =>
         new ColumnarGreaterThanOrEqual(left, right, g)
+      case e: EndsWith =>
+        new ColumnarEndsWith(left, right, e)
+      case s: StartsWith =>
+        new ColumnarStartsWith(left, right, s)
+      case l: Like =>
+        new ColumnarLike(left, right, l)
       case other =>
         throw new UnsupportedOperationException(s"not currently supported: $other.")
     }
