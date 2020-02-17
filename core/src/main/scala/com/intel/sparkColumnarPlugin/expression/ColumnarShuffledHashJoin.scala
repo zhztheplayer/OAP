@@ -29,6 +29,7 @@ import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution.{BinaryExecNode, CodegenSupport, SparkPlan}
 import org.apache.spark.sql.execution.metric.SQLMetric
+import org.apache.spark.sql.execution.joins.{BuildLeft, BuildRight, BuildSide}
 
 
 import scala.collection.JavaConverters._
@@ -60,6 +61,7 @@ class ColumnarShuffledHashJoin(
     rightKeys: Seq[Expression],
     resultSchema: StructType,
     joinType: JoinType,
+    buildSide: BuildSide,
     condition: Option[Expression],
     left: SparkPlan,
     right: SparkPlan,
@@ -80,16 +82,9 @@ class ColumnarShuffledHashJoin(
       Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
     })
 
-    val l_input_arrow_schema: Schema = new Schema(l_input_field_list.asJava)
-    val r_input_arrow_schema: Schema = new Schema(r_input_field_list.asJava)
-
-    logInfo(s"\nleftKeys is ${leftKeys}, \nrightKeys is ${rightKeys}, \nresultSchema is ${resultSchema}, \njoinType is ${joinType}, \ncondition is ${condition}")
-
-    logInfo(s"\nleft input schema is ${l_input_schema}, \nright input schema is ${r_input_schema}, \nl_input_field_list is ${l_input_field_list}, \nr_input_field_list is ${r_input_field_list}")
-
-    val l_key_expr_list = bindReferences(leftKeys, l_input_schema)
-    val r_key_expr_list = bindReferences(rightKeys, r_input_schema)
-
+    val resultFieldList = resultSchema.map(field => {
+      Field.nullable(field.name, CodeGeneration.getResultType(field.dataType))
+    }).toList
 
     val lkeyFieldList: List[Field] = leftKeys.toList.map(expr => {
         val attr = ConverterUtils.getAttrFromExpr(expr)
@@ -101,13 +96,41 @@ class ColumnarShuffledHashJoin(
         Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(expr.dataType))
     })
     
-    val r_key_indices = r_key_expr_list.toList.map(expr => expr.asInstanceOf[BoundReference].ordinal)
+    val (build_key_field_list, stream_key_field_list, stream_key_ordinal_list, build_input_field_list, stream_input_field_list)
+      = buildSide match {
+      case BuildLeft =>
+        val stream_key_expr_list = bindReferences(rightKeys, r_input_schema) 
+        (lkeyFieldList, rkeyFieldList, stream_key_expr_list.toList.map(_.asInstanceOf[BoundReference].ordinal), l_input_field_list, r_input_field_list)
 
-    val r_key_arrow_schema: Schema = new Schema(rkeyFieldList.asJava)
-    logInfo(s"\nl_key_expr_list is ${l_key_expr_list}, \nr_key_expr_list is ${r_key_expr_list}, \nlkeyFieldList is ${lkeyFieldList}, \nrkeyFieldList is ${rkeyFieldList}")
+      case BuildRight =>
+        val stream_key_expr_list = bindReferences(leftKeys, l_input_schema) 
+        (rkeyFieldList, lkeyFieldList, stream_key_expr_list.toList.map(_.asInstanceOf[BoundReference].ordinal), r_input_field_list, l_input_field_list)
+
+    }
+
+    val (build_output_field_list, stream_output_field_list) = joinType match {
+      case _: InnerLike =>
+        (build_input_field_list, stream_input_field_list)
+      case LeftSemi =>
+        (List[Field](), stream_input_field_list)
+      case _ =>
+        throw new UnsupportedOperationException(s"Join Type ${joinType} is not supported yet.")
+    }
+
+    val build_input_arrow_schema: Schema = new Schema(build_input_field_list.asJava)
+    val stream_input_arrow_schema: Schema = new Schema(stream_input_field_list.asJava)
+
+    val build_output_arrow_schema: Schema = new Schema(build_output_field_list.asJava)
+    val stream_output_arrow_schema: Schema = new Schema(stream_output_field_list.asJava)
+
+    val stream_key_arrow_schema: Schema = new Schema(stream_key_field_list.asJava)
+
+    logInfo(s"\nleft_schema is ${l_input_schema}, \nright_schema is ${r_input_schema}, \nresultSchema is ${resultSchema}, \njoinType is ${joinType}, \nbuildSide is ${buildSide}, \ncondition is ${condition}")
+
+    logInfo(s"\nbuild_key_field_list is ${build_key_field_list}, stream_key_field_list is ${stream_key_field_list}, stream_key_ordinal_list is ${stream_key_ordinal_list}, \nbuild_input_field_list is ${build_input_field_list}, stream_input_field_list is ${stream_input_field_list}, \nbuild_output_field_list is ${build_output_field_list}, stream_output_field_list is ${stream_output_field_list}")
 
     // only support single primary key here
-    if (lkeyFieldList.size != 1) {
+    if (build_key_field_list.size != 1) {
       throw new UnsupportedOperationException("Only support single join key currently.")
     }
 
@@ -119,60 +142,60 @@ class ColumnarShuffledHashJoin(
     var prober = new ExpressionEvaluator()
     val probe_node = TreeBuilder.makeFunction(
       "probeArraysInner", 
-      lkeyFieldList.map(field => {
+      build_key_field_list.map(field => {
         TreeBuilder.makeField(field)
       }).asJava, 
       new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
     val retType = Field.nullable("res", new ArrowType.Int(32, true))
     val probe_expr = TreeBuilder.makeExpression(probe_node, retType)
 
-    prober.build(l_input_arrow_schema, Lists.newArrayList(probe_expr), true)
+    prober.build(build_input_arrow_schema, Lists.newArrayList(probe_expr), true)
 
     /////////////////////////////// Create Shuffler /////////////////////////////
     // Shuffler will use input indices array to shuffle current table
     // output a new table with new sequence.
-    var left_shuffler = new ExpressionEvaluator()
-    val left_shuffle_node = TreeBuilder.makeFunction(
+    var build_shuffler = new ExpressionEvaluator()
+    val build_shuffle_node = TreeBuilder.makeFunction(
       "shuffleArrayList", 
-      l_input_field_list.map(field => {
+      build_input_field_list.map(field => {
         TreeBuilder.makeField(field)
       }).asJava, 
       new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
-    val l_action_expr_list = l_input_field_list.map(field => {
+    val build_action_expr_list = build_input_field_list.map(field => {
       TreeBuilder.makeExpression(
         TreeBuilder.makeFunction(
           "action_dono",
           Lists.newArrayList(
-            left_shuffle_node,
+            build_shuffle_node,
             TreeBuilder.makeField(field)),
           field.getType),
         field)
     }).asJava
 
-    left_shuffler.build(l_input_arrow_schema, l_action_expr_list, true)
+    build_shuffler.build(build_input_arrow_schema, build_action_expr_list, true)
 
-    var right_shuffler = new ExpressionEvaluator()
-    val right_shuffle_node = TreeBuilder.makeFunction(
+    var stream_shuffler = new ExpressionEvaluator()
+    val stream_shuffle_node = TreeBuilder.makeFunction(
       "shuffleArrayList", 
-      r_input_field_list.map(field => {
+      stream_input_field_list.map(field => {
         TreeBuilder.makeField(field)
       }).asJava, 
       new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
-    val r_action_expr_list = r_input_field_list.map(field => {
+    val stream_action_expr_list = stream_input_field_list.map(field => {
       TreeBuilder.makeExpression(
         TreeBuilder.makeFunction(
           "action_dono",
           Lists.newArrayList(
-            right_shuffle_node,
+            stream_shuffle_node,
             TreeBuilder.makeField(field)),
           field.getType),
         field)
     }).asJava
 
-    right_shuffler.build(r_input_arrow_schema, r_action_expr_list, false)
+    stream_shuffler.build(stream_input_arrow_schema, stream_action_expr_list, false)
 
     var probe_iterator: BatchIterator = _
-    var left_shuffle_iterator: BatchIterator = _
+    var build_shuffle_iterator: BatchIterator = _
 
   def columnarInnerJoin(
     streamIter: Iterator[ColumnarBatch],
@@ -180,6 +203,7 @@ class ColumnarShuffledHashJoin(
 
     val beforeBuild = System.nanoTime()
     var build_cb : ColumnarBatch = null
+
     while (buildIter.hasNext) {
       if (build_cb != null) {
         build_cb.close()
@@ -188,13 +212,13 @@ class ColumnarShuffledHashJoin(
       val build_rb = ConverterUtils.createArrowRecordBatch(build_cb)
       inputBatchHolder += build_rb
       prober.evaluate(build_rb)
-      left_shuffler.evaluate(build_rb)
+      build_shuffler.evaluate(build_rb)
     }
 
     probe_iterator = prober.finishByIterator();
-    left_shuffler.setDependency(probe_iterator, 0)
-    right_shuffler.setDependency(probe_iterator, 1)
-    left_shuffle_iterator = left_shuffler.finishByIterator();
+    build_shuffler.setDependency(probe_iterator, 0)
+    stream_shuffler.setDependency(probe_iterator, 1)
+    build_shuffle_iterator = build_shuffler.finishByIterator();
     buildTime += NANOSECONDS.toMillis(System.nanoTime() - beforeBuild)
 
     var last_cb: ColumnarBatch = null
@@ -205,25 +229,35 @@ class ColumnarShuffledHashJoin(
       }
       val beforeJoin = System.nanoTime()
       last_cb = cb
-      val r_key_cols = r_key_indices.map(i => {
+      val stream_key_cols = stream_key_ordinal_list.map(i => {
         cb.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
       })
-      val process_input_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb.numRows, r_key_cols)
-      val right_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb)
-      probe_iterator.processAndCacheOne(r_key_arrow_schema, process_input_rb)
-      val l_output_rb: ArrowRecordBatch = left_shuffle_iterator.next()
-      val r_output_rb: ArrowRecordBatch = right_shuffler.evaluate(right_rb)(0)
-      val outputNumRows = r_output_rb.getLength()
+      val process_input_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb.numRows, stream_key_cols)
+      probe_iterator.processAndCacheOne(stream_key_arrow_schema, process_input_rb)
 
-      val l_output = ConverterUtils.fromArrowRecordBatch(l_input_arrow_schema, l_output_rb)
-      val r_output = ConverterUtils.fromArrowRecordBatch(r_input_arrow_schema, r_output_rb)
+      val stream_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb)
+      val stream_output_rb: ArrowRecordBatch = stream_shuffler.evaluate(stream_rb)(0)
+      val stream_output = ConverterUtils.fromArrowRecordBatch(stream_output_arrow_schema, stream_output_rb)
+      ConverterUtils.releaseArrowRecordBatch(stream_rb)
+      ConverterUtils.releaseArrowRecordBatch(stream_output_rb)
+      val outputNumRows = stream_output_rb.getLength()
 
+      val build_output = if (build_output_field_list.length > 0) {
+        val build_output_rb: ArrowRecordBatch = build_shuffle_iterator.next()
+        val build_output = ConverterUtils.fromArrowRecordBatch(build_output_arrow_schema, build_output_rb)
+        ConverterUtils.releaseArrowRecordBatch(build_output_rb)
+        build_output
+      } else {
+        Array[ArrowWritableColumnVector]()
+      }
       // TODO
-      val resultColumnVectorList = l_output.toList ::: r_output.toList
+      val resultColumnVectorList = buildSide match {
+        case BuildLeft =>
+          build_output.toList ::: stream_output.toList
+        case BuildRight =>
+          stream_output.toList ::: build_output.toList
+      }
       ConverterUtils.releaseArrowRecordBatch(process_input_rb)
-      ConverterUtils.releaseArrowRecordBatch(right_rb)
-      ConverterUtils.releaseArrowRecordBatch(l_output_rb)
-      ConverterUtils.releaseArrowRecordBatch(r_output_rb)
       totalOutputNumRows += outputNumRows
       joinTime += NANOSECONDS.toMillis(System.nanoTime() - beforeJoin)
       new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]).toArray, outputNumRows)
@@ -236,21 +270,21 @@ class ColumnarShuffledHashJoin(
       prober.close()
       prober = null
     }
-    if (left_shuffler != null) {
-      left_shuffler.close()
-      left_shuffler = null
+    if (build_shuffler != null) {
+      build_shuffler.close()
+      build_shuffler = null
     }
-    if (right_shuffler != null) {
-      right_shuffler.close()
-      right_shuffler = null
+    if (stream_shuffler != null) {
+      stream_shuffler.close()
+      stream_shuffler = null
     }
     if (probe_iterator != null) {
       probe_iterator.close()
       probe_iterator = null
     }
-    if (left_shuffle_iterator != null) {
-      left_shuffle_iterator.close()
-      left_shuffle_iterator = null
+    if (build_shuffle_iterator != null) {
+      build_shuffle_iterator.close()
+      build_shuffle_iterator = null
     }
   }
 
@@ -263,6 +297,7 @@ object ColumnarShuffledHashJoin {
     rightKeys: Seq[Expression],
     resultSchema: StructType,
     joinType: JoinType,
+    buildSide: BuildSide, 
     condition: Option[Expression],
     left: SparkPlan,
     right: SparkPlan,
@@ -270,7 +305,7 @@ object ColumnarShuffledHashJoin {
     joinTime: SQLMetric,
     numOutputRows: SQLMetric
     ): ColumnarShuffledHashJoin = synchronized {
-    columnarShuffedHahsJoin = new ColumnarShuffledHashJoin(leftKeys, rightKeys, resultSchema, joinType, condition, left, right, buildTime, joinTime, numOutputRows)
+    columnarShuffedHahsJoin = new ColumnarShuffledHashJoin(leftKeys, rightKeys, resultSchema, joinType, buildSide, condition, left, right, buildTime, joinTime, numOutputRows)
     columnarShuffedHahsJoin
   }
 

@@ -109,11 +109,11 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
         auto record_batch =
             arrow::RecordBatch::Make(res_schema_, batch_size_array[i], batch_array[i]);
 #ifdef DEBUG_LEVEL_1
-        std::cout << "ArrowCompute Evaluate func get output recordBatch as " << std::endl;
+        std::cout << "ArrowCompute Finish func get output recordBatch length "
+                  << record_batch->num_rows() << std::endl;
         auto status = arrow::PrettyPrint(*record_batch.get(), 2, &std::cout);
 #endif
         out->push_back(record_batch);
-        // arrow::PrettyPrint(*record_batch.get(), 2, &std::cout);
       }
 
       // we need to clean up this visitor chain result for next record_batch.
@@ -152,7 +152,8 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
       auto record_batch =
           arrow::RecordBatch::Make(res_schema_, batch_size_array[i], batch_array[i]);
 #ifdef DEBUG_LEVEL_1
-      std::cout << "ArrowCompute Finish func get output recordBatch as " << std::endl;
+      std::cout << "ArrowCompute Finish func get output recordBatch length "
+                << record_batch->num_rows() << std::endl;
       auto status = arrow::PrettyPrint(*record_batch.get(), 2, &std::cout);
 #endif
       out->push_back(record_batch);

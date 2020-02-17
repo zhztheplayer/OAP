@@ -129,16 +129,24 @@ class ColumnarAggregation(
     Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
   })
 
-  val groupExpression: List[ColumnarAggregateExpressionBase] = keyFieldList.toList
-    .filter(field =>
-      ifIn(s"${field.getName()}", outputFieldList))
-        .map(field => 
-      new ColumnarUniqueAggregateExpression(List(field)).asInstanceOf[ColumnarAggregateExpressionBase]
-  )
-
+  // map expression
   var field_id = 0
-  val aggrExpression: List[ColumnarAggregateExpressionBase] =
-    aggregateExpressions.toList.map{a => {
+  var aggr_id = 0
+  val expressions: List[ColumnarAggregateExpressionBase] = resultExpressions.toList.map(expr => {
+    val attr = ConverterUtils.getAttrFromExpr(expr)
+    var ordinal = groupingExpressions.indexWhere(_.exprId == attr.exprId) 
+    if (ordinal != -1) {
+      val a = groupingExpressions(ordinal)
+      logInfo(s"expr is $attr, groupingExpression is ${ordinal}: $a")
+      val field = Field.nullable(s"${a.name}#${a.exprId.id}", CodeGeneration.getResultType(a.dataType))
+      new ColumnarUniqueAggregateExpression(List(field)).asInstanceOf[ColumnarAggregateExpressionBase]
+    } else {
+      ordinal = aggregateAttributes.indexOf(attr.exprId)
+      if (ordinal == -1) {
+        ordinal = aggr_id
+      }
+      val a = aggregateExpressions(ordinal)
+      logInfo(s"expr is $attr, aggrExpression is ${ordinal}: $a")
       val res = new ColumnarAggregateExpression(
         a.aggregateFunction,
         a.mode,
@@ -151,10 +159,10 @@ class ColumnarAggregation(
         field_id += 1
       }
       res.setInputFields(fieldList.toList)
+      aggr_id += 1
       res
-  }}
-
-  val expressions = groupExpression ::: aggrExpression
+    }
+  }) 
 
   logInfo(s"inputFieldList is ${inputFieldList}, outputFieldList is ${outputFieldList}")
 
@@ -282,7 +290,9 @@ class ColumnarAggregation(
         return new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), 0)
       }
       // Since grouping column may be removed in output, we need to check here.
-      val resultColumnVectorList = ConverterUtils.fromArrowRecordBatch(resultSchema, finalResultRecordBatchList(0))
+      val finalResultRecordBatch = finalResultRecordBatchList(0)
+      logInfo(s"finalResultRecordBatch has numRows ${finalResultRecordBatch.getLength}, fields as ${finalResultRecordBatch.getNodes}, expected schema as ${resultSchema}")
+      val resultColumnVectorList = ConverterUtils.fromArrowRecordBatch(resultSchema, finalResultRecordBatch)
 
       val finalColumnarBatch = new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]), finalResultRecordBatchList(0).getLength())
       ConverterUtils.releaseArrowRecordBatchList(finalResultRecordBatchList)
@@ -317,7 +327,6 @@ class ColumnarAggregation(
           numInputBatches += 1
           eval_elapse += System.nanoTime() - beforeEval
         }
-        logInfo(s"start to do Final Aggregation")
         val beforeEval = System.nanoTime()
         val outputBatch = getAggregationResult()
         eval_elapse += System.nanoTime() - beforeEval
