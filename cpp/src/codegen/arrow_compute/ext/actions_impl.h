@@ -636,6 +636,10 @@ class ShuffleAction : public ActionBase {
 #ifdef DEBUG
     std::cout << "Construct ShuffleAction" << std::endl;
 #endif
+    std::unique_ptr<arrow::ArrayBuilder> builder;
+    arrow::MakeBuilder(ctx_->memory_pool(),
+                       arrow::TypeTraits<ResDataType>::type_singleton(), &builder);
+    builder_.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
   }
   ~ShuffleAction() {
 #ifdef DEBUG
@@ -651,25 +655,19 @@ class ShuffleAction : public ActionBase {
     for (auto array : in) {
       typed_arrays_.push_back(std::dynamic_pointer_cast<ResArrayType>(array));
     }
-    if (!builder_) {
-      std::unique_ptr<arrow::ArrayBuilder> builder;
-      RETURN_NOT_OK(arrow::MakeBuilder(ctx_->memory_pool(),
-                                       arrow::TypeTraits<ResDataType>::type_singleton(),
-                                       &builder));
-      builder_.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
-      builder_->Reserve(reserved_length);
-    }
     // prepare evaluate lambda
     *on_valid = [this](uint64_t array_id, uint64_t id) {
       if (typed_arrays_[array_id]->IsNull(id)) {
-        builder_->UnsafeAppendNull();
+        // builder_->UnsafeAppendNull();
+        RETURN_NOT_OK(builder_->AppendNull());
       } else {
-        builder_->UnsafeAppend(typed_arrays_[array_id]->Value(id));
+        // builder_->UnsafeAppend(typed_arrays_[array_id]->GetView(id));
+        RETURN_NOT_OK(builder_->Append(typed_arrays_[array_id]->GetView(id)));
       }
       return arrow::Status::OK();
     };
     *on_null = [this]() {
-      builder_->UnsafeAppendNull();
+      RETURN_NOT_OK(builder_->AppendNull());
       return arrow::Status::OK();
     };
     return arrow::Status::OK();
@@ -684,25 +682,20 @@ class ShuffleAction : public ActionBase {
     } else {
       typed_arrays_[0] = std::dynamic_pointer_cast<ResArrayType>(in);
     }
-    if (!builder_) {
-      std::unique_ptr<arrow::ArrayBuilder> builder;
-      RETURN_NOT_OK(arrow::MakeBuilder(ctx_->memory_pool(),
-                                       arrow::TypeTraits<ResDataType>::type_singleton(),
-                                       &builder));
-      builder_.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
-      builder_->Reserve(reserved_length);
-    }
     // prepare evaluate lambda
     *on_valid = [this](uint64_t id) {
       if (typed_arrays_[0]->IsNull(id)) {
-        builder_->UnsafeAppendNull();
+        // builder_->UnsafeAppendNull();
+        RETURN_NOT_OK(builder_->AppendNull());
       } else {
-        builder_->UnsafeAppend(typed_arrays_[0]->Value(id));
+        // builder_->UnsafeAppend(typed_arrays_[0]->GetView(id));
+        RETURN_NOT_OK(builder_->Append(typed_arrays_[0]->GetView(id)));
       }
       return arrow::Status::OK();
     };
     *on_null = [this]() {
-      builder_->UnsafeAppendNull();
+      // builder_->UnsafeAppendNull();
+      RETURN_NOT_OK(builder_->AppendNull());
       return arrow::Status::OK();
     };
     return arrow::Status::OK();
@@ -719,8 +712,14 @@ class ShuffleAction : public ActionBase {
     std::shared_ptr<arrow::Array> arr_out;
     RETURN_NOT_OK(builder_->Finish(&arr_out));
     out->push_back(arr_out);
+
+    /*std::unique_ptr<arrow::ArrayBuilder> builder;
+    arrow::MakeBuilder(ctx_->memory_pool(),
+                       arrow::TypeTraits<ResDataType>::type_singleton(), &builder);
+    builder_.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
+    */
     builder_->Reset();
-    builder_->Reserve(reserved_length_);
+    // builder_->Reserve(reserved_length_);
     return arrow::Status::OK();
   }
 
@@ -865,6 +864,10 @@ arrow::Status MakeShuffleAction(arrow::compute::FunctionContext* ctx,
   } break;
     PROCESS_SUPPORTED_TYPES(PROCESS)
 #undef PROCESS
+    case arrow::StringType::type_id: {
+      auto action_ptr = std::make_shared<ShuffleAction<arrow::StringType>>(ctx);
+      *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);
+    } break;
     default:
       break;
   }

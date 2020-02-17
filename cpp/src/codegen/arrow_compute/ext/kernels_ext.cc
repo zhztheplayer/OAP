@@ -1184,12 +1184,19 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
     };
 
     cur_id_ = 0;
-    for (; cur_id_ < typed_array->length(); cur_id_++) {
-      if (typed_array->IsNull(cur_id_)) {
-        hash_table_->GetOrInsertNull(insert_on_found, insert_on_not_found);
-      } else {
+    if (typed_array->null_count() == 0) {
+      for (; cur_id_ < typed_array->length(); cur_id_++) {
         hash_table_->GetOrInsert(typed_array->GetView(cur_id_), insert_on_found,
                                  insert_on_not_found);
+      }
+    } else {
+      for (; cur_id_ < typed_array->length(); cur_id_++) {
+        if (typed_array->IsNull(cur_id_)) {
+          hash_table_->GetOrInsertNull(insert_on_found, insert_on_not_found);
+        } else {
+          hash_table_->GetOrInsert(typed_array->GetView(cur_id_), insert_on_found,
+                                   insert_on_not_found);
+        }
       }
     }
     cur_array_id_++;
