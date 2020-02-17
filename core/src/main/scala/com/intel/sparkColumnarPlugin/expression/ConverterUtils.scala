@@ -13,11 +13,12 @@ import org.apache.arrow.vector.ipc.message.ArrowRecordBatch
 import org.apache.arrow.vector.types.pojo.Schema
 import org.apache.arrow.vector.types.pojo.Field
 import org.apache.arrow.vector.types.pojo.ArrowType
+import org.apache.spark.internal.Logging
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
 
-object ConverterUtils {
+object ConverterUtils extends Logging {
   def createArrowRecordBatch(columnarBatch: ColumnarBatch): ArrowRecordBatch = {
     val fieldNodes = new ListBuffer[ArrowFieldNode]()
     val inputData = new ListBuffer[ArrowBuf]()
@@ -32,6 +33,7 @@ object ConverterUtils {
       }
       inputData += inputVector.getDataBuffer()
     }
+    //logInfo(s"${fieldNodes}")
     new ArrowRecordBatch(numRowsInBatch, fieldNodes.toList.asJava, inputData.toList.asJava)
   }
 

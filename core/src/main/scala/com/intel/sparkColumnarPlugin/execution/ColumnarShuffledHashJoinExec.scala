@@ -90,7 +90,7 @@ class ColumnarShuffledHashJoinExec(
     streamedPlan.executeColumnar().zipPartitions(buildPlan.executeColumnar()) { (streamIter, buildIter) =>
       //val hashed = buildHashedRelation(buildIter)
       //join(streamIter, hashed, numOutputRows)
-      val vjoin = ColumnarShuffledHashJoin.create(leftKeys, rightKeys, resultSchema, joinType, condition, left, right, buildTime, joinTime, numOutputRows)
+      val vjoin = ColumnarShuffledHashJoin.create(leftKeys, rightKeys, resultSchema, joinType, buildSide, condition, left, right, buildTime, joinTime, numOutputRows)
       val vjoinResult = vjoin.columnarInnerJoin(streamIter, buildIter)
       TaskContext.get().addTaskCompletionListener[Unit](_ => {
         vjoin.close()
