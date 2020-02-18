@@ -70,6 +70,9 @@ class ColumnarShuffledHashJoin(
     totalOutputNumRows: SQLMetric
     ) extends Logging{
 
+    var build_cb : ColumnarBatch = null
+    var last_cb: ColumnarBatch = null
+
     val inputBatchHolder = new ListBuffer[ArrowRecordBatch]() 
     // TODO
     val l_input_schema: Seq[Attribute] = left.output
@@ -202,11 +205,11 @@ class ColumnarShuffledHashJoin(
     buildIter: Iterator[ColumnarBatch]): Iterator[ColumnarBatch] = {
 
     val beforeBuild = System.nanoTime()
-    var build_cb : ColumnarBatch = null
 
     while (buildIter.hasNext) {
       if (build_cb != null) {
         build_cb.close()
+        build_cb = null
       }
       build_cb = buildIter.next()
       val build_rb = ConverterUtils.createArrowRecordBatch(build_cb)
@@ -214,18 +217,21 @@ class ColumnarShuffledHashJoin(
       prober.evaluate(build_rb)
       build_shuffler.evaluate(build_rb)
     }
+    if (build_cb != null) {
+      build_cb.close()
+      build_cb = null
+    }
 
     probe_iterator = prober.finishByIterator();
     build_shuffler.setDependency(probe_iterator, 0)
     stream_shuffler.setDependency(probe_iterator, 1)
     build_shuffle_iterator = build_shuffler.finishByIterator();
     buildTime += NANOSECONDS.toMillis(System.nanoTime() - beforeBuild)
-
-    var last_cb: ColumnarBatch = null
     
     streamIter.map(cb => {
       if (last_cb != null) {
         last_cb.close()
+        last_cb = null
       }
       val beforeJoin = System.nanoTime()
       last_cb = cb
@@ -238,6 +244,8 @@ class ColumnarShuffledHashJoin(
       val stream_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb)
       val stream_output_rb: ArrowRecordBatch = stream_shuffler.evaluate(stream_rb)(0)
       val stream_output = ConverterUtils.fromArrowRecordBatch(stream_output_arrow_schema, stream_output_rb)
+      stream_key_cols.map(v => v.close())
+      ConverterUtils.releaseArrowRecordBatch(process_input_rb)
       ConverterUtils.releaseArrowRecordBatch(stream_rb)
       ConverterUtils.releaseArrowRecordBatch(stream_output_rb)
       val outputNumRows = stream_output_rb.getLength()
@@ -257,7 +265,6 @@ class ColumnarShuffledHashJoin(
         case BuildRight =>
           stream_output.toList ::: build_output.toList
       }
-      ConverterUtils.releaseArrowRecordBatch(process_input_rb)
       totalOutputNumRows += outputNumRows
       joinTime += NANOSECONDS.toMillis(System.nanoTime() - beforeJoin)
       new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]).toArray, outputNumRows)
@@ -265,7 +272,12 @@ class ColumnarShuffledHashJoin(
   }
 
   def close(): Unit = {
+    logInfo(" closed")
     ConverterUtils.releaseArrowRecordBatchList(inputBatchHolder.toArray)
+    if (last_cb != null) {
+      last_cb.close()
+      last_cb = null
+    }
     if (prober != null) {
       prober.close()
       prober = null

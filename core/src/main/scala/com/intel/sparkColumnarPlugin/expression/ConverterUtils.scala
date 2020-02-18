@@ -33,7 +33,6 @@ object ConverterUtils extends Logging {
       }
       inputData += inputVector.getDataBuffer()
     }
-    //logInfo(s"${fieldNodes}")
     new ArrowRecordBatch(numRowsInBatch, fieldNodes.toList.asJava, inputData.toList.asJava)
   }
 
@@ -64,7 +63,7 @@ object ConverterUtils extends Logging {
   def releaseArrowRecordBatchList(recordBatchList: Array[ArrowRecordBatch]): Unit = {
     recordBatchList.foreach({ recordBatch =>
       if (recordBatch != null)
-        recordBatch.close()
+        releaseArrowRecordBatch(recordBatch)
     })
   }
 
