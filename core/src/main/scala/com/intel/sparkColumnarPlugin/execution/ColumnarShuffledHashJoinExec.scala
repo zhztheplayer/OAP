@@ -19,6 +19,8 @@ package com.intel.sparkColumnarPlugin.execution
 
 import java.util.concurrent.TimeUnit._
 
+import com.intel.sparkColumnarPlugin.vectorized._
+
 import org.apache.spark.TaskContext
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
@@ -95,7 +97,7 @@ class ColumnarShuffledHashJoinExec(
       TaskContext.get().addTaskCompletionListener[Unit](_ => {
         vjoin.close()
       })
-      vjoinResult
+      new CloseableColumnBatchIterator(vjoinResult)
     }
   }
 }

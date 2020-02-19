@@ -54,7 +54,6 @@ class ColumnarAggregation(
   var elapseTime_make: Long = 0
   var rowId: Int = 0
   var processedNumRows: Int = 0
-  val inputBatchHolder = new ListBuffer[ArrowRecordBatch]() 
 
   logInfo(
     s"\ngroupingExpressions: $groupingExpressions,\noriginalInputAttributes: $originalInputAttributes,\naggregateExpressions: $aggregateExpressions,\naggregateAttributes: $aggregateAttributes,\nresultExpressions: $resultExpressions")
@@ -237,8 +236,7 @@ class ColumnarAggregation(
   }
 
   def close(): Unit = {
-    logInfo("ColumnarAggregation ExpressionEvaluator closed");
-    ConverterUtils.releaseArrowRecordBatchList(inputBatchHolder.toArray)
+    logInfo(" closed");
     if (aggregator != null) {
       aggregator.close()
       aggregator = null
@@ -259,10 +257,10 @@ class ColumnarAggregation(
       val aggrArrowSchema = new Schema(aggrFieldList.asJava)
       val aggrSchema = ArrowUtils.fromArrowSchema(aggrArrowSchema)
       val outputVectors = ArrowWritableColumnVector.allocateColumns(numRows, aggrSchema)
-        .toArray.map(columnVector => columnVector.getValueVector())
+        .map(columnVector => columnVector.getValueVector())
       projector.evaluate(inputProjRecordBatch, outputVectors.toList.asJava)
       ConverterUtils.releaseArrowRecordBatch(inputProjRecordBatch)
-      outputVectors
+      outputVectors.toArray
     } else {
       projCols.toArray
     }
@@ -270,10 +268,12 @@ class ColumnarAggregation(
       columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
     })
     val inputAggrRecordBatch: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(numRows, groupCols ++ aggrCols)
-    val resultRecordBatchList = aggregator.evaluate(inputAggrRecordBatch)
+    aggregator.evaluate(inputAggrRecordBatch)
    
-    inputBatchHolder += inputAggrRecordBatch
+    projCols.map(v => v.close())
     aggrCols.map(v => v.close())
+    groupCols.map(v => v.close())
+    ConverterUtils.releaseArrowRecordBatch(inputAggrRecordBatch)
   }
 
   def getAggregationResult(): ColumnarBatch = {

@@ -738,13 +738,23 @@ class ProbeArraysVisitorImpl : public ExprVisitorImpl {
     if (initialized_) {
       return arrow::Status::OK();
     }
-    if (p_->param_field_names_.size() != 1) {
-      return arrow::Status::Invalid("ProbeArraysVisitorImpl expects only one parameter.");
+    std::vector<std::shared_ptr<arrow::DataType>> type_list;
+    for (int i = 0; i < p_->param_field_names_.size(); i++) {
+      int col_id;
+      std::shared_ptr<arrow::Field> field;
+      RETURN_NOT_OK(GetColumnIdAndFieldByName(p_->schema_, p_->param_field_names_[i],
+                                              &col_id, &field));
+      type_list.push_back(field->type());
+      col_id_list_.push_back(col_id);
     }
-    std::shared_ptr<arrow::Field> field;
-    RETURN_NOT_OK(GetColumnIdAndFieldByName(p_->schema_, p_->param_field_names_[0],
-                                            &col_id_, &field));
-    auto data_type = field->type();
+    std::shared_ptr<arrow::DataType> data_type;
+    if (type_list.size() > 1) {
+      RETURN_NOT_OK(
+          extra::HashAggrArrayKernel::Make(&p_->ctx_, type_list, &concat_kernel_));
+      data_type = arrow::int64();
+    } else {
+      data_type = type_list[0];
+    }
     RETURN_NOT_OK(
         extra::ProbeArraysKernel::Make(&p_->ctx_, data_type, join_type_, &kernel_));
 
@@ -759,7 +769,18 @@ class ProbeArraysVisitorImpl : public ExprVisitorImpl {
   arrow::Status Eval() override {
     switch (p_->dependency_result_type_) {
       case ArrowComputeResultType::None: {
-        auto col = p_->in_record_batch_->column(col_id_);
+        std::shared_ptr<arrow::Array> col;
+        if (concat_kernel_) {
+          std::vector<std::shared_ptr<arrow::Array>> array_list;
+          for (auto col_id : col_id_list_) {
+            array_list.push_back(p_->in_record_batch_->column(col_id));
+          }
+
+          TIME_MICRO_OR_RAISE(concat_elapse_time,
+                              concat_kernel_->Evaluate(array_list, &col));
+        } else {
+          col = p_->in_record_batch_->column(col_id_list_[0]);
+        }
         TIME_MICRO_OR_RAISE(p_->elapse_time_, kernel_->Evaluate(col));
         finish_return_type_ = ArrowComputeResultType::Batch;
       } break;
@@ -770,7 +791,10 @@ class ProbeArraysVisitorImpl : public ExprVisitorImpl {
     return arrow::Status::OK();
   }
 
-  arrow::Status Finish() override { return arrow::Status::OK(); }
+  arrow::Status Finish() override {
+    std::cout << "Concat keys took " << TIME_TO_STRING(concat_elapse_time) << std::endl;
+    return arrow::Status::OK();
+  }
 
   arrow::Status MakeResultIterator(
       std::shared_ptr<arrow::Schema> schema,
@@ -788,13 +812,15 @@ class ProbeArraysVisitorImpl : public ExprVisitorImpl {
   }
 
  private:
-  int col_id_;
   struct ArrayItemIndex {
     uint64_t id = 0;
     uint64_t array_id = 0;
   };
   int join_type_;
-};
+  std::shared_ptr<extra::KernalBase> concat_kernel_;
+  std::vector<int> col_id_list_;
+  uint64_t concat_elapse_time;
+};  // namespace arrowcompute
 
 }  // namespace arrowcompute
 }  // namespace codegen

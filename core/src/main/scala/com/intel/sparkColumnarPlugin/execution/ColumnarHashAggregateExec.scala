@@ -97,7 +97,7 @@ class ColumnarHashAggregateExec(
         if (!hasInput && groupingExpressions.isEmpty) {
           throw new UnsupportedOperationException(s"Not support groupingExpressions.isEmpty")
         } else {
-          aggregation.createIterator(iter)
+          new CloseableColumnBatchIterator(aggregation.createIterator(iter))
         }
       }
       res
