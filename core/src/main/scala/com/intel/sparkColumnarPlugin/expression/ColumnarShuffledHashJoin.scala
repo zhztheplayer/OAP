@@ -132,11 +132,6 @@ class ColumnarShuffledHashJoin(
 
     logInfo(s"\nbuild_key_field_list is ${build_key_field_list}, stream_key_field_list is ${stream_key_field_list}, stream_key_ordinal_list is ${stream_key_ordinal_list}, \nbuild_input_field_list is ${build_input_field_list}, stream_input_field_list is ${stream_input_field_list}, \nbuild_output_field_list is ${build_output_field_list}, stream_output_field_list is ${stream_output_field_list}")
 
-    // only support single primary key here
-    if (build_key_field_list.size != 1) {
-      throw new UnsupportedOperationException("Only support single join key currently.")
-    }
-
     /////////////////////////////// Create Prober /////////////////////////////
     // Prober is used to insert left table primary key into hashMap
     // Then use iterator to probe right table primary key from hashmap
@@ -220,6 +215,20 @@ class ColumnarShuffledHashJoin(
     if (build_cb != null) {
       build_cb.close()
       build_cb = null
+    } else {
+      val res = new Iterator[ColumnarBatch] {
+        override def hasNext: Boolean = {
+          false
+        }
+
+        override def next(): ColumnarBatch = {
+          val resultColumnVectors = ArrowWritableColumnVector
+            .allocateColumns(0, resultSchema)
+            .toArray
+          new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), 0)
+        }
+      }
+      return res
     }
 
     probe_iterator = prober.finishByIterator();

@@ -1272,7 +1272,7 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
           arrow::RecordBatch::Make(result_schema, cur_id_, {left_arr_out, right_arr_out});
       return arrow::Status::OK();
     };
-    *out = std::make_shared<ProbeArraysResultIterator>(eval_func);
+    *out = std::make_shared<ProbeArraysResultIterator>(ctx_, eval_func);
     return arrow::Status::OK();
   }
 
@@ -1296,21 +1296,46 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
   class ProbeArraysResultIterator : public ResultIterator<arrow::RecordBatch> {
    public:
     ProbeArraysResultIterator(
+        arrow::compute::FunctionContext* ctx,
         std::function<arrow::Status(const std::shared_ptr<arrow::Array>& in,
                                     std::shared_ptr<arrow::RecordBatch>* out)>
             eval_func)
-        : eval_func_(eval_func) {}
+        : eval_func_(eval_func), ctx_(ctx) {}
 
     bool HasNext() override { return true; }
 
     arrow::Status Process(std::vector<std::shared_ptr<arrow::Array>> in,
                           std::shared_ptr<arrow::RecordBatch>* out) {
-      RETURN_NOT_OK(eval_func_(in[0], out));
+      std::shared_ptr<arrow::Array> in_arr;
+      if (in.size() > 1) {
+        std::vector<std::shared_ptr<arrow::DataType>> type_list;
+        for (int i = 0; i < in.size(); i++) {
+          type_list.push_back(in[i]->type());
+        }
+        std::shared_ptr<extra::KernalBase> concat_kernel;
+        RETURN_NOT_OK(extra::HashAggrArrayKernel::Make(ctx_, type_list, &concat_kernel));
+        RETURN_NOT_OK(concat_kernel->Evaluate(in, &in_arr));
+      } else {
+        in_arr = in[0];
+      }
+      RETURN_NOT_OK(eval_func_(in_arr, out));
       return arrow::Status::OK();
     }
 
     arrow::Status ProcessAndCacheOne(std::vector<std::shared_ptr<arrow::Array>> in) {
-      RETURN_NOT_OK(eval_func_(in[0], &out_cache_));
+      std::shared_ptr<arrow::Array> in_arr;
+      if (in.size() > 1) {
+        std::vector<std::shared_ptr<arrow::DataType>> type_list;
+        for (int i = 0; i < in.size(); i++) {
+          type_list.push_back(in[i]->type());
+        }
+        std::shared_ptr<extra::KernalBase> concat_kernel;
+        RETURN_NOT_OK(extra::HashAggrArrayKernel::Make(ctx_, type_list, &concat_kernel));
+        RETURN_NOT_OK(concat_kernel->Evaluate(in, &in_arr));
+      } else {
+        in_arr = in[0];
+      }
+      RETURN_NOT_OK(eval_func_(in_arr, &out_cache_));
       return arrow::Status::OK();
     }
 
@@ -1324,6 +1349,7 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
                                 std::shared_ptr<arrow::RecordBatch>* out)>
         eval_func_;
     std::shared_ptr<arrow::RecordBatch> out_cache_;
+    arrow::compute::FunctionContext* ctx_;
   };
 };
 
