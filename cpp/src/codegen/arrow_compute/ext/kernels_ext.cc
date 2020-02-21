@@ -61,6 +61,10 @@ class SplitArrayListWithActionKernel::Impl {
         RETURN_NOT_OK(MakeSumAction(ctx_, type_list[type_id], &action));
       } else if (action_name_list_[action_id].compare("action_avg") == 0) {
         RETURN_NOT_OK(MakeAvgAction(ctx_, type_list[type_id], &action));
+      } else if (action_name_list_[action_id].compare("action_min") == 0) {
+        RETURN_NOT_OK(MakeAvgAction(ctx_, type_list[type_id], &action));
+      } else if (action_name_list_[action_id].compare("action_max") == 0) {
+        RETURN_NOT_OK(MakeAvgAction(ctx_, type_list[type_id], &action));
       } else if (action_name_list_[action_id].compare("action_sum_count") == 0) {
         RETURN_NOT_OK(MakeSumCountAction(ctx_, type_list[type_id], &action));
       } else if (action_name_list_[action_id].compare("action_avgByCount") == 0) {
@@ -199,11 +203,7 @@ class ShuffleArrayListKernel::Impl {
     std::shared_ptr<arrow::RecordBatch> child_out;
     RETURN_NOT_OK(in_indices_iter_->GetResult(&child_out));
     in_indices_ = child_out->column(iter_result_index_);
-    // TODO: we can use gandiva project function
-    if (in_indices_->length() == 0) {
-      *out = in;
-      return arrow::Status::OK();
-    }
+
     std::vector<std::function<arrow::Status(uint32_t)>> eval_func_list;
     std::vector<std::function<arrow::Status()>> eval_null_func_list;
     for (int i = 0; i < in.size(); i++) {
@@ -220,11 +220,8 @@ class ShuffleArrayListKernel::Impl {
                          ->raw_values();
 
     if (in_indices_->null_count() != 0) {
-      auto valid_reader = std::make_shared<arrow::internal::BitmapReader>(
-          in_indices_->data()->buffers[0]->data(), in_indices_->data()->offset,
-          in_indices_->data()->length);
       for (int i = 0; i < in_indices_->length(); i++) {
-        if (valid_reader->IsNotSet()) {
+        if (in_indices_->IsNull(i)) {
           for (auto eval_func : eval_null_func_list) {
             eval_func();
           }
@@ -233,7 +230,6 @@ class ShuffleArrayListKernel::Impl {
             eval_func(*(data + i));
           }
         }
-        valid_reader->Next();
       }
     } else {
       for (int i = 0; i < in_indices_->length(); i++) {

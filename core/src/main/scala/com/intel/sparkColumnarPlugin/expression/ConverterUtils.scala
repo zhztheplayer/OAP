@@ -3,6 +3,7 @@ package com.intel.sparkColumnarPlugin.expression
 import io.netty.buffer.ArrowBuf
 
 import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.optimizer._
 import org.apache.spark.sql.execution.vectorized.ArrowWritableColumnVector
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.ArrowUtils
@@ -74,6 +75,11 @@ object ConverterUtils extends Logging {
       case a: AttributeReference =>
         a
       case a: Alias =>
+        getAttrFromExpr(a.child)
+      case a: KnownFloatingPointNormalized =>
+        logInfo(s"$a")
+        getAttrFromExpr(a.child)
+      case a: NormalizeNaNAndZero =>
         getAttrFromExpr(a.child)
       case other =>
         throw new UnsupportedOperationException(s"makeStructField is unable to parse from $other (${other.getClass}).")

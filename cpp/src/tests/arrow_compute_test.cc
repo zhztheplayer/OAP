@@ -322,18 +322,22 @@ TEST(TestArrowCompute, GroupByAggregateWithMultipleBatchTest) {
   auto n_avg = TreeExprBuilder::MakeFunction("action_avg", {n_split, arg1}, uint32());
   auto n_sum_count =
       TreeExprBuilder::MakeFunction("action_sum_count", {n_split, arg1}, uint32());
+  auto n_min = TreeExprBuilder::MakeFunction("action_min", {n_split, arg1}, uint32());
+  auto n_max = TreeExprBuilder::MakeFunction("action_max", {n_split, arg1}, uint32());
 
   auto unique_expr = TreeExprBuilder::MakeExpression(n_unique, f_res);
   auto sum_expr = TreeExprBuilder::MakeExpression(n_sum, f_res);
   auto count_expr = TreeExprBuilder::MakeExpression(n_count, f_res);
   auto avg_expr = TreeExprBuilder::MakeExpression(n_avg, f_res);
   auto sum_count_expr = TreeExprBuilder::MakeExpression(n_sum_count, f_res);
+  auto avg_min = TreeExprBuilder::MakeExpression(n_min, f_res);
+  auto avg_max = TreeExprBuilder::MakeExpression(n_max, f_res);
 
   std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {
-      unique_expr, sum_expr, count_expr, avg_expr, sum_count_expr};
+      unique_expr, sum_expr, count_expr, avg_expr, sum_count_expr, avg_min, avg_max};
   auto sch = arrow::schema({f0, f1});
-  std::vector<std::shared_ptr<Field>> ret_types = {f_unique, f_sum, f_count,
-                                                   f_avg,    f_sum, f_count};
+  std::vector<std::shared_ptr<Field>> ret_types = {f_unique, f_sum,   f_count, f_avg,
+                                                   f_sum,    f_count, f_res,   f_res};
 
   /////////////////////// Create Expression Evaluator ////////////////////
   std::shared_ptr<CodeGenerator> expr;
@@ -368,8 +372,10 @@ TEST(TestArrowCompute, GroupByAggregateWithMultipleBatchTest) {
   std::vector<std::string> expected_result_string = {
       "[1, 2, 3, 4, 5, 6, 7, 8 ,9, 10]",        "[8, 10, 9, 20, 55, 42, 28, 32, 54, 70]",
       "[8, 5, 3, 5, 11, 7, 4, 4, 6, 7]",        "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]",
-      "[8, 10, 9, 20, 55, 42, 28, 32, 54, 70]", "[8, 5, 3, 5, 11, 7, 4, 4, 6, 7]"};
-  auto res_sch = arrow::schema({f_unique, f_sum, f_count, f_avg, f_sum, f_count});
+      "[8, 10, 9, 20, 55, 42, 28, 32, 54, 70]", "[8, 5, 3, 5, 11, 7, 4, 4, 6, 7]",
+      "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]",        "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]"};
+  auto res_sch =
+      arrow::schema({f_unique, f_sum, f_count, f_avg, f_sum, f_count, f_res, f_res});
   MakeInputBatch(expected_result_string, res_sch, &expected_result);
   ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
 }

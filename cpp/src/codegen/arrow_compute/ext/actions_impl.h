@@ -279,6 +279,196 @@ class CountLiteralAction : public ActionBase {
   std::vector<bool> cache_validity_;
 };
 
+//////////////// MinAction ///////////////
+template <typename DataType>
+class MinAction : public ActionBase {
+ public:
+  MinAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
+#ifdef DEBUG
+    std::cout << "Construct MinAction" << std::endl;
+#endif
+  }
+  ~MinAction() {
+#ifdef DEBUG
+    std::cout << "Destruct MinAction" << std::endl;
+#endif
+  }
+
+  int RequiredColNum() { return 1; }
+
+  arrow::Status Submit(ArrayList in_list, int max_group_id,
+                       std::function<arrow::Status(int)>* out) override {
+    // resize result data
+    if (cache_validity_.size() <= max_group_id) {
+      cache_validity_.resize(max_group_id + 1, false);
+      cache_.resize(max_group_id + 1, 0);
+    }
+
+    auto in = in_list[0];
+    // prepare evaluate lambda
+    data_ = const_cast<CType*>(in->data()->GetValues<CType>(1));
+    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
+        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
+    row_id = 0;
+    if (in->null_count()) {
+      *out = [this](int dest_group_id) {
+        if (!cache_validity_[dest_group_id]) {
+          cache_[dest_group_id] = data_[row_id];
+          cache_validity_[dest_group_id] = true;
+        }
+        const bool is_null = valid_reader->IsNotSet();
+        valid_reader->Next();
+        if (!is_null) {
+          if (data_[row_id] < cache_[dest_group_id]) {
+            cache_[dest_group_id] = data_[row_id];
+          }
+        }
+        row_id++;
+        return arrow::Status::OK();
+      };
+    } else {
+      *out = [this](int dest_group_id) {
+        if (!cache_validity_[dest_group_id]) {
+          cache_[dest_group_id] = data_[row_id];
+          cache_validity_[dest_group_id] = true;
+        }
+        if (data_[row_id] < cache_[dest_group_id]) {
+          cache_[dest_group_id] = data_[row_id];
+        }
+        row_id++;
+        return arrow::Status::OK();
+      };
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    std::unique_ptr<arrow::ArrayBuilder> array_builder;
+    arrow::MakeBuilder(ctx_->memory_pool(),
+                       arrow::TypeTraits<ResDataType>::type_singleton(), &array_builder);
+
+    std::unique_ptr<ResBuilderType> builder;
+    builder.reset(
+        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
+    RETURN_NOT_OK(builder->AppendValues(cache_, cache_validity_));
+    RETURN_NOT_OK(builder->Finish(&arr_out));
+    out->push_back(arr_out);
+
+    return arrow::Status::OK();
+  }
+
+ private:
+  using CType = typename arrow::TypeTraits<DataType>::CType;
+  using ResDataType = typename FindAccumulatorType<DataType>::Type;
+  using ResCType = typename arrow::TypeTraits<ResDataType>::CType;
+  using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
+  using ResBuilderType = typename arrow::TypeTraits<ResDataType>::BuilderType;
+  // input
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  CType* data_;
+  int row_id;
+  // result
+  std::vector<ResCType> cache_;
+  std::vector<bool> cache_validity_;
+};
+
+//////////////// MaxAction ///////////////
+template <typename DataType>
+class MaxAction : public ActionBase {
+ public:
+  MaxAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
+#ifdef DEBUG
+    std::cout << "Construct MaxAction" << std::endl;
+#endif
+  }
+  ~MaxAction() {
+#ifdef DEBUG
+    std::cout << "Destruct MaxAction" << std::endl;
+#endif
+  }
+
+  int RequiredColNum() { return 1; }
+
+  arrow::Status Submit(ArrayList in_list, int max_group_id,
+                       std::function<arrow::Status(int)>* out) override {
+    // resize result data
+    if (cache_validity_.size() <= max_group_id) {
+      cache_validity_.resize(max_group_id + 1, false);
+      cache_.resize(max_group_id + 1, 0);
+    }
+
+    auto in = in_list[0];
+    // prepare evaluate lambda
+    data_ = const_cast<CType*>(in->data()->GetValues<CType>(1));
+    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
+        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
+    row_id = 0;
+    if (in->null_count()) {
+      *out = [this](int dest_group_id) {
+        if (!cache_validity_[dest_group_id]) {
+          cache_[dest_group_id] = data_[row_id];
+          cache_validity_[dest_group_id] = true;
+        }
+        const bool is_null = valid_reader->IsNotSet();
+        valid_reader->Next();
+        if (!is_null) {
+          if (data_[row_id] > cache_[dest_group_id]) {
+            cache_[dest_group_id] = data_[row_id];
+          }
+        }
+        row_id++;
+        return arrow::Status::OK();
+      };
+    } else {
+      *out = [this](int dest_group_id) {
+        if (!cache_validity_[dest_group_id]) {
+          cache_[dest_group_id] = data_[row_id];
+          cache_validity_[dest_group_id] = true;
+        }
+        if (data_[row_id] > cache_[dest_group_id]) {
+          cache_[dest_group_id] = data_[row_id];
+        }
+        row_id++;
+        return arrow::Status::OK();
+      };
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    std::unique_ptr<arrow::ArrayBuilder> array_builder;
+    arrow::MakeBuilder(ctx_->memory_pool(),
+                       arrow::TypeTraits<ResDataType>::type_singleton(), &array_builder);
+
+    std::unique_ptr<ResBuilderType> builder;
+    builder.reset(
+        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
+    RETURN_NOT_OK(builder->AppendValues(cache_, cache_validity_));
+    RETURN_NOT_OK(builder->Finish(&arr_out));
+    out->push_back(arr_out);
+
+    return arrow::Status::OK();
+  }
+
+ private:
+  using CType = typename arrow::TypeTraits<DataType>::CType;
+  using ResDataType = typename FindAccumulatorType<DataType>::Type;
+  using ResCType = typename arrow::TypeTraits<ResDataType>::CType;
+  using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
+  using ResBuilderType = typename arrow::TypeTraits<ResDataType>::BuilderType;
+  // input
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  CType* data_;
+  int row_id;
+  // result
+  std::vector<ResCType> cache_;
+  std::vector<bool> cache_validity_;
+};
+
 //////////////// SumAction ///////////////
 template <typename DataType>
 class SumAction : public ActionBase {

@@ -63,6 +63,11 @@ class ConcurrentMap {
     map_.clear();
   }
 
+  size_t Size() {
+    std::lock_guard<std::mutex> lock(mtx_);
+    return map_.size();
+  }
+
  private:
   // Initialize the module id starting value to a number greater than zero
   // to allow for easier debugging of uninitialized java variables.
