@@ -520,6 +520,8 @@ Java_com_intel_sparkColumnarPlugin_vectorized_BatchIterator_nativeClose(JNIEnv* 
 JNIEXPORT void JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_AdaptorReferenceManager_nativeRelease(
     JNIEnv* env, jobject this_obj, jlong id) {
+  // auto buffer_holder_size = buffer_holder_.Size();
+  // std::cout << "release buffer, current size is " << buffer_holder_size << std::endl;
   buffer_holder_.Erase(id);
 }
 
