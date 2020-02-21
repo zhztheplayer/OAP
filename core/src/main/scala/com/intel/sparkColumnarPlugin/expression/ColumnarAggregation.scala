@@ -1,8 +1,8 @@
 package com.intel.sparkColumnarPlugin.expression
 
 import io.netty.buffer.ArrowBuf
-import java.util._
 import java.util.ArrayList
+import java.util.Collections
 import java.util.concurrent.TimeUnit._
 import util.control.Breaks._
 
@@ -31,7 +31,6 @@ import org.apache.arrow.vector.types.pojo.Schema
 import org.apache.arrow.vector.types.pojo.Field
 import org.apache.arrow.vector.types.pojo.ArrowType
 
-import scala.collection.Iterator
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
 import scala.collection.immutable.List
@@ -131,13 +130,17 @@ class ColumnarAggregation(
   // map expression
   var field_id = 0
   var aggr_id = 0
-  val expressions: List[ColumnarAggregateExpressionBase] = resultExpressions.toList.map(expr => {
+  val expressionsBuffer = ListBuffer[ColumnarAggregateExpressionBase]()
+  var i = 0
+  while (i < resultExpressions.length) {
+    val expr = resultExpressions(i)
     val attr = ConverterUtils.getAttrFromExpr(expr)
     var ordinal = groupingExpressions.indexWhere(_.exprId == attr.exprId) 
-    if (ordinal != -1) {
+    val expression = if (ordinal != -1) {
       val a = groupingExpressions(ordinal)
       logInfo(s"expr is $attr, groupingExpression is ${ordinal}: $a")
       val field = Field.nullable(s"${a.name}#${a.exprId.id}", CodeGeneration.getResultType(a.dataType))
+      i += 1
       new ColumnarUniqueAggregateExpression(List(field)).asInstanceOf[ColumnarAggregateExpressionBase]
     } else {
       ordinal = aggregateAttributes.indexOf(attr.exprId)
@@ -150,18 +153,22 @@ class ColumnarAggregation(
         a.aggregateFunction,
         a.mode,
         a.isDistinct,
-        a.resultId).asInstanceOf[ColumnarAggregateExpressionBase]
+        a.resultId)
       val arg_size = res.requiredColNum
+      val res_size = res.expectedResColNum
+      i += res_size
       val fieldList = ListBuffer[Field]()
-      for (i <- 0 until arg_size) {
+      for (j <- 0 until arg_size) {
         fieldList += aggrFieldList(field_id)
         field_id += 1
       }
       res.setInputFields(fieldList.toList)
       aggr_id += 1
-      res
+      res.asInstanceOf[ColumnarAggregateExpressionBase]
     }
-  }) 
+    expressionsBuffer += expression
+  } 
+  val expressions = expressionsBuffer.toList
 
   logInfo(s"inputFieldList is ${inputFieldList}, outputFieldList is ${outputFieldList}")
 
@@ -184,7 +191,7 @@ class ColumnarAggregation(
         TreeBuilder.makeExpression(node, resultField),
         TreeBuilder.makeExpression(finalNode, resultField))
     }
-  }).filter(_ != null)
+  })
 
   val resultSchema = new Schema(outputFieldList.asJava)
   var aggregator = new ExpressionEvaluator()
@@ -304,9 +311,7 @@ class ColumnarAggregation(
     new Iterator[ColumnarBatch] {
       var cb: ColumnarBatch = null
 
-      override def hasNext: Boolean = {
-        cbIterator.hasNext
-      }
+      override def hasNext: Boolean = cbIterator.hasNext
 
       override def next(): ColumnarBatch = {
         val beforeAgg = System.nanoTime()
