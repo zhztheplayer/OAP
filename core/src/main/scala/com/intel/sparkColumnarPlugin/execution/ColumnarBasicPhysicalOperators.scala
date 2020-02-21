@@ -152,7 +152,7 @@ case class ColumnarConditionProjectExec(condition: Expression, child: SparkPlan)
         .addTaskCompletionListener[Unit]((tc: TaskContext) => {
           condProj.close()
         })
-      new CloseableColumnBatchIterator(iter.map(condProj))
+      new CloseableColumnBatchIterator(condProj.createIterator(iter))
     }
   }
 
