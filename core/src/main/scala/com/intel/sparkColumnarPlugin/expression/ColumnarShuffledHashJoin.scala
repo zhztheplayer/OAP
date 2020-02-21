@@ -77,6 +77,7 @@ class ColumnarShuffledHashJoin(
     // TODO
     val l_input_schema: Seq[Attribute] = left.output
     val r_input_schema: Seq[Attribute] = right.output
+    logInfo(s"\nleft_schema is ${l_input_schema}, right_schema is ${r_input_schema}, \nleftKeys is ${leftKeys}, rightKeys is ${rightKeys}, \nresultSchema is ${resultSchema}, joinType is ${joinType}, buildSide is ${buildSide}, condition is ${condition}")
 
     val l_input_field_list: List[Field] = l_input_schema.toList.map(attr => {
       Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
@@ -89,12 +90,19 @@ class ColumnarShuffledHashJoin(
       Field.nullable(field.name, CodeGeneration.getResultType(field.dataType))
     }).toList
 
-    val lkeyFieldList: List[Field] = leftKeys.toList.map(expr => {
+    val leftKeyAttributes = leftKeys.toList.map(expr => {
+      ConverterUtils.getAttrFromExpr(expr).asInstanceOf[Expression]
+    })
+    val rightKeyAttributes = rightKeys.toList.map(expr => {
+      ConverterUtils.getAttrFromExpr(expr).asInstanceOf[Expression]
+    })
+
+    val lkeyFieldList: List[Field] = leftKeyAttributes.toList.map(expr => {
         val attr = ConverterUtils.getAttrFromExpr(expr)
         Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(expr.dataType))
     })
 
-    val rkeyFieldList: List[Field] = rightKeys.toList.map(expr => {
+    val rkeyFieldList: List[Field] = rightKeyAttributes.toList.map(expr => {
         val attr = ConverterUtils.getAttrFromExpr(expr)
         Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(expr.dataType))
     })
@@ -102,11 +110,11 @@ class ColumnarShuffledHashJoin(
     val (build_key_field_list, stream_key_field_list, stream_key_ordinal_list, build_input_field_list, stream_input_field_list)
       = buildSide match {
       case BuildLeft =>
-        val stream_key_expr_list = bindReferences(rightKeys, r_input_schema) 
+        val stream_key_expr_list = bindReferences(rightKeyAttributes, r_input_schema) 
         (lkeyFieldList, rkeyFieldList, stream_key_expr_list.toList.map(_.asInstanceOf[BoundReference].ordinal), l_input_field_list, r_input_field_list)
 
       case BuildRight =>
-        val stream_key_expr_list = bindReferences(leftKeys, l_input_schema) 
+        val stream_key_expr_list = bindReferences(leftKeyAttributes, l_input_schema) 
         (rkeyFieldList, lkeyFieldList, stream_key_expr_list.toList.map(_.asInstanceOf[BoundReference].ordinal), r_input_field_list, l_input_field_list)
 
     }
@@ -128,7 +136,6 @@ class ColumnarShuffledHashJoin(
 
     val stream_key_arrow_schema: Schema = new Schema(stream_key_field_list.asJava)
 
-    logInfo(s"\nleft_schema is ${l_input_schema}, \nright_schema is ${r_input_schema}, \nresultSchema is ${resultSchema}, \njoinType is ${joinType}, \nbuildSide is ${buildSide}, \ncondition is ${condition}")
 
     logInfo(s"\nbuild_key_field_list is ${build_key_field_list}, stream_key_field_list is ${stream_key_field_list}, stream_key_ordinal_list is ${stream_key_ordinal_list}, \nbuild_input_field_list is ${build_input_field_list}, stream_input_field_list is ${stream_input_field_list}, \nbuild_output_field_list is ${build_output_field_list}, stream_output_field_list is ${stream_output_field_list}")
 
@@ -252,31 +259,40 @@ class ColumnarShuffledHashJoin(
 
       val stream_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb)
       val stream_output_rb: ArrowRecordBatch = stream_shuffler.evaluate(stream_rb)(0)
-      val stream_output = ConverterUtils.fromArrowRecordBatch(stream_output_arrow_schema, stream_output_rb)
-      stream_key_cols.map(v => v.close())
-      ConverterUtils.releaseArrowRecordBatch(process_input_rb)
-      ConverterUtils.releaseArrowRecordBatch(stream_rb)
-      ConverterUtils.releaseArrowRecordBatch(stream_output_rb)
-      val outputNumRows = stream_output_rb.getLength()
-
-      val build_output = if (build_output_field_list.length > 0) {
-        val build_output_rb: ArrowRecordBatch = build_shuffle_iterator.next()
-        val build_output = ConverterUtils.fromArrowRecordBatch(build_output_arrow_schema, build_output_rb)
-        ConverterUtils.releaseArrowRecordBatch(build_output_rb)
-        build_output
+      if (stream_output_rb == null) {
+        ConverterUtils.releaseArrowRecordBatch(process_input_rb)
+        ConverterUtils.releaseArrowRecordBatch(stream_rb)
+        joinTime += NANOSECONDS.toMillis(System.nanoTime() - beforeJoin)
+        val resultColumnVectors =
+          ArrowWritableColumnVector.allocateColumns(0, resultSchema).toArray
+        new ColumnarBatch(resultColumnVectors.map(v => v.asInstanceOf[ColumnVector]).toArray, 0)
       } else {
-        Array[ArrowWritableColumnVector]()
+        val stream_output = ConverterUtils.fromArrowRecordBatch(stream_output_arrow_schema, stream_output_rb)
+        stream_key_cols.map(v => v.close())
+        ConverterUtils.releaseArrowRecordBatch(process_input_rb)
+        ConverterUtils.releaseArrowRecordBatch(stream_rb)
+        ConverterUtils.releaseArrowRecordBatch(stream_output_rb)
+        val outputNumRows = stream_output_rb.getLength()
+  
+        val build_output = if (build_output_field_list.length > 0) {
+          val build_output_rb: ArrowRecordBatch = build_shuffle_iterator.next()
+          val build_output = ConverterUtils.fromArrowRecordBatch(build_output_arrow_schema, build_output_rb)
+          ConverterUtils.releaseArrowRecordBatch(build_output_rb)
+          build_output
+        } else {
+          Array[ArrowWritableColumnVector]()
+        }
+        // TODO
+        val resultColumnVectorList = buildSide match {
+          case BuildLeft =>
+            build_output.toList ::: stream_output.toList
+          case BuildRight =>
+            stream_output.toList ::: build_output.toList
+        }
+        totalOutputNumRows += outputNumRows
+        joinTime += NANOSECONDS.toMillis(System.nanoTime() - beforeJoin)
+        new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]).toArray, outputNumRows)
       }
-      // TODO
-      val resultColumnVectorList = buildSide match {
-        case BuildLeft =>
-          build_output.toList ::: stream_output.toList
-        case BuildRight =>
-          stream_output.toList ::: build_output.toList
-      }
-      totalOutputNumRows += outputNumRows
-      joinTime += NANOSECONDS.toMillis(System.nanoTime() - beforeJoin)
-      new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]).toArray, outputNumRows)
     })
   }
 
