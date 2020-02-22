@@ -28,11 +28,15 @@ object ConverterUtils extends Logging {
       val inputVector =
         columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
       fieldNodes += new ArrowFieldNode(numRowsInBatch, inputVector.getNullCount())
+      //FIXME for projection + in test
+      //fieldNodes += new ArrowFieldNode(numRowsInBatch, inputVector.getNullCount())
       inputData += inputVector.getValidityBuffer()
       if (inputVector.isInstanceOf[VarCharVector]) {
         inputData += inputVector.getOffsetBuffer()
       }
       inputData += inputVector.getDataBuffer()
+      //FIXME for projection + in test
+      //inputData += inputVector.getValidityBuffer()
     }
     new ArrowRecordBatch(numRowsInBatch, fieldNodes.toList.asJava, inputData.toList.asJava)
   }
