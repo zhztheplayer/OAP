@@ -13,6 +13,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
+import org.apache.spark.sql.catalyst.optimizer._
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized._
@@ -222,6 +223,12 @@ class ColumnarAggregation(
     expr match {
       case e: BoundReference =>
         e.ordinal
+      case a: Alias =>
+        //TODO(): special fix for Q10
+        // https://issues.apache.org/jira/browse/SPARK-29274
+        val k_expr = a.child.asInstanceOf[KnownFloatingPointNormalized]
+        val n_expr = k_expr.child.asInstanceOf[NormalizeNaNAndZero]
+        n_expr.child.asInstanceOf[BoundReference].ordinal
       case other =>
         throw new UnsupportedOperationException(s"getOrdinalFromExpr is unable to parse from $other (${other.getClass}).")
     }
