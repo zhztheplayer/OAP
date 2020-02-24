@@ -62,7 +62,8 @@ class ColumnarAggregation(
   val inputAttributeSeq: AttributeSeq = originalInputAttributes
   val mode = aggregateExpressions(0).mode
   val keyOrdinalList: List[Int] = groupingExpressions.toList.map(expr => {
-    val bindReference = BindReferences.bindReference(expr.asInstanceOf[Expression], originalInputAttributes)
+    val attr = ConverterUtils.getAttrFromExpr(expr)
+    val bindReference = BindReferences.bindReference(attr.asInstanceOf[Expression], originalInputAttributes)
     getOrdinalFromExpr(bindReference)
   })
   val keyFieldList: List[Field] = keyOrdinalList.map(i => {
