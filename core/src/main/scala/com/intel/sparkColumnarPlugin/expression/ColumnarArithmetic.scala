@@ -22,12 +22,23 @@ class ColumnarAdd(left: Expression, right: Expression, original: Expression)
     with ColumnarExpression
     with Logging {
   override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
-    val (left_node, left_type): (TreeNode, ArrowType) =
+    var (left_node, left_type): (TreeNode, ArrowType) =
       left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
-    val (right_node, right_type): (TreeNode, ArrowType) =
+    var (right_node, right_type): (TreeNode, ArrowType) =
       right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val resultType = CodeGeneration.getResultType(left_type, right_type)
+    if (!left_type.equals(resultType)) {
+      val func_name = CodeGeneration.getCastFuncName(resultType)
+      left_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), resultType),
+    }
+    if (!right_type.equals(resultType)) {
+      val func_name = CodeGeneration.getCastFuncName(resultType)
+      right_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), resultType),
+    }
+
     //logInfo(s"(TreeBuilder.makeFunction(add, Lists.newArrayList($left_node, $right_node), $resultType), $resultType)")
     (
       TreeBuilder.makeFunction("add", Lists.newArrayList(left_node, right_node), resultType),
@@ -40,12 +51,22 @@ class ColumnarSubtract(left: Expression, right: Expression, original: Expression
     with ColumnarExpression
     with Logging {
   override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
-    val (left_node, left_type): (TreeNode, ArrowType) =
+    var (left_node, left_type): (TreeNode, ArrowType) =
       left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
-    val (right_node, right_type): (TreeNode, ArrowType) =
+    var (right_node, right_type): (TreeNode, ArrowType) =
       right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val resultType = CodeGeneration.getResultType(left_type, right_type)
+    if (!left_type.equals(resultType)) {
+      val func_name = CodeGeneration.getCastFuncName(resultType)
+      left_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), resultType),
+    }
+    if (!right_type.equals(resultType)) {
+      val func_name = CodeGeneration.getCastFuncName(resultType)
+      right_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), resultType),
+    }
     //logInfo(s"(TreeBuilder.makeFunction(multiply, Lists.newArrayList($left_node, $right_node), $resultType), $resultType)")
     (
       TreeBuilder.makeFunction("subtract", Lists.newArrayList(left_node, right_node), resultType),
@@ -58,12 +79,23 @@ class ColumnarMultiply(left: Expression, right: Expression, original: Expression
     with ColumnarExpression
     with Logging {
   override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
-    val (left_node, left_type): (TreeNode, ArrowType) =
+    var (left_node, left_type): (TreeNode, ArrowType) =
       left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
-    val (right_node, right_type): (TreeNode, ArrowType) =
+    var (right_node, right_type): (TreeNode, ArrowType) =
       right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val resultType = CodeGeneration.getResultType(left_type, right_type)
+    if (!left_type.equals(resultType)) {
+      val func_name = CodeGeneration.getCastFuncName(resultType)
+      left_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), resultType),
+    }
+    if (!right_type.equals(resultType)) {
+      val func_name = CodeGeneration.getCastFuncName(resultType)
+      right_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), resultType),
+    }
+
     //logInfo(s"(TreeBuilder.makeFunction(multiply, Lists.newArrayList($left_node, $right_node), $resultType), $resultType)")
     (
       TreeBuilder.makeFunction("multiply", Lists.newArrayList(left_node, right_node), resultType),
@@ -76,12 +108,22 @@ class ColumnarDivide(left: Expression, right: Expression, original: Expression)
     with ColumnarExpression
     with Logging {
   override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
-    val (left_node, left_type): (TreeNode, ArrowType) =
+    var (left_node, left_type): (TreeNode, ArrowType) =
       left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
-    val (right_node, right_type): (TreeNode, ArrowType) =
+    var (right_node, right_type): (TreeNode, ArrowType) =
       right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val resultType = CodeGeneration.getResultType(left_type, right_type)
+    if (!left_type.equals(resultType)) {
+      val func_name = CodeGeneration.getCastFuncName(resultType)
+      left_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), resultType),
+    }
+    if (!right_type.equals(resultType)) {
+      val func_name = CodeGeneration.getCastFuncName(resultType)
+      right_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), resultType),
+    }
     //logInfo(s"(TreeBuilder.makeFunction(multiply, Lists.newArrayList($left_node, $right_node), $resultType), $resultType)")
     (
       TreeBuilder.makeFunction("divide", Lists.newArrayList(left_node, right_node), resultType),
