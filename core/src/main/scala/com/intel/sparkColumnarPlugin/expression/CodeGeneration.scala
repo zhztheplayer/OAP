@@ -16,8 +16,12 @@ object CodeGeneration {
     if (left.equals(right)) {
       left
     } else {
-      throw new UnsupportedOperationException(
-        s"getResultType left is $left, right is $right, not equal.")
+      val left_precise_level = getPreciseLevel(left)
+      val right_precise_level = getPreciseLevel(right)
+      if (left_precise_level > right_precise_level)
+        left
+      else
+        right
     }
   }
 
@@ -46,5 +50,25 @@ object CodeGeneration {
 
   def getResultType(): ArrowType = {
     new ArrowType.Int(32, true)
+  }
+
+  def getPreciseLevel(dataType: ArrowType): Int = {
+    dataType match {
+      case t: ArrowType.Int =>
+        4
+      case t: ArrowType.FloatingPoint =>
+        8
+      case _ =>
+        throw new UnsupportedOperationException(s"Unable to get precise level of $dataType ${dataType.getClass}.")
+    }
+  }
+
+  def getCastFuncName(dataType: ArrowType): String = {
+    dataType match {
+      case t: ArrowType.FloatingPoint =>
+        s"castFLOAT${4 * dataType.asInstanceOf[ArrowType.FloatingPoint].getPrecision().getFlatbufID()}"
+      case _ =>
+        throw new UnsupportedOperationException(s"getCastFuncName(${dataType}) is not supported.")
+    }
   }
 }

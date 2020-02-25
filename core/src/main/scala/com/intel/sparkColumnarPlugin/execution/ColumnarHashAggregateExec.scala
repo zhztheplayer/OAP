@@ -74,7 +74,7 @@ class ColumnarHashAggregateExec(
 
     child.executeColumnar().mapPartitionsWithIndex { (partIndex, iter) =>
       val hasInput = iter.hasNext
-      val res = if (!hasInput && groupingExpressions.nonEmpty) {
+      val res = if (!hasInput) {
         // This is a grouped aggregate and the input iterator is empty,
         // so return an empty iterator.
         Iterator.empty
@@ -94,11 +94,7 @@ class ColumnarHashAggregateExec(
         TaskContext.get().addTaskCompletionListener[Unit](_ => {
           aggregation.close()
         })
-        if (!hasInput && groupingExpressions.isEmpty) {
-          throw new UnsupportedOperationException(s"Not support groupingExpressions.isEmpty")
-        } else {
-          new CloseableColumnBatchIterator(aggregation.createIterator(iter))
-        }
+        new CloseableColumnBatchIterator(aggregation.createIterator(iter))
       }
       res
     }

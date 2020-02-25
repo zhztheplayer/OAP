@@ -3,6 +3,7 @@ package com.intel.sparkColumnarPlugin.expression
 import io.netty.buffer.ArrowBuf
 
 import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.optimizer._
 import org.apache.spark.sql.execution.vectorized.ArrowWritableColumnVector
 import org.apache.spark.sql.types._
@@ -72,14 +73,19 @@ object ConverterUtils extends Logging {
     })
   }
 
-  def getAttrFromExpr(fieldExpr: Expression): AttributeReference = {
+  def getAttrFromExpr(fieldExpr: Expression, skipAlias: Boolean = false): AttributeReference = {
     fieldExpr match {
       case a: Cast =>
         getAttrFromExpr(a.child)
+      case a: AggregateExpression =>
+        getAttrFromExpr(a.aggregateFunction.children(0))
       case a: AttributeReference =>
         a
       case a: Alias =>
-        getAttrFromExpr(a.child)
+        if (skipAlias && a.child.isInstanceOf[AttributeReference])
+          getAttrFromExpr(a.child)
+        else
+          a.toAttribute.asInstanceOf[AttributeReference]
       case a: KnownFloatingPointNormalized =>
         logInfo(s"$a")
         getAttrFromExpr(a.child)
