@@ -146,12 +146,19 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
       visitor->PrintMetrics();
       std::cout << std::endl;
     }
+    for (auto arr : batch_array[0]) {
+      std::cout << arr->ToString();
+    }
+    for (auto field : fields) {
+      std::cout << field->ToString();
+    }
 
     res_schema_ = arrow::schema(ret_types_);
     for (int i = 0; i < batch_array.size(); i++) {
+      std::cout << res_schema_->ToString() << std::endl;
       auto record_batch =
           arrow::RecordBatch::Make(res_schema_, batch_size_array[i], batch_array[i]);
-#ifdef DEBUG_LEVEL_1
+#ifdef DEBUG
       std::cout << "ArrowCompute Finish func get output recordBatch length "
                 << record_batch->num_rows() << std::endl;
       auto status = arrow::PrettyPrint(*record_batch.get(), 2, &std::cout);
@@ -255,15 +262,12 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
         RETURN_NOT_OK(visitor->GetResult(batch_array, batch_size_array, &return_fields));
       } break;
       case ArrowComputeResultType::Batch: {
-        ArrayList result_batch;
-        RETURN_NOT_OK(visitor->GetResult(&result_batch, &return_fields));
-        RETURN_NOT_OK(MakeBatchFromBatch(result_batch, batch_array, batch_size_array));
-      } break;
-      case ArrowComputeResultType::ArrayList: {
-        ArrayList result_column_list;
-        RETURN_NOT_OK(visitor->GetResult(&result_column_list, &return_fields));
-        RETURN_NOT_OK(
-            MakeBatchFromArrayList(result_column_list, batch_array, batch_size_array));
+        if (batch_array->size() == 0) {
+          ArrayList res;
+          batch_array->push_back(res);
+        }
+        RETURN_NOT_OK(visitor->GetResult(&(batch_array->at(0)), fields));
+        batch_size_array->push_back((batch_array->at(0))[0]->length());
       } break;
       case ArrowComputeResultType::Array: {
         std::shared_ptr<arrow::Array> result_column;

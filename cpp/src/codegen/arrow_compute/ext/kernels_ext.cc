@@ -18,6 +18,7 @@
 #include <arrow/type_traits.h>
 #include <arrow/util/bit_util.h>
 #include <arrow/util/checked_cast.h>
+#include <arrow/visitor_inline.h>
 #include <gandiva/configuration.h>
 #include <gandiva/node.h>
 #include <gandiva/projector.h>
@@ -851,112 +852,467 @@ arrow::Status NTakeArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
   return impl_->Finish(out);
 }
 
+#define PROCESS_SUPPORTED_TYPES(PROCESS) \
+  PROCESS(arrow::UInt8Type)              \
+  PROCESS(arrow::Int8Type)               \
+  PROCESS(arrow::UInt16Type)             \
+  PROCESS(arrow::Int16Type)              \
+  PROCESS(arrow::UInt32Type)             \
+  PROCESS(arrow::Int32Type)              \
+  PROCESS(arrow::UInt64Type)             \
+  PROCESS(arrow::Int64Type)              \
+  PROCESS(arrow::FloatType)              \
+  PROCESS(arrow::DoubleType)
+
 ///////////////  SumArray  ////////////////
 class SumArrayKernel::Impl {
  public:
-  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  Impl(arrow::compute::FunctionContext* ctx, std::shared_ptr<arrow::DataType> data_type)
+      : ctx_(ctx), data_type_(data_type) {}
   ~Impl() {}
-  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
+  arrow::Status Evaluate(const ArrayList& in) {
     arrow::compute::Datum output;
-    // std::cout << "SumArray Evaluate Input is " << std::endl;
-    // arrow::PrettyPrint(*in.get(), 2, &std::cout);
-    RETURN_NOT_OK(arrow::compute::Sum(ctx_, *in.get(), &output));
-    std::shared_ptr<arrow::Array> out;
-    RETURN_NOT_OK(
-        arrow::MakeArrayFromScalar(*(output.scalar()).get(), output.length(), &out));
-    if (!builder) {
-      RETURN_NOT_OK(MakeArrayBuilder(out->type(), ctx_->memory_pool(), &builder));
-    }
-    // std::cout << "SumArray Evaluate Output is " << std::endl;
-    // arrow::PrettyPrint(*out.get(), 2, &std::cout);
-    RETURN_NOT_OK(builder->AppendArrayItem(&(*out.get()), 0, 0));
-    // TODO: We should only append Scalar instead of array
-    // RETURN_NOT_OK(builder->AppendScalar(output.scalar()));
-
+    RETURN_NOT_OK(arrow::compute::Sum(ctx_, *in[0].get(), &output));
+    scalar_list_.push_back(output.scalar());
     return arrow::Status::OK();
   }
 
-  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
-    RETURN_NOT_OK(builder->Finish(out));
+  arrow::Status Finish(ArrayList* out) {
+    switch (data_type_->id()) {
+#define PROCESS(DataType)                         \
+  case DataType::type_id: {                       \
+    RETURN_NOT_OK(FinishInternal<DataType>(out)); \
+  } break;
+      PROCESS_SUPPORTED_TYPES(PROCESS)
+#undef PROCESS
+    }
+    return arrow::Status::OK();
+  }
+
+  template <typename DataType>
+  arrow::Status FinishInternal(ArrayList* out) {
+    using CType = typename arrow::TypeTraits<DataType>::CType;
+    using ScalarType = typename arrow::TypeTraits<DataType>::ScalarType;
+    CType res = 0;
+    for (auto scalar_item : scalar_list_) {
+      auto typed_scalar = std::dynamic_pointer_cast<ScalarType>(scalar_item);
+      res += typed_scalar->value;
+    }
+    std::shared_ptr<arrow::Array> arr_out;
+    std::shared_ptr<arrow::Scalar> scalar_out;
+    RETURN_NOT_OK(arrow::MakeScalar(data_type_, res, &scalar_out));
+    RETURN_NOT_OK(arrow::MakeArrayFromScalar(*scalar_out.get(), 1, &arr_out));
+    out->push_back(arr_out);
     return arrow::Status::OK();
   }
 
  private:
   arrow::compute::FunctionContext* ctx_;
-  std::shared_ptr<ArrayBuilderImplBase> builder;
+  std::shared_ptr<arrow::DataType> data_type_;
+  std::vector<std::shared_ptr<arrow::Scalar>> scalar_list_;
 };
 
 arrow::Status SumArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                   std::shared_ptr<arrow::DataType> data_type,
                                    std::shared_ptr<KernalBase>* out) {
-  *out = std::make_shared<SumArrayKernel>(ctx);
+  *out = std::make_shared<SumArrayKernel>(ctx, data_type);
   return arrow::Status::OK();
 }
 
-SumArrayKernel::SumArrayKernel(arrow::compute::FunctionContext* ctx) {
-  impl_.reset(new Impl(ctx));
+SumArrayKernel::SumArrayKernel(arrow::compute::FunctionContext* ctx,
+                               std::shared_ptr<arrow::DataType> data_type) {
+  impl_.reset(new Impl(ctx, data_type));
   kernel_name_ = "SumArrayKernel";
 }
 
-arrow::Status SumArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
+arrow::Status SumArrayKernel::Evaluate(const ArrayList& in) {
   return impl_->Evaluate(in);
 }
 
-arrow::Status SumArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
-  return impl_->Finish(out);
-}
+arrow::Status SumArrayKernel::Finish(ArrayList* out) { return impl_->Finish(out); }
 
 ///////////////  CountArray  ////////////////
 class CountArrayKernel::Impl {
  public:
-  Impl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {}
+  Impl(arrow::compute::FunctionContext* ctx, std::shared_ptr<arrow::DataType> data_type)
+      : ctx_(ctx), data_type_(data_type) {}
   ~Impl() {}
-
-  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
+  arrow::Status Evaluate(const ArrayList& in) {
     arrow::compute::Datum output;
-    arrow::compute::CountOptions opt =
-        arrow::compute::CountOptions(arrow::compute::CountOptions::COUNT_ALL);
-    RETURN_NOT_OK(arrow::compute::Count(ctx_, opt, *in.get(), &output));
-    std::shared_ptr<arrow::Array> out;
-    RETURN_NOT_OK(
-        arrow::MakeArrayFromScalar(*(output.scalar()).get(), output.length(), &out));
-    if (!builder) {
-      RETURN_NOT_OK(MakeArrayBuilder(out->type(), ctx_->memory_pool(), &builder));
-    }
-
-    RETURN_NOT_OK(builder->AppendArrayItem(&(*out.get()), 0, 0));
-    // TODO: We should only append Scalar instead of array
-
+    arrow::compute::CountOptions option(arrow::compute::CountOptions::COUNT_ALL);
+    RETURN_NOT_OK(arrow::compute::Count(ctx_, option, *in[0].get(), &output));
+    scalar_list_.push_back(output.scalar());
     return arrow::Status::OK();
   }
 
-  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) {
-    RETURN_NOT_OK(builder->Finish(out));
+  arrow::Status Finish(ArrayList* out) {
+    RETURN_NOT_OK(FinishInternal<arrow::Int64Type>(out));
+    return arrow::Status::OK();
+  }
+
+  template <typename DataType>
+  arrow::Status FinishInternal(ArrayList* out) {
+    using CType = typename arrow::TypeTraits<DataType>::CType;
+    using ScalarType = typename arrow::TypeTraits<DataType>::ScalarType;
+    CType res = 0;
+    for (auto scalar_item : scalar_list_) {
+      auto typed_scalar = std::dynamic_pointer_cast<ScalarType>(scalar_item);
+      res += typed_scalar->value;
+    }
+    std::shared_ptr<arrow::Array> arr_out;
+    std::shared_ptr<arrow::Scalar> scalar_out;
+    RETURN_NOT_OK(arrow::MakeScalar(arrow::int64(), res, &scalar_out));
+    RETURN_NOT_OK(arrow::MakeArrayFromScalar(*scalar_out.get(), 1, &arr_out));
+    out->push_back(arr_out);
     return arrow::Status::OK();
   }
 
  private:
   arrow::compute::FunctionContext* ctx_;
-  std::shared_ptr<ArrayBuilderImplBase> builder;
+  std::shared_ptr<arrow::DataType> data_type_;
+  std::vector<std::shared_ptr<arrow::Scalar>> scalar_list_;
 };
 
 arrow::Status CountArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                     std::shared_ptr<arrow::DataType> data_type,
                                      std::shared_ptr<KernalBase>* out) {
-  *out = std::make_shared<CountArrayKernel>(ctx);
+  *out = std::make_shared<CountArrayKernel>(ctx, data_type);
   return arrow::Status::OK();
 }
 
-CountArrayKernel::CountArrayKernel(arrow::compute::FunctionContext* ctx) {
-  impl_.reset(new Impl(ctx));
+CountArrayKernel::CountArrayKernel(arrow::compute::FunctionContext* ctx,
+                                   std::shared_ptr<arrow::DataType> data_type) {
+  impl_.reset(new Impl(ctx, data_type));
   kernel_name_ = "CountArrayKernel";
 }
 
-arrow::Status CountArrayKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
+arrow::Status CountArrayKernel::Evaluate(const ArrayList& in) {
   return impl_->Evaluate(in);
 }
 
-arrow::Status CountArrayKernel::Finish(std::shared_ptr<arrow::Array>* out) {
-  return impl_->Finish(out);
+arrow::Status CountArrayKernel::Finish(ArrayList* out) { return impl_->Finish(out); }
+
+///////////////  SumCountArray  ////////////////
+class SumCountArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx, std::shared_ptr<arrow::DataType> data_type)
+      : ctx_(ctx), data_type_(data_type) {}
+  ~Impl() {}
+  arrow::Status Evaluate(const ArrayList& in) {
+    arrow::compute::Datum sum_out;
+    arrow::compute::Datum cnt_out;
+    arrow::compute::CountOptions option(arrow::compute::CountOptions::COUNT_ALL);
+    RETURN_NOT_OK(arrow::compute::Sum(ctx_, *in[0].get(), &sum_out));
+    RETURN_NOT_OK(arrow::compute::Count(ctx_, option, *in[0].get(), &cnt_out));
+    sum_scalar_list_.push_back(sum_out.scalar());
+    cnt_scalar_list_.push_back(cnt_out.scalar());
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(ArrayList* out) {
+    switch (data_type_->id()) {
+#define PROCESS(DataType)                         \
+  case DataType::type_id: {                       \
+    RETURN_NOT_OK(FinishInternal<DataType>(out)); \
+  } break;
+      PROCESS_SUPPORTED_TYPES(PROCESS)
+#undef PROCESS
+    }
+    return arrow::Status::OK();
+  }
+
+  template <typename DataType>
+  arrow::Status FinishInternal(ArrayList* out) {
+    using CType = typename arrow::TypeTraits<DataType>::CType;
+    using ScalarType = typename arrow::TypeTraits<DataType>::ScalarType;
+    using CntScalarType = typename arrow::TypeTraits<arrow::Int64Type>::ScalarType;
+    CType sum_res = 0;
+    int64_t cnt_res = 0;
+    for (size_t i = 0; i < sum_scalar_list_.size(); i++) {
+      auto sum_typed_scalar = std::dynamic_pointer_cast<ScalarType>(sum_scalar_list_[i]);
+      auto cnt_typed_scalar =
+          std::dynamic_pointer_cast<CntScalarType>(cnt_scalar_list_[i]);
+      sum_res += sum_typed_scalar->value;
+      cnt_res += cnt_typed_scalar->value;
+    }
+    std::shared_ptr<arrow::Array> sum_out;
+    std::shared_ptr<arrow::Scalar> sum_scalar_out;
+    RETURN_NOT_OK(arrow::MakeScalar(data_type_, sum_res, &sum_scalar_out));
+    RETURN_NOT_OK(arrow::MakeArrayFromScalar(*sum_scalar_out.get(), 1, &sum_out));
+
+    std::shared_ptr<arrow::Array> cnt_out;
+    std::shared_ptr<arrow::Scalar> cnt_scalar_out;
+    RETURN_NOT_OK(arrow::MakeScalar(arrow::int64(), cnt_res, &cnt_scalar_out));
+    RETURN_NOT_OK(arrow::MakeArrayFromScalar(*cnt_scalar_out.get(), 1, &cnt_out));
+
+    out->push_back(sum_out);
+    out->push_back(cnt_out);
+
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<arrow::DataType> data_type_;
+  std::vector<std::shared_ptr<arrow::Scalar>> sum_scalar_list_;
+  std::vector<std::shared_ptr<arrow::Scalar>> cnt_scalar_list_;
+};
+
+arrow::Status SumCountArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                        std::shared_ptr<arrow::DataType> data_type,
+                                        std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<SumCountArrayKernel>(ctx, data_type);
+  return arrow::Status::OK();
 }
+
+SumCountArrayKernel::SumCountArrayKernel(arrow::compute::FunctionContext* ctx,
+                                         std::shared_ptr<arrow::DataType> data_type) {
+  impl_.reset(new Impl(ctx, data_type));
+  kernel_name_ = "SumCountArrayKernel";
+}
+
+arrow::Status SumCountArrayKernel::Evaluate(const ArrayList& in) {
+  return impl_->Evaluate(in);
+}
+
+arrow::Status SumCountArrayKernel::Finish(ArrayList* out) { return impl_->Finish(out); }
+
+///////////////  AvgByCountArray  ////////////////
+class AvgByCountArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx, std::shared_ptr<arrow::DataType> data_type)
+      : ctx_(ctx), data_type_(data_type) {}
+  ~Impl() {}
+  arrow::Status Evaluate(const ArrayList& in) {
+    arrow::compute::Datum sum_out;
+    arrow::compute::Datum cnt_out;
+    RETURN_NOT_OK(arrow::compute::Sum(ctx_, *in[0].get(), &sum_out));
+    RETURN_NOT_OK(arrow::compute::Sum(ctx_, *in[1].get(), &cnt_out));
+    sum_scalar_list_.push_back(sum_out.scalar());
+    cnt_scalar_list_.push_back(cnt_out.scalar());
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(ArrayList* out) {
+    switch (data_type_->id()) {
+#define PROCESS(DataType)                         \
+  case DataType::type_id: {                       \
+    RETURN_NOT_OK(FinishInternal<DataType>(out)); \
+  } break;
+      PROCESS_SUPPORTED_TYPES(PROCESS)
+#undef PROCESS
+    }
+    return arrow::Status::OK();
+  }
+
+  template <typename DataType>
+  arrow::Status FinishInternal(ArrayList* out) {
+    using CType = typename arrow::TypeTraits<DataType>::CType;
+    using ScalarType = typename arrow::TypeTraits<DataType>::ScalarType;
+    using CntScalarType = typename arrow::TypeTraits<arrow::UInt64Type>::ScalarType;
+    CType sum_res = 0;
+    uint64_t cnt_res = 0;
+    for (size_t i = 0; i < sum_scalar_list_.size(); i++) {
+      auto sum_typed_scalar = std::dynamic_pointer_cast<ScalarType>(sum_scalar_list_[i]);
+      auto cnt_typed_scalar =
+          std::dynamic_pointer_cast<CntScalarType>(cnt_scalar_list_[i]);
+      sum_res += sum_typed_scalar->value;
+      cnt_res += cnt_typed_scalar->value;
+    }
+    double res = sum_res * 1.0 / cnt_res;
+    std::shared_ptr<arrow::Array> arr_out;
+    std::shared_ptr<arrow::Scalar> scalar_out;
+    RETURN_NOT_OK(arrow::MakeScalar(arrow::float64(), res, &scalar_out));
+    RETURN_NOT_OK(arrow::MakeArrayFromScalar(*scalar_out.get(), 1, &arr_out));
+
+    out->push_back(arr_out);
+
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<arrow::DataType> data_type_;
+  std::vector<std::shared_ptr<arrow::Scalar>> sum_scalar_list_;
+  std::vector<std::shared_ptr<arrow::Scalar>> cnt_scalar_list_;
+};
+
+arrow::Status AvgByCountArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                          std::shared_ptr<arrow::DataType> data_type,
+                                          std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<AvgByCountArrayKernel>(ctx, data_type);
+  return arrow::Status::OK();
+}
+
+AvgByCountArrayKernel::AvgByCountArrayKernel(arrow::compute::FunctionContext* ctx,
+                                             std::shared_ptr<arrow::DataType> data_type) {
+  impl_.reset(new Impl(ctx, data_type));
+  kernel_name_ = "AvgByCountArrayKernel";
+}
+
+arrow::Status AvgByCountArrayKernel::Evaluate(const ArrayList& in) {
+  return impl_->Evaluate(in);
+}
+
+arrow::Status AvgByCountArrayKernel::Finish(ArrayList* out) { return impl_->Finish(out); }
+
+///////////////  MinArray  ////////////////
+class MinArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx, std::shared_ptr<arrow::DataType> data_type)
+      : ctx_(ctx), data_type_(data_type) {}
+  ~Impl() {}
+  arrow::Status Evaluate(const ArrayList& in) {
+    arrow::compute::Datum minMaxOut;
+    arrow::compute::MinMaxOptions option;
+    RETURN_NOT_OK(arrow::compute::MinMax(ctx_, option, *in[0].get(), &minMaxOut));
+    if (!minMaxOut.is_collection()) {
+      return arrow::Status::Invalid("MinMax return an invalid result.");
+    }
+    auto col = minMaxOut.collection();
+    if (col.size() < 2) {
+      return arrow::Status::Invalid("MinMax return an invalid result.");
+    }
+    auto min = col[0].scalar();
+    scalar_list_.push_back(min);
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(ArrayList* out) {
+    switch (data_type_->id()) {
+#define PROCESS(DataType)                         \
+  case DataType::type_id: {                       \
+    RETURN_NOT_OK(FinishInternal<DataType>(out)); \
+  } break;
+      PROCESS_SUPPORTED_TYPES(PROCESS)
+#undef PROCESS
+    }
+    return arrow::Status::OK();
+  }
+
+  template <typename DataType>
+  arrow::Status FinishInternal(ArrayList* out) {
+    using CType = typename arrow::TypeTraits<DataType>::CType;
+    using ScalarType = typename arrow::TypeTraits<DataType>::ScalarType;
+    auto typed_scalar = std::dynamic_pointer_cast<ScalarType>(scalar_list_[0]);
+    CType res = typed_scalar->value;
+    for (size_t i = 1; i < scalar_list_.size(); i++) {
+      auto typed_scalar = std::dynamic_pointer_cast<ScalarType>(scalar_list_[i]);
+      if (typed_scalar->value < res) res = typed_scalar->value;
+    }
+    std::shared_ptr<arrow::Array> arr_out;
+    std::shared_ptr<arrow::Scalar> scalar_out;
+    RETURN_NOT_OK(arrow::MakeScalar(data_type_, res, &scalar_out));
+    RETURN_NOT_OK(arrow::MakeArrayFromScalar(*scalar_out.get(), 1, &arr_out));
+    out->push_back(arr_out);
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<arrow::DataType> data_type_;
+  std::vector<std::shared_ptr<arrow::Scalar>> scalar_list_;
+  std::unique_ptr<arrow::ArrayBuilder> array_builder_;
+};
+
+arrow::Status MinArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                   std::shared_ptr<arrow::DataType> data_type,
+                                   std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<MinArrayKernel>(ctx, data_type);
+  return arrow::Status::OK();
+}
+
+MinArrayKernel::MinArrayKernel(arrow::compute::FunctionContext* ctx,
+                               std::shared_ptr<arrow::DataType> data_type) {
+  impl_.reset(new Impl(ctx, data_type));
+  kernel_name_ = "MinArrayKernel";
+}
+
+arrow::Status MinArrayKernel::Evaluate(const ArrayList& in) {
+  return impl_->Evaluate(in);
+}
+
+arrow::Status MinArrayKernel::Finish(ArrayList* out) { return impl_->Finish(out); }
+
+///////////////  MaxArray  ////////////////
+class MaxArrayKernel::Impl {
+ public:
+  Impl(arrow::compute::FunctionContext* ctx, std::shared_ptr<arrow::DataType> data_type)
+      : ctx_(ctx), data_type_(data_type) {}
+  ~Impl() {}
+  arrow::Status Evaluate(const ArrayList& in) {
+    arrow::compute::Datum minMaxOut;
+    arrow::compute::MinMaxOptions option;
+    RETURN_NOT_OK(arrow::compute::MinMax(ctx_, option, *in[0].get(), &minMaxOut));
+    if (!minMaxOut.is_collection()) {
+      return arrow::Status::Invalid("MinMax return an invalid result.");
+    }
+    auto col = minMaxOut.collection();
+    if (col.size() < 2) {
+      return arrow::Status::Invalid("MinMax return an invalid result.");
+    }
+    auto max = col[1].scalar();
+    scalar_list_.push_back(max);
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Finish(ArrayList* out) {
+    switch (data_type_->id()) {
+#define PROCESS(DataType)                         \
+  case DataType::type_id: {                       \
+    RETURN_NOT_OK(FinishInternal<DataType>(out)); \
+  } break;
+      PROCESS_SUPPORTED_TYPES(PROCESS)
+#undef PROCESS
+    }
+    return arrow::Status::OK();
+  }
+
+  template <typename DataType>
+  arrow::Status FinishInternal(ArrayList* out) {
+    using CType = typename arrow::TypeTraits<DataType>::CType;
+    using ScalarType = typename arrow::TypeTraits<DataType>::ScalarType;
+    auto typed_scalar = std::dynamic_pointer_cast<ScalarType>(scalar_list_[0]);
+    CType res = typed_scalar->value;
+    for (size_t i = 1; i < scalar_list_.size(); i++) {
+      auto typed_scalar = std::dynamic_pointer_cast<ScalarType>(scalar_list_[i]);
+      if (typed_scalar->value > res) res = typed_scalar->value;
+    }
+    std::shared_ptr<arrow::Array> arr_out;
+    std::shared_ptr<arrow::Scalar> scalar_out;
+    RETURN_NOT_OK(arrow::MakeScalar(data_type_, res, &scalar_out));
+    RETURN_NOT_OK(arrow::MakeArrayFromScalar(*scalar_out.get(), 1, &arr_out));
+    out->push_back(arr_out);
+    return arrow::Status::OK();
+  }
+
+ private:
+  arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<arrow::DataType> data_type_;
+  std::vector<std::shared_ptr<arrow::Scalar>> scalar_list_;
+  std::unique_ptr<arrow::ArrayBuilder> array_builder_;
+};
+
+arrow::Status MaxArrayKernel::Make(arrow::compute::FunctionContext* ctx,
+                                   std::shared_ptr<arrow::DataType> data_type,
+                                   std::shared_ptr<KernalBase>* out) {
+  *out = std::make_shared<MaxArrayKernel>(ctx, data_type);
+  return arrow::Status::OK();
+}
+
+MaxArrayKernel::MaxArrayKernel(arrow::compute::FunctionContext* ctx,
+                               std::shared_ptr<arrow::DataType> data_type) {
+  impl_.reset(new Impl(ctx, data_type));
+  kernel_name_ = "MaxArrayKernel";
+}
+
+arrow::Status MaxArrayKernel::Evaluate(const ArrayList& in) {
+  return impl_->Evaluate(in);
+}
+
+arrow::Status MaxArrayKernel::Finish(ArrayList* out) { return impl_->Finish(out); }
+
+#undef PROCESS_SUPPORTED_TYPES
 
 ///////////////  EncodeArray  ////////////////
 class EncodeArrayKernel::Impl {
@@ -1152,14 +1508,14 @@ class ProbeArraysKernel::Impl {
   ~Impl() {}
   virtual arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
     return arrow::Status::NotImplemented("ProbeArraysKernel::Impl Evaluate is abstract");
-  }
+  }  // namespace extra
   virtual arrow::Status MakeResultIterator(
       std::shared_ptr<arrow::Schema> schema,
       std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) {
     return arrow::Status::NotImplemented(
         "ProbeArraysKernel::Impl MakeResultIterator is abstract");
   }
-};
+};  // namespace arrowcompute
 
 template <typename InType, typename MemoTableType>
 class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {

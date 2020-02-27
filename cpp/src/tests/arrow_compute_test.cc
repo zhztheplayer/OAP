@@ -8,79 +8,6 @@
 namespace sparkcolumnarplugin {
 namespace codegen {
 
-TEST(TestArrowCompute, AggregateTest) {
-  ////////////////////// prepare expr_vector ///////////////////////
-  auto f0 = field("f0", uint32());
-  auto f1 = field("f1", uint32());
-  auto f_sum = field("sum", uint64());
-  auto f_count = field("count", uint64());
-  auto f_res = field("res", uint64());
-  auto arg_0 = TreeExprBuilder::MakeField(f0);
-  auto arg_1 = TreeExprBuilder::MakeField(f1);
-  auto n_sum = TreeExprBuilder::MakeFunction("sum", {arg_0}, uint64());
-  auto n_count = TreeExprBuilder::MakeFunction("count", {arg_1}, uint64());
-
-  auto sum_expr = TreeExprBuilder::MakeExpression(n_sum, f_res);
-  auto count_expr = TreeExprBuilder::MakeExpression(n_count, f_res);
-
-  std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {sum_expr,
-                                                                     count_expr};
-  auto sch = arrow::schema({f0, f1});
-  std::vector<std::shared_ptr<Field>> ret_types = {f_sum, f_count};
-  ///////////////////// Calculation //////////////////
-  std::shared_ptr<CodeGenerator> expr;
-  ASSERT_NOT_OK(CreateCodeGenerator(sch, expr_vector, ret_types, &expr, true));
-  std::shared_ptr<arrow::RecordBatch> input_batch;
-  std::vector<std::string> input_data_string = {"[8, 10, 9, 20, 55, 42, 28, 32, 54, 70]",
-                                                "[8, 5, 3, 5, 11, 7, 4, 4, 6, 7]"};
-  MakeInputBatch(input_data_string, sch, &input_batch);
-  std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch;
-  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
-  ASSERT_NOT_OK(expr->finish(&result_batch));
-
-  std::shared_ptr<arrow::RecordBatch> expected_result;
-  std::vector<std::string> expected_result_string = {"[328]", "[10]"};
-  auto res_sch = arrow::schema({f_sum, f_count});
-  MakeInputBatch(expected_result_string, res_sch, &expected_result);
-  ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
-}
-
-TEST(TestArrowCompute, AppendTest) {
-  ////////////////////// prepare expr_vector ///////////////////////
-  auto f0 = field("f0", uint32());
-  auto f_sum = field("append", uint64());
-  auto f_res = field("res", uint64());
-  auto arg_0 = TreeExprBuilder::MakeField(f0);
-  auto n_sum = TreeExprBuilder::MakeFunction("append", {arg_0}, uint64());
-
-  auto sum_expr = TreeExprBuilder::MakeExpression(n_sum, f_res);
-
-  std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {sum_expr};
-  auto sch = arrow::schema({f0});
-  std::vector<std::shared_ptr<Field>> ret_types = {f_sum};
-  ///////////////////// Calculation //////////////////
-  std::shared_ptr<CodeGenerator> expr;
-  ASSERT_NOT_OK(CreateCodeGenerator(sch, expr_vector, ret_types, &expr, true));
-  std::shared_ptr<arrow::RecordBatch> input_batch;
-
-  std::vector<std::string> input_data_string = {"[8, 10, 9]"};
-  MakeInputBatch(input_data_string, sch, &input_batch);
-  std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch;
-  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
-
-  input_data_string = {"[1, 2, 3]"};
-  MakeInputBatch(input_data_string, sch, &input_batch);
-  ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
-
-  ASSERT_NOT_OK(expr->finish(&result_batch));
-
-  std::shared_ptr<arrow::RecordBatch> expected_result;
-  std::vector<std::string> expected_result_string = {"[8, 10, 9, 1, 2, 3]"};
-  auto res_sch = arrow::schema({f_sum});
-  MakeInputBatch(expected_result_string, res_sch, &expected_result);
-  ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
-}
-
 TEST(TestArrowCompute, ProbeTest) {
   ////////////////////// prepare expr_vector ///////////////////////
   auto f0 = field("f0", uint32());
@@ -253,46 +180,52 @@ TEST(TestArrowCompute, JoinTest) {
 
 TEST(TestArrowCompute, AggregatewithMultipleBatchTest) {
   ////////////////////// prepare expr_vector ///////////////////////
-  auto f0 = field("f0", uint32());
-  auto f1 = field("f1", uint32());
+  auto f0 = field("f0", uint64());
+  auto f1 = field("f1", uint64());
   auto f_sum = field("sum", uint64());
-  auto f_count = field("count", uint64());
+  auto f_count = field("count", int64());
+  auto f_float = field("float", float64());
   auto f_res = field("res", uint64());
   auto arg_0 = TreeExprBuilder::MakeField(f0);
   auto arg_1 = TreeExprBuilder::MakeField(f1);
   auto n_sum = TreeExprBuilder::MakeFunction("sum", {arg_0}, uint64());
-  auto n_count = TreeExprBuilder::MakeFunction("count", {arg_1}, uint64());
-  auto n_sum_count = TreeExprBuilder::MakeFunction("sum", {arg_1}, uint64());
+  auto n_count = TreeExprBuilder::MakeFunction("count", {arg_0}, uint64());
+  auto n_sum_count = TreeExprBuilder::MakeFunction("sum_count", {arg_0}, uint64());
+  auto n_avg = TreeExprBuilder::MakeFunction("avgByCount", {arg_0, arg_1}, uint64());
+  auto n_min = TreeExprBuilder::MakeFunction("min", {arg_0}, uint64());
+  auto n_max = TreeExprBuilder::MakeFunction("max", {arg_0}, uint64());
 
   auto sum_expr = TreeExprBuilder::MakeExpression(n_sum, f_res);
   auto count_expr = TreeExprBuilder::MakeExpression(n_count, f_res);
   auto sum_count_expr = TreeExprBuilder::MakeExpression(n_sum_count, f_res);
+  auto avg_expr = TreeExprBuilder::MakeExpression(n_avg, f_res);
+  auto min_expr = TreeExprBuilder::MakeExpression(n_min, f_res);
+  auto max_expr = TreeExprBuilder::MakeExpression(n_max, f_res);
 
-  std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {sum_expr,
-                                                                     count_expr};
-  std::vector<std::shared_ptr<::gandiva::Expression>> finish_expr_vector = {
-      sum_expr, sum_count_expr};
+  std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {
+      sum_expr, count_expr, sum_count_expr, avg_expr, min_expr, max_expr};
   auto sch = arrow::schema({f0, f1});
-  std::vector<std::shared_ptr<Field>> ret_types = {f_sum, f_count};
+  std::vector<std::shared_ptr<Field>> ret_types = {f_sum,   f_count, f_sum, f_count,
+                                                   f_float, f_res,   f_res};
   ///////////////////// Calculation //////////////////
   std::shared_ptr<CodeGenerator> expr;
-  ASSERT_NOT_OK(
-      CreateCodeGenerator(sch, expr_vector, ret_types, &expr, true, finish_expr_vector));
+  ASSERT_NOT_OK(CreateCodeGenerator(sch, expr_vector, ret_types, &expr, true));
   std::shared_ptr<arrow::RecordBatch> input_batch;
   std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch;
   std::vector<std::string> input_data_string = {"[8, 10, 9, 20, 55, 42, 28, 32, 54, 70]",
-                                                "[8, 5, 3, 5, 11, 7, 4, 4, 6, 7]"};
+                                                "[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]"};
   MakeInputBatch(input_data_string, sch, &input_batch);
   ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
   std::vector<std::string> input_data_2_string = {
-      "[8, 10, 9, 20, null, 42, 28, 32, 54, 70]", "[8, 5, 3, 5, 11, 7, 4, null, 6, 7]"};
+      "[8, 10, 9, 20, null, 42, 28, 32, 54, 70]", "[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]"};
   MakeInputBatch(input_data_2_string, sch, &input_batch);
   ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
   ASSERT_NOT_OK(expr->finish(&result_batch));
 
   std::shared_ptr<arrow::RecordBatch> expected_result;
-  std::vector<std::string> expected_result_string = {"[601]", "[19]"};
-  auto res_sch = arrow::schema({f_sum, f_count});
+  std::vector<std::string> expected_result_string = {"[601]",   "[19]", "[601]", "[19]",
+                                                     "[30.05]", "[8]",  "[70]"};
+  auto res_sch = arrow::schema({f_sum, f_count, f_sum, f_count, f_float, f_res, f_res});
   MakeInputBatch(expected_result_string, res_sch, &expected_result);
   ASSERT_NOT_OK(Equals(*expected_result.get(), *(result_batch[0]).get()));
 }

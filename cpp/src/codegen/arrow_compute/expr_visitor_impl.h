@@ -165,24 +165,34 @@ class AggregateVisitorImpl : public ExprVisitorImpl {
     if (initialized_) {
       return arrow::Status::OK();
     }
+    for (auto col_name : p_->param_field_names_) {
+      std::shared_ptr<arrow::Field> field;
+      int col_id;
+      RETURN_NOT_OK(GetColumnIdAndFieldByName(p_->schema_, col_name, &col_id, &field));
+      p_->result_fields_.push_back(field);
+      col_id_list_.push_back(col_id);
+    }
+    auto data_type = p_->result_fields_[0]->type();
+
     if (func_name_.compare("sum") == 0) {
-      RETURN_NOT_OK(extra::SumArrayKernel::Make(&p_->ctx_, &kernel_));
+      RETURN_NOT_OK(extra::SumArrayKernel::Make(&p_->ctx_, data_type, &kernel_));
     } else if (func_name_.compare("append") == 0) {
       RETURN_NOT_OK(extra::AppendArrayKernel::Make(&p_->ctx_, &kernel_));
     } else if (func_name_.compare("count") == 0) {
-      RETURN_NOT_OK(extra::CountArrayKernel::Make(&p_->ctx_, &kernel_));
+      RETURN_NOT_OK(extra::CountArrayKernel::Make(&p_->ctx_, data_type, &kernel_));
     } else if (func_name_.compare("unique") == 0) {
       RETURN_NOT_OK(extra::UniqueArrayKernel::Make(&p_->ctx_, &kernel_));
+    } else if (func_name_.compare("sum_count") == 0) {
+      p_->result_fields_.push_back(arrow::field("cnt", arrow::int64()));
+      RETURN_NOT_OK(extra::SumCountArrayKernel::Make(&p_->ctx_, data_type, &kernel_));
+    } else if (func_name_.compare("avgByCount") == 0) {
+      p_->result_fields_.erase(p_->result_fields_.end() - 1);
+      RETURN_NOT_OK(extra::AvgByCountArrayKernel::Make(&p_->ctx_, data_type, &kernel_));
+    } else if (func_name_.compare("min") == 0) {
+      RETURN_NOT_OK(extra::MinArrayKernel::Make(&p_->ctx_, data_type, &kernel_));
+    } else if (func_name_.compare("max") == 0) {
+      RETURN_NOT_OK(extra::MaxArrayKernel::Make(&p_->ctx_, data_type, &kernel_));
     }
-    if (p_->param_field_names_.size() != 1) {
-      return arrow::Status::Invalid(
-          "AggregateVisitorImpl expects param_field_name_list only contains one "
-          "element.");
-    }
-    auto col_name = p_->param_field_names_[0];
-    std::shared_ptr<arrow::Field> field;
-    RETURN_NOT_OK(GetColumnIdAndFieldByName(p_->schema_, col_name, &col_id_, &field));
-    p_->result_fields_.push_back(field);
     initialized_ = true;
     return arrow::Status::OK();
   }
@@ -190,32 +200,18 @@ class AggregateVisitorImpl : public ExprVisitorImpl {
   arrow::Status Eval() override {
     switch (p_->dependency_result_type_) {
       case ArrowComputeResultType::None: {
-        if (col_id_ >= p_->in_record_batch_->num_columns()) {
-          return arrow::Status::Invalid(
-              "AggregateVisitorImpl Eval col_id is bigger than input "
-              "batch numColumns.");
+        ArrayList in;
+        for (auto col_id : col_id_list_) {
+          if (col_id >= p_->in_record_batch_->num_columns()) {
+            return arrow::Status::Invalid(
+                "AggregateVisitorImpl Eval col_id is bigger than input "
+                "batch numColumns.");
+          }
+          auto col = p_->in_record_batch_->column(col_id);
+          in.push_back(col);
         }
-        auto col = p_->in_record_batch_->column(col_id_);
-        RETURN_NOT_OK(kernel_->Evaluate(col));
-        finish_return_type_ = ArrowComputeResultType::Array;
-      } break;
-      case ArrowComputeResultType::Array: {
-        // this case is for finish_func
-        if (p_->in_array_->length() < 2) {
-          p_->result_array_ = p_->in_array_;
-          p_->return_type_ = ArrowComputeResultType::Array;
-          return arrow::Status::OK();
-        }
-        RETURN_NOT_OK(kernel_->Evaluate(p_->in_array_));
-        finish_return_type_ = ArrowComputeResultType::Array;
-        p_->dependency_result_type_ = ArrowComputeResultType::None;
-      } break;
-      case ArrowComputeResultType::ArrayList: {
-        for (auto col : p_->in_array_list_) {
-          RETURN_NOT_OK(kernel_->Evaluate(col));
-        }
-        finish_return_type_ = ArrowComputeResultType::Array;
-        p_->dependency_result_type_ = ArrowComputeResultType::None;
+        RETURN_NOT_OK(kernel_->Evaluate(in));
+        finish_return_type_ = ArrowComputeResultType::Batch;
       } break;
       default:
         return arrow::Status::NotImplemented(
@@ -227,9 +223,9 @@ class AggregateVisitorImpl : public ExprVisitorImpl {
   arrow::Status Finish() override {
     RETURN_NOT_OK(ExprVisitorImpl::Finish());
     switch (finish_return_type_) {
-      case ArrowComputeResultType::Array: {
-        RETURN_NOT_OK(kernel_->Finish(&p_->result_array_));
-        p_->return_type_ = ArrowComputeResultType::Array;
+      case ArrowComputeResultType::Batch: {
+        RETURN_NOT_OK(kernel_->Finish(&p_->result_batch_));
+        p_->return_type_ = ArrowComputeResultType::Batch;
       } break;
       default: {
         return arrow::Status::NotImplemented(
@@ -242,7 +238,7 @@ class AggregateVisitorImpl : public ExprVisitorImpl {
   }
 
  private:
-  int col_id_;
+  std::vector<int> col_id_list_;
   std::string func_name_;
 };
 
