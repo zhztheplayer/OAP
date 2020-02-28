@@ -4,7 +4,6 @@
 #include <arrow/compute/context.h>
 #include <arrow/compute/kernel.h>
 #include <arrow/compute/kernels/count.h>
-#include <arrow/compute/kernels/groupby_aggregate.h>
 #include <arrow/compute/kernels/hash.h>
 #include <arrow/compute/kernels/minmax.h>
 #include <arrow/compute/kernels/ntake.h>
@@ -18,6 +17,7 @@
 #include <arrow/type_traits.h>
 #include <arrow/util/bit_util.h>
 #include <arrow/util/checked_cast.h>
+#include <arrow/util/hashing.h>
 #include <arrow/visitor_inline.h>
 #include <gandiva/configuration.h>
 #include <gandiva/node.h>
@@ -103,6 +103,7 @@ class SplitArrayListWithActionKernel::Impl {
     }
 
     std::vector<std::function<arrow::Status(int)>> eval_func_list;
+    std::vector<std::function<arrow::Status()>> eval_null_func_list;
     int col_id = 0;
     ArrayList cols;
     for (int i = 0; i < action_list_.size(); i++) {
@@ -112,15 +113,22 @@ class SplitArrayListWithActionKernel::Impl {
         cols.push_back(in[col_id++]);
       }
       std::function<arrow::Status(int)> func;
-      action->Submit(cols, max_group_id, &func);
+      std::function<arrow::Status()> null_func;
+      action->Submit(cols, max_group_id, &func, &null_func);
       eval_func_list.push_back(func);
+      eval_null_func_list.push_back(null_func);
     }
 
-    const int32_t* data = in_dict->data()->GetValues<int32_t>(1);
     for (int row_id = 0; row_id < in_dict->length(); row_id++) {
-      auto group_id = data[row_id];
-      for (auto eval_func : eval_func_list) {
-        eval_func(group_id);
+      if (in_dict->IsValid(row_id)) {
+        auto group_id = typed_in_dict->GetView(row_id);
+        for (auto eval_func : eval_func_list) {
+          eval_func(group_id);
+        }
+      } else {
+        for (auto eval_func : eval_null_func_list) {
+          eval_func();
+        }
       }
     }
     return arrow::Status::OK();
@@ -1328,20 +1336,43 @@ class EncodeArrayTypedImpl : public EncodeArrayKernel::Impl {
  public:
   EncodeArrayTypedImpl(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
     hash_table_ = std::make_shared<MemoTableType>(ctx_->memory_pool());
+    builder_ = std::make_shared<arrow::Int32Builder>(ctx_->memory_pool());
   }
   arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in,
                          std::shared_ptr<arrow::Array>* out) {
-    arrow::compute::Datum input_datum(in);
+    // arrow::compute::Datum input_datum(in);
+    // RETURN_NOT_OK(arrow::compute::Group<InType>(ctx_, input_datum, hash_table_, out));
+    // we should put items into hashmap
+    builder_->Reset();
+    auto typed_array = std::dynamic_pointer_cast<ArrayType>(in);
+    auto insert_on_found = [this](int32_t i) { builder_->Append(i); };
+    auto insert_on_not_found = [this](int32_t i) { builder_->Append(i); };
 
-    // std::cout << "Encode input " << in->ToString() << std::endl;
-    RETURN_NOT_OK(arrow::compute::Group<InType>(ctx_, input_datum, hash_table_, out));
-    // std::cout << "Encode output " << (*out)->ToString() << std::endl;
+    int cur_id = 0;
+    if (typed_array->null_count() == 0) {
+      for (; cur_id < typed_array->length(); cur_id++) {
+        hash_table_->GetOrInsert(typed_array->GetView(cur_id), insert_on_found,
+                                 insert_on_not_found);
+      }
+    } else {
+      for (; cur_id < typed_array->length(); cur_id++) {
+        if (typed_array->IsNull(cur_id)) {
+          RETURN_NOT_OK(builder_->AppendNull());
+        } else {
+          hash_table_->GetOrInsert(typed_array->GetView(cur_id), insert_on_found,
+                                   insert_on_not_found);
+        }
+      }
+    }
+    RETURN_NOT_OK(builder_->Finish(out));
     return arrow::Status::OK();
   }
 
  private:
+  using ArrayType = typename arrow::TypeTraits<InType>::ArrayType;
   arrow::compute::FunctionContext* ctx_;
   std::shared_ptr<MemoTableType> hash_table_;
+  std::shared_ptr<arrow::Int32Builder> builder_;
 };
 
 arrow::Status EncodeArrayKernel::Make(arrow::compute::FunctionContext* ctx,

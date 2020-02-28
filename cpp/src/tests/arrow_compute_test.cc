@@ -280,7 +280,7 @@ TEST(TestArrowCompute, GroupByAggregateWithMultipleBatchTest) {
 
   ////////////////////// calculation /////////////////////
   std::vector<std::string> input_data = {
-      "[1, 2, 3, 4, 5, 5, 4, 1, 2, 2, 1, 1, 1, 4, 4, 3, 5, 5, 5, 5]",
+      "[1, 2, 3, 4, 5, null, 4, 1, 2, 2, 1, 1, 1, 4, 4, 3, 5, 5, 5, 5]",
       "[1, 2, 3, 4, 5, 5, 4, 1, 2, 2, 1, 1, 1, 4, 4, 3, 5, 5, 5, 5]"};
   MakeInputBatch(input_data, sch, &input_batch);
   ASSERT_NOT_OK(expr->evaluate(input_batch, &output_batch_list));
@@ -292,7 +292,7 @@ TEST(TestArrowCompute, GroupByAggregateWithMultipleBatchTest) {
   ASSERT_NOT_OK(expr->evaluate(input_batch, &output_batch_list));
 
   std::vector<std::string> input_data_3 = {
-      "[1, 2, 3, 8, 5, 5, 10, 1, 2, 7, 6, 6, 1, 9, 4, 9, 5, 8, 5, 5]",
+      "[1, 2, 3, 8, 5, 5, 10, 1, 2, 7, 6, 6, 1, 9, 4, 9, null, 8, 5, 5]",
       "[1, 2, 3, 8, 5, 5, 10, 1, 2, 7, 6, 6, 1, 9, 4, 9, 5, 8, 5, 5]"};
   MakeInputBatch(input_data_3, sch, &input_batch);
   ASSERT_NOT_OK(expr->evaluate(input_batch, &output_batch_list));
@@ -303,9 +303,9 @@ TEST(TestArrowCompute, GroupByAggregateWithMultipleBatchTest) {
 
   std::shared_ptr<arrow::RecordBatch> expected_result;
   std::vector<std::string> expected_result_string = {
-      "[1, 2, 3, 4, 5, 6, 7, 8 ,9, 10]",        "[8, 10, 9, 20, 55, 42, 28, 32, 54, 70]",
-      "[8, 5, 3, 5, 11, 7, 4, 4, 6, 7]",        "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]",
-      "[8, 10, 9, 20, 55, 42, 28, 32, 54, 70]", "[8, 5, 3, 5, 11, 7, 4, 4, 6, 7]",
+      "[1, 2, 3, 4, 5, 6, 7, 8 ,9, 10]",        "[8, 10, 9, 20, 45, 42, 28, 32, 54, 70]",
+      "[8, 5, 3, 5, 9, 7, 4, 4, 6, 7]",         "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]",
+      "[8, 10, 9, 20, 45, 42, 28, 32, 54, 70]", "[8, 5, 3, 5, 9, 7, 4, 4, 6, 7]",
       "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]",        "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]"};
   auto res_sch =
       arrow::schema({f_unique, f_sum, f_count, f_avg, f_sum, f_count, f_res, f_res});
