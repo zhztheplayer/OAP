@@ -5,8 +5,10 @@ import org.apache.arrow.gandiva.exceptions.GandivaException
 import org.apache.arrow.gandiva.expression._
 import org.apache.arrow.vector.types.pojo.ArrowType
 import org.apache.arrow.vector.types.pojo.Field
+import org.apache.arrow.vector.types.DateUnit
 
 import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.types._
 
 import scala.collection.mutable.ListBuffer
@@ -30,7 +32,9 @@ class ColumnarLiteral(lit: Literal)
         val v = value.asInstanceOf[Decimal]
         (TreeBuilder.makeDecimalLiteral(v.toString, v.precision, v.scale), resultType)
       case d: DateType =>
-        throw new UnsupportedOperationException(s"DateType is not supported yet.")
+        val stringDate = DateTimeUtils.toJavaDate(value.asInstanceOf[Integer])
+        (TreeBuilder.makeStringLiteral(stringDate.toString), new ArrowType.Utf8())
+        //throw new UnsupportedOperationException(s"DateType is not supported yet.")
     }
   }
 }

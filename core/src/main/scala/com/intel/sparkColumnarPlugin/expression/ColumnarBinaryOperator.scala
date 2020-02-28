@@ -7,6 +7,7 @@ import org.apache.arrow.gandiva.exceptions.GandivaException
 import org.apache.arrow.gandiva.expression._
 import org.apache.arrow.vector.types.pojo.ArrowType
 import org.apache.arrow.vector.types.pojo.Field
+import org.apache.arrow.vector.types.DateUnit
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions._
@@ -92,6 +93,25 @@ class ColumnarLike(left: Expression, right: Expression, original: Expression)
       left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
     val (right_node, right_type): (TreeNode, ArrowType) =
       right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val resultType = new ArrowType.Bool()
+    val funcNode =
+      TreeBuilder.makeFunction("like", Lists.newArrayList(left_node, right_node), resultType)
+    (funcNode, resultType)
+  }
+}
+
+class ColumnarContains(left: Expression, right: Expression, original: Expression)
+    extends Contains(left: Expression, right: Expression)
+    with ColumnarExpression
+    with Logging {
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (left_node, left_type): (TreeNode, ArrowType) =
+      left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    //FIXME(): use like %right% as gandiva does not support contains
+    val newRightStr = "%" + right + "%"
+    val (right_node, right_type): (TreeNode, ArrowType) =
+      (TreeBuilder.makeStringLiteral(newRightStr), new ArrowType.Utf8())
 
     val resultType = new ArrowType.Bool()
     val funcNode =
@@ -232,6 +252,8 @@ object ColumnarBinaryOperator {
         new ColumnarEndsWith(left, right, e)
       case s: StartsWith =>
         new ColumnarStartsWith(left, right, s)
+      case c: Contains =>
+        new ColumnarContains(left, right, c)
       case l: Like =>
         new ColumnarLike(left, right, l)
       case other =>
