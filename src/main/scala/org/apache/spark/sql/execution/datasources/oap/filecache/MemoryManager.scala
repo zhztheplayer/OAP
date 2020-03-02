@@ -308,17 +308,17 @@ private[filecache] class PersistentMemoryManager(sparkEnv: SparkEnv)
   override def cacheGuardianMemory: Long = _cacheGuardianMemory
 
   override private[filecache] def allocate(size: Long): MemoryBlockHolder = {
-    try {
-      val address = PersistentMemoryPlatform.allocateVolatileMemory(size)
+    val address = PersistentMemoryPlatform.allocateVolatileMemory(size)
+    if (address == 0) {
+      logWarning(
+        s"DCPMM cache allocation failed (address: ${address}), revert read from file")
+      MemoryBlockHolder(CacheEnum.FAIL, null, 0L, 0L, 0L)
+    } else {
       val occupiedSize = PersistentMemoryPlatform.getOccupiedSize(address)
       _memoryUsed.getAndAdd(occupiedSize)
       logDebug(s"request allocate $size memory, actual occupied size: " +
         s"${occupiedSize}, used: $memoryUsed")
       MemoryBlockHolder(CacheEnum.GENERAL, null, address, size, occupiedSize)
-    } catch {
-      case e: OutOfMemoryError =>
-        logWarning(e.getMessage)
-        MemoryBlockHolder(CacheEnum.FAIL, null, 0L, 0L, 0L)
     }
   }
 

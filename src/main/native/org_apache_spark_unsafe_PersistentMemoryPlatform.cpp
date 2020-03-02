@@ -85,12 +85,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_spark_unsafe_PersistentMemoryPlatform_al
   size_t sz = (size_t)size;
   void *p = memkind_malloc(pmemkind, sz);
   if (p == NULL) {
-    jclass errorCls = env->FindClass("java/lang/OutOfMemoryError");
-    std::string errorMsg;
-    errorMsg.append("Don't have enough memory, please consider decrease the persistent ");
-    errorMsg.append("memory usable ratio. The requested size: ");
-    errorMsg.append(std::to_string(sz));
-    env->ThrowNew(errorCls, errorMsg.c_str());
+    return (jlong)0;
   }
 
   return addr_to_java(p);
