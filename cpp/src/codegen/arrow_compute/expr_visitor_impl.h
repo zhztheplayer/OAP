@@ -146,6 +146,22 @@ class SplitArrayListWithActionVisitorImpl : public ExprVisitorImpl {
     return arrow::Status::OK();
   }
 
+  arrow::Status MakeResultIterator(
+      std::shared_ptr<arrow::Schema> schema,
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) override {
+    switch (finish_return_type_) {
+      case ArrowComputeResultType::Batch: {
+        TIME_MICRO_OR_RAISE(p_->elapse_time_, kernel_->MakeResultIterator(schema, out));
+        p_->return_type_ = ArrowComputeResultType::BatchIterator;
+      } break;
+      default:
+        return arrow::Status::Invalid(
+            "SplitArrayListWithActionVisitorImpl Finish does not support dependency type "
+            "other than Batch.");
+    }
+    return arrow::Status::OK();
+  }
+
  private:
   std::vector<int> col_id_list_;
 };

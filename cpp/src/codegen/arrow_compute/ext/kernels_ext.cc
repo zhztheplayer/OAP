@@ -141,10 +141,63 @@ class SplitArrayListWithActionKernel::Impl {
     return arrow::Status::OK();
   }
 
+  arrow::Status MakeResultIterator(
+      std::shared_ptr<arrow::Schema> schema,
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) {
+    ArrayList arr_list;
+    for (auto action : action_list_) {
+      RETURN_NOT_OK(action->Finish(&arr_list));
+    }
+    *out = std::make_shared<SplitArrayWithActionResultIterator>(ctx_, schema, arr_list);
+    return arrow::Status::OK();
+  }
+
  private:
   arrow::compute::FunctionContext* ctx_;
   std::vector<std::string> action_name_list_;
   std::vector<std::shared_ptr<extra::ActionBase>> action_list_;
+
+  class SplitArrayWithActionResultIterator : public ResultIterator<arrow::RecordBatch> {
+   public:
+    SplitArrayWithActionResultIterator(arrow::compute::FunctionContext* ctx,
+                                       std::shared_ptr<arrow::Schema> schema,
+                                       ArrayList cached_array_list)
+        : ctx_(ctx), cached_(cached_array_list), schema_(schema) {
+      total_length_ = cached_[0]->length();
+    }
+
+    bool HasNext() override {
+      if (offset_ >= total_length_) {
+        // std::cout << "offset is " << offset_ << ", total_length is " << total_length_
+        //          << std::endl;
+        return false;
+      }
+      return true;
+    }
+
+    arrow::Status Next(std::shared_ptr<arrow::RecordBatch>* out) {
+      ArrayList out_array_list;
+      if (offset_ >= total_length_) {
+        *out = nullptr;
+        return arrow::Status::OK();
+      }
+      auto length = (total_length_ - offset_) > 4096 ? 4096 : (total_length_ - offset_);
+      for (auto arr : cached_) {
+        out_array_list.push_back(arr->Slice(offset_, length));
+      }
+      offset_ += length;
+      *out = arrow::RecordBatch::Make(schema_, length, out_array_list);
+      // arrow::PrettyPrint(*(*out).get(), 2, &std::cout);
+      return arrow::Status::OK();
+    }
+
+   private:
+    ArrayList cached_;
+    std::shared_ptr<arrow::Schema> schema_;
+    arrow::compute::FunctionContext* ctx_;
+    uint64_t offset_ = 0;
+    uint64_t total_length_ = 0;
+  };
 };
 
 arrow::Status SplitArrayListWithActionKernel::Make(
@@ -170,6 +223,12 @@ arrow::Status SplitArrayListWithActionKernel::Evaluate(
 
 arrow::Status SplitArrayListWithActionKernel::Finish(ArrayList* out) {
   return impl_->Finish(out);
+}
+
+arrow::Status SplitArrayListWithActionKernel::MakeResultIterator(
+    std::shared_ptr<arrow::Schema> schema,
+    std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) {
+  return impl_->MakeResultIterator(schema, out);
 }
 
 ///////////////  ShuffleArrayList  ////////////////

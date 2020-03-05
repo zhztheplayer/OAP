@@ -96,6 +96,9 @@ class SplitArrayListWithActionKernel : public KernalBase {
   arrow::Status Evaluate(const ArrayList& in,
                          const std::shared_ptr<arrow::Array>& dict) override;
   arrow::Status Finish(ArrayList* out) override;
+  arrow::Status MakeResultIterator(
+      std::shared_ptr<arrow::Schema> schema,
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) override;
 
  private:
   class Impl;
