@@ -96,6 +96,51 @@ object ConverterUtils extends Logging {
     }
   }
 
+  def getResultAttrFromExpr(fieldExpr: Expression, name: String = "None"): AttributeReference = {
+    fieldExpr match {
+      case a: Cast =>
+        getAttrFromExpr(a.child)
+      case a: AttributeReference =>
+        if (name != "None") {
+          new AttributeReference(name, a.dataType, a.nullable)()
+        } else {
+          a
+        }
+      case a: Alias =>
+        //TODO: a walkaround since we didn't support cast yet
+        if (a.child.isInstanceOf[Cast]) {
+          val tmp = if (name != "None") {
+            new Alias(a.child.asInstanceOf[Cast].child, name)(a.exprId, a.qualifier, a.explicitMetadata)
+          } else {
+            new Alias(a.child.asInstanceOf[Cast].child, a.name)(a.exprId, a.qualifier, a.explicitMetadata)
+          }
+          tmp.toAttribute.asInstanceOf[AttributeReference]
+        } else {
+          if (name != "None") {
+            val tmp = a.toAttribute.asInstanceOf[AttributeReference]
+            new AttributeReference(name, tmp.dataType, tmp.nullable)()
+          } else {
+            a.toAttribute.asInstanceOf[AttributeReference]
+          }
+        }
+      case other =>
+        val a = if (name != "None") {
+          new Alias(other, name)()
+        } else {
+          new Alias(other, "res")()
+        }
+        a.toAttribute.asInstanceOf[AttributeReference]
+    }
+  }
+
+  def ifEquals(left: Seq[AttributeReference], right: Seq[NamedExpression]): Boolean = {
+    if (left.size != right.size) return false
+    for (i <- 0 until left.size) {
+      if (left(i).exprId != right(i).exprId) return false
+    }
+    true
+  }
+
   def combineArrowRecordBatch(rb1: ArrowRecordBatch, rb2: ArrowRecordBatch): ArrowRecordBatch = {
      val numRows = rb1.getLength()
      val rb1_nodes = rb1.getNodes()

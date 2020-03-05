@@ -11,6 +11,7 @@ import org.apache.arrow.vector.types.DateUnit
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.optimizer._
 import org.apache.spark.sql.types._
 
 import scala.collection.mutable.ListBuffer
@@ -59,6 +60,10 @@ object ColumnarUnaryOperator {
     case y: Year =>
       new ColumnarYear(child, y)
     case c: Cast =>
+      child
+    case a: KnownFloatingPointNormalized =>
+      child
+    case a: NormalizeNaNAndZero =>
       child
     case other =>
       throw new UnsupportedOperationException(s"not currently supported: $other.")

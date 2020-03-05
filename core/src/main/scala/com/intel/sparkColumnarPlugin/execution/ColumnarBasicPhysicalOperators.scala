@@ -12,67 +12,8 @@ import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 import org.apache.spark.TaskContext
 
-/**
- * A version of ProjectExec that adds in columnar support.
- */
-class ColumnarProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
-    extends ProjectExec(projectList, child) {
-
-  override def supportsColumnar = true
-
-  // Disable code generation
-  override def supportCodegen: Boolean = false
-
-  override def doExecuteColumnar(): RDD[ColumnarBatch] = {
-    child.executeColumnar().mapPartitions { iter =>
-      val project = ColumnarProjection.create(projectList, child.output)
-      new CloseableColumnBatchIterator(iter.map(project))
-    }
-  }
-
-  // We have to override equals because subclassing a case class like ProjectExec is not that clean
-  // One of the issues is that the generated equals will see ColumnarProjectExec and ProjectExec
-  // as being equal and this can result in the withNewChildren method not actually replacing
-  // anything
-  override def equals(other: Any): Boolean = {
-    if (!super.equals(other)) {
-      return false
-    }
-    return other.isInstanceOf[ColumnarProjectExec]
-  }
-}
-
-class ColumnarFilterExec(condition: Expression, child: SparkPlan)
-    extends FilterExec(condition, child) {
-
-  override def supportsColumnar = true
-
-  // Disable code generation
-  override def supportCodegen: Boolean = false
-
-  override def doExecuteColumnar(): RDD[ColumnarBatch] = {
-    child.executeColumnar().mapPartitions { iter =>
-      val filter = ColumnarFilter.create(condition, child.output)
-      new CloseableColumnBatchIterator(iter.map(filter))
-    }
-  }
-
-  // We have to override equals because subclassing a case class like ProjectExec is not that clean
-  // One of the issues is that the generated equals will see ColumnarProjectExec and ProjectExec
-  // as being equal and this can result in the withNewChildren method not actually replacing
-  // anything
-  override def equals(other: Any): Boolean = {
-    if (!super.equals(other)) {
-      return false
-    }
-    return other.isInstanceOf[ColumnarFilterExec]
-  }
-}
-
-case class ColumnarConditionProjectExec(condition: Expression, child: SparkPlan)
-  extends UnaryExecNode with CodegenSupport with PredicateHelper {
-
-  var projectList: Seq[NamedExpression] = _
+case class ColumnarConditionProjectExec(condition: Expression, projectList: Seq[Expression], child: SparkPlan)
+  extends UnaryExecNode with CodegenSupport with PredicateHelper with Logging {
 
   def isNullIntolerant(expr: Expression): Boolean = expr match {
     case e: NullIntolerant => e.children.forall(isNullIntolerant)
@@ -89,19 +30,22 @@ case class ColumnarConditionProjectExec(condition: Expression, child: SparkPlan)
     null
   }
   override def output: Seq[Attribute] = if (projectList != null) {
-    projectList.map(_.toAttribute)
+    val res = projectList.map(expr => ConverterUtils.getAttrFromExpr(expr))
+    res
   } else if (condition != null){
-    child.output.map { a =>
+    val res = child.output.map { a =>
       if (a.nullable && notNullAttributes.contains(a.exprId)) {
         a.withNullability(false)
       } else {
         a
       }
     }
+    res
   } else {
-    child.output.map { a =>
+    val res = child.output.map { a =>
       a
     }
+    res
   }
 
   override def inputRDDs(): Seq[RDD[InternalRow]] = {
@@ -154,10 +98,6 @@ case class ColumnarConditionProjectExec(condition: Expression, child: SparkPlan)
         })
       new CloseableColumnBatchIterator(condProj.createIterator(iter))
     }
-  }
-
-  def addProjExprs(projectExprs: Seq[NamedExpression]): Unit = {
-    projectList = projectExprs
   }
 
   // We have to override equals because subclassing a case class like ProjectExec is not that clean
