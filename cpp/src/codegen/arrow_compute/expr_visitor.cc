@@ -167,7 +167,9 @@ arrow::Status ExprVisitor::MakeExprVisitorImpl(const std::string& func_name,
     goto finish;
   }
   if (func_name.compare("sum") == 0 || func_name.compare("count") == 0 ||
-      func_name.compare("unique") == 0 || func_name.compare("append") == 0) {
+      func_name.compare("unique") == 0 || func_name.compare("append") == 0 ||
+      func_name.compare("sum_count") == 0 || func_name.compare("avgByCount") == 0 ||
+      func_name.compare("min") == 0 || func_name.compare("max") == 0) {
     RETURN_NOT_OK(AggregateVisitorImpl::Make(p, func_name, &impl_));
     goto finish;
   }
@@ -289,10 +291,6 @@ arrow::Status ExprVisitor::GetResultFromDependency() {
       case ArrowComputeResultType::Batch: {
         RETURN_NOT_OK(dependency_->GetResult(&in_batch_, &in_fields_, &group_indices_));
       } break;
-      case ArrowComputeResultType::ArrayList: {
-        RETURN_NOT_OK(
-            dependency_->GetResult(&in_array_list_, &in_fields_, &group_indices_));
-      } break;
       case ArrowComputeResultType::Array: {
         RETURN_NOT_OK(dependency_->GetResult(&in_array_, &in_fields_, &group_indices_));
       } break;
@@ -313,9 +311,6 @@ arrow::Status ExprVisitor::ResetDependency() {
     case ArrowComputeResultType::Array: {
       // in_array_.reset();
     } break;
-    case ArrowComputeResultType::ArrayList: {
-      in_array_list_.clear();
-    } break;
     case ArrowComputeResultType::Batch: {
       in_batch_.clear();
     } break;
@@ -335,9 +330,6 @@ arrow::Status ExprVisitor::Reset() {
   switch (return_type_) {
     case ArrowComputeResultType::Array: {
       // result_array_.reset();
-    } break;
-    case ArrowComputeResultType::ArrayList: {
-      result_array_list_.clear();
     } break;
     case ArrowComputeResultType::Batch: {
       result_batch_.clear();
@@ -450,23 +442,16 @@ arrow::Status ExprVisitor::GetResult(
 
 arrow::Status ExprVisitor::GetResult(
     ArrayList* out, std::vector<std::shared_ptr<arrow::Field>>* out_fields) {
-  if (return_type_ == ArrowComputeResultType::ArrayList) {
-    if (result_array_list_.empty()) {
-      return arrow::Status::Invalid(
-          "ArrowComputeExprVisitor::GetResult result_array_list was not generated ",
-          func_name_);
-    }
-    *out = result_array_list_;
+  if (result_batch_.empty()) {
+    return arrow::Status::Invalid(
+        "ArrowComputeExprVisitor::GetResult result_batch was not generated ", func_name_);
   }
-  if (return_type_ == ArrowComputeResultType::Batch) {
-    if (result_batch_.empty()) {
-      return arrow::Status::Invalid(
-          "ArrowComputeExprVisitor::GetResult result_batch was not generated ",
-          func_name_);
-    }
-    *out = result_batch_;
+  for (auto arr : result_batch_) {
+    out->push_back(arr);
   }
-  *out_fields = result_fields_;
+  for (auto field : result_fields_) {
+    out_fields->push_back(field);
+  }
   return arrow::Status::OK();
 }
 

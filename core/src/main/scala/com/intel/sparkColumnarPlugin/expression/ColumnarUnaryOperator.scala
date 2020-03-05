@@ -11,6 +11,7 @@ import org.apache.arrow.vector.types.DateUnit
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.optimizer._
 import org.apache.spark.sql.types._
 
 import scala.collection.mutable.ListBuffer
@@ -41,13 +42,15 @@ class ColumnarYear(child: Expression, original: Expression)
     val (child_node, childType): (TreeNode, ArrowType) =
       child.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
-    val resultType = new ArrowType.Int(64, true)
+    val resultType = new ArrowType.Int(32, true)
     //FIXME(): requires utf8()/int64() as input
     val cast_func = TreeBuilder.makeFunction("castDATE",
       Lists.newArrayList(child_node), new ArrowType.Date(DateUnit.MILLISECOND))
     val funcNode =
-      TreeBuilder.makeFunction("extractYear", Lists.newArrayList(cast_func), resultType)
-    (funcNode, resultType)
+      TreeBuilder.makeFunction("extractYear", Lists.newArrayList(cast_func), new ArrowType.Int(64, true))
+    val castNode =
+      TreeBuilder.makeFunction("castINT", Lists.newArrayList(funcNode), resultType)
+    (castNode, resultType)
   }
 }
 
@@ -59,6 +62,10 @@ object ColumnarUnaryOperator {
     case y: Year =>
       new ColumnarYear(child, y)
     case c: Cast =>
+      child
+    case a: KnownFloatingPointNormalized =>
+      child
+    case a: NormalizeNaNAndZero =>
       child
     case other =>
       throw new UnsupportedOperationException(s"not currently supported: $other.")

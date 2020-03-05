@@ -22,14 +22,7 @@ class ExprVisitorImpl;
 
 using ExprVisitorMap = std::unordered_map<std::string, std::shared_ptr<ExprVisitor>>;
 using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
-enum class ArrowComputeResultType {
-  Array,
-  ArrayList,
-  Batch,
-  BatchList,
-  BatchIterator,
-  None
-};
+enum class ArrowComputeResultType { Array, Batch, BatchList, BatchIterator, None };
 enum class BuilderVisitorNodeType { FunctionNode, FieldNode };
 
 class BuilderVisitor : public VisitorBase {
@@ -143,7 +136,6 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   std::vector<ArrayList> in_batch_array_;
   std::vector<int> in_batch_size_array_;
   ArrayList in_batch_;
-  ArrayList in_array_list_;
   std::shared_ptr<arrow::Array> in_array_;
   // group_indices is used to tell item in array_list_ and batch_list_ belong to which
   // group
@@ -154,7 +146,6 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   // This is used when we want to output an Array after evaluate.
   std::shared_ptr<arrow::Array> result_array_;
   // This is used when we want to output an ArrayList after evaluation.
-  ArrayList result_array_list_;
   ArrayList result_batch_;
   // This is used when we want to output an BatchList after evaluation.
   std::vector<ArrayList> result_batch_list_;

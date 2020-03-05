@@ -15,7 +15,7 @@ trait ColumnarAggregateExpressionBase extends ColumnarExpression with Logging {
   def requiredColNum: Int
   def expectedResColNum: Int
   def setInputFields(fieldList: List[Field]): Unit = {}
-  def doColumnarCodeGen_ext(args: Object): (TreeNode, TreeNode) = {
+  def doColumnarCodeGen_ext(args: Object): TreeNode = {
     throw new UnsupportedOperationException(s"ColumnarAggregateExpressionBase doColumnarCodeGen_ext is a abstract function.")
   }
 }
@@ -24,7 +24,7 @@ class ColumnarUniqueAggregateExpression(aggrFieldList: List[Field]) extends Colu
 
   override def requiredColNum: Int = 1
   override def expectedResColNum: Int = 1
-  override def doColumnarCodeGen_ext(args: Object): (TreeNode, TreeNode) = {
+  override def doColumnarCodeGen_ext(args: Object): TreeNode = {
     val (keyFieldList, inputFieldList, resultType, resultField) =
       args.asInstanceOf[(List[Field], List[Field], ArrowType, Field)]
     val funcName = "action_unique"
@@ -45,11 +45,10 @@ class ColumnarUniqueAggregateExpression(aggrFieldList: List[Field]) extends Colu
       List(groupByFuncNode) ::: aggrFieldList.map(field => TreeBuilder.makeField(field))
     }
     logInfo(s"${funcName}(${inputNode})")
-    val aggregateNode = TreeBuilder.makeFunction(
+    TreeBuilder.makeFunction(
         funcName,
         inputNode.asJava,
         resultType)
-    (aggregateNode, null)
   }
 }
 
@@ -98,10 +97,10 @@ class ColumnarAggregateExpression(
     aggrFieldList = fieldList
   }
 
-  override def doColumnarCodeGen_ext(args: Object): (TreeNode, TreeNode) = {
+  override def doColumnarCodeGen_ext(args: Object): TreeNode = {
     val (keyFieldList, inputFieldList, resultType, resultField) =
       args.asInstanceOf[(List[Field], List[Field], ArrowType, Field)]
-    val (aggregateNode, finalFuncNode) = if (keyFieldList.isEmpty != true) {
+    if (keyFieldList.isEmpty != true) {
       // if keyList has keys, we need to do groupby by these keys.
       var inputFieldNode = 
         keyFieldList.map({field => TreeBuilder.makeField(field)}).asJava
@@ -119,23 +118,18 @@ class ColumnarAggregateExpression(
         List(groupByFuncNode) ::: aggrFieldList.map(field => TreeBuilder.makeField(field))
       val aggregateFuncName = "action_" + funcName
       logInfo(s"${aggregateFuncName}(${inputAggrFieldNode})")
-      (TreeBuilder.makeFunction(
+      TreeBuilder.makeFunction(
         aggregateFuncName,
         inputAggrFieldNode.asJava,
-        resultType), null)
+        resultType)
     } else {
       val inputFieldNode = 
         aggrFieldList.map(field => TreeBuilder.makeField(field))
       logInfo(s"${funcName}(${inputFieldNode})")
-      (TreeBuilder.makeFunction(
+      TreeBuilder.makeFunction(
         funcName,
         inputFieldNode.asJava,
-        resultType),
-      TreeBuilder.makeFunction(
-        finalFuncName,
-        inputFieldNode.asJava,
-        resultType))
+        resultType)
     }
-    (aggregateNode, finalFuncNode)
   }
 }

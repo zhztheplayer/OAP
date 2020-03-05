@@ -7,6 +7,7 @@ import java.util.concurrent.TimeUnit._
 import util.control.Breaks._
 
 import com.intel.sparkColumnarPlugin.vectorized.ExpressionEvaluator
+import com.intel.sparkColumnarPlugin.vectorized.BatchIterator
 import com.google.common.collect.Lists
 import org.apache.hadoop.mapreduce.TaskAttemptID
 import org.apache.spark.internal.Logging
@@ -59,308 +60,247 @@ class ColumnarAggregation(
     s"\ngroupingExpressions: $groupingExpressions,\noriginalInputAttributes: $originalInputAttributes,\naggregateExpressions: $aggregateExpressions,\naggregateAttributes: $aggregateAttributes,\nresultExpressions: $resultExpressions")
 
   var resultTotalRows: Int = 0
-  val inputAttributeSeq: AttributeSeq = originalInputAttributes
   val mode = aggregateExpressions(0).mode
-  val keyOrdinalList: List[Int] = groupingExpressions.toList.map(expr => {
-    val attr = ConverterUtils.getAttrFromExpr(expr)
-    val bindReference = BindReferences.bindReference(attr.asInstanceOf[Expression], originalInputAttributes)
-    getOrdinalFromExpr(bindReference)
-  })
-  val keyFieldList: List[Field] = keyOrdinalList.map(i => {
-    val attr = ConverterUtils.getAttrFromExpr(originalInputAttributes(i))
+
+  //////////////// Project original input to aggregateExpression input //////////////////
+  // 1. map original input to grouping input
+  var groupingExpressionsProjector = ColumnarProjection.create(originalInputAttributes, groupingExpressions)
+  val groupingOrdinalList = groupingExpressionsProjector.getOrdinalList
+  val groupingAttributes = groupingExpressionsProjector.output
+  logInfo(s"groupingAttributes is ${groupingAttributes},\ngroupingOrdinalList is ${groupingOrdinalList}")
+
+  // 2. create grouping native Expression
+  val groupingFieldList = groupingAttributes.map(attr => {
     Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
   })
-  //////////////// Project original input to aggregate input //////////////////
-  var projector : Projector = _
-  var projOrdinalList : List[Int] = _
-  var aggrFieldList : List[Field] = _
-  var projInputList : java.util.List[Field] = _
-  var projArrowSchema: Schema = _
+  val groupingNativeExpression: List[ColumnarAggregateExpressionBase] = groupingFieldList.map(field => {
+    new ColumnarUniqueAggregateExpression(List(field)).asInstanceOf[ColumnarAggregateExpressionBase]
+  })
+
+  // 3. map original input to aggregate input
+  var beforeAggregateProjector: ColumnarProjection = _
+  var projectOrdinalList : List[Int] = _
+  var aggregateInputAttributes : List[AttributeReference] = _
+
   mode match {
     case Partial => { 
-      projInputList = Lists.newArrayList()
-      val projPrepareList : Seq[(ExpressionTree, Field)] =
-        aggregateExpressions.flatMap(_.aggregateFunction.children).zipWithIndex
-          .filter{case (expr, i) => !expr.isInstanceOf[Literal]}
-          .map{
-          case (expr, i) => {
-            val columnarExpr: Expression =
-              ColumnarExpressionConverter.replaceWithColumnarExpression(expr, originalInputAttributes)
-            logInfo(s"columnarExpr is ${columnarExpr}")
-            val (node, resultType) =
-              columnarExpr.asInstanceOf[ColumnarExpression].doColumnarCodeGen(projInputList)
-            val result = Field.nullable(s"res_$i", resultType)
-            (TreeBuilder.makeExpression(node, result), result)
-          }
-        }
-      Collections.sort(projInputList, (l: Field, r: Field) => { l.getName.compareTo(r.getName)})
-      projOrdinalList = projInputList.asScala.toList.map(field => {
-        field.getName.replace("c_", "").toInt
-      })
-      aggrFieldList = projPrepareList.map(_._2).toList
-    
-      projArrowSchema = new Schema(projInputList) 
-      if (projPrepareList.length > 0) {
-        projector = Projector.make(projArrowSchema, projPrepareList.map(_._1).toList.asJava)
-      }
+      beforeAggregateProjector =
+        ColumnarProjection.create(
+          originalInputAttributes,
+          aggregateExpressions.flatMap(_.aggregateFunction.children), skipLiteral = true, renameResult = true)
+      projectOrdinalList = beforeAggregateProjector.getOrdinalList
+      aggregateInputAttributes = beforeAggregateProjector.output
     }
     case Final => {
-      val ordinal_field_list : List[(Int, Field)] = originalInputAttributes.toList.zipWithIndex
-        .filter{case(expr, i) => !keyOrdinalList.contains(i)}
+      val ordinal_attr_list = originalInputAttributes.toList.zipWithIndex
+        .filter{case(expr, i) => !groupingOrdinalList.contains(i)}
         .map{case(expr, i) => {
-          val attr = ConverterUtils.getAttrFromExpr(expr)
-          (i, Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType)))
+          (i, ConverterUtils.getAttrFromExpr(expr))
         }}
-      projOrdinalList = ordinal_field_list.map(_._1)
-      aggrFieldList = ordinal_field_list.map(_._2)
-      projInputList = aggrFieldList.asJava
-      projArrowSchema = new Schema(projInputList)
+      projectOrdinalList = ordinal_attr_list.map(_._1)
+      aggregateInputAttributes = ordinal_attr_list.map(_._2)
     }
     case _ =>
       throw new UnsupportedOperationException("doesn't support this mode")
   }
-  logInfo(s"Project input ordinal is ${projOrdinalList}, Schema is ${projArrowSchema}")
-  /////////////////////////////////////////////////////////////////////////////
+  logInfo(s"aggregateProjectorOutputAttributes is ${aggregateInputAttributes},\nprojectOrdinalList is ${projectOrdinalList}")
 
-  val inputFieldList = keyFieldList ::: aggrFieldList
-
-  val outputFieldList: List[Field] = resultExpressions.toList.map( expr => {
-    val attr = ConverterUtils.getAttrFromExpr(expr)
+  // 4. create aggregate native Expression
+  val aggregateFieldList = aggregateInputAttributes.map(attr => {
     Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
   })
-
-  // map expression
   var field_id = 0
-  var aggr_id = 0
-  val expressionsBuffer = ListBuffer[ColumnarAggregateExpressionBase]()
-  var i = 0
-  val groupExpressionCached = Map[Int, List[Int]]()
-  val aggrExpressionCached = Map[Int, List[Int]]()
-  val expressionToResult = ListBuffer[Int]()
-  val expressionResultFieldList = ListBuffer[Field]()
-  while (i < resultExpressions.length) {
-    val expr = resultExpressions(i)
-    val attr = ConverterUtils.getAttrFromExpr(expr, skipAlias = true)
-    var ordinal = groupingExpressions.indexWhere(_.exprId == attr.exprId) 
-    if (ordinal != -1) {
-      if (!groupExpressionCached.contains(ordinal)) {
-        groupExpressionCached += ordinal -> List(i)
-        val a = groupingExpressions(ordinal)
-        logInfo(s"expr is $attr, groupingExpression is ${ordinal}: $a")
-        val field = Field.nullable(s"${a.name}#${a.exprId.id}", CodeGeneration.getResultType(a.dataType))
-        val resField = Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
-        expressionResultFieldList += resField
-        expressionsBuffer +=
-          new ColumnarUniqueAggregateExpression(List(field)).asInstanceOf[ColumnarAggregateExpressionBase]
+  val aggregateNativeExpressions: List[ColumnarAggregateExpressionBase] =
+    aggregateExpressions.toList.map(expr => {
+      val res = new ColumnarAggregateExpression(
+        expr.aggregateFunction,
+        expr.mode,
+        expr.isDistinct,
+        expr.resultId)
+      val arg_size = res.requiredColNum
+      val res_size = res.expectedResColNum
+      val fieldList = ListBuffer[Field]()
+      for (i <- 0 until arg_size) {
+        fieldList += aggregateFieldList(field_id)
+        field_id += 1
       }
-      groupExpressionCached(ordinal).foreach{j =>
-        expressionToResult += j
-      }
-      i += 1
-    } else {
-      ordinal = AttributeSeq(aggregateAttributes).indexOf(attr.exprId)
-      if (ordinal == -1) {
-        ordinal = aggr_id
-      }
-      if (!aggrExpressionCached.contains(ordinal)) {
-        val a = aggregateExpressions(ordinal)
-        logInfo(s"expr is $attr, aggrExpression is ${ordinal}: $a")
-        val res = new ColumnarAggregateExpression(
-          a.aggregateFunction,
-          a.mode,
-          a.isDistinct,
-          a.resultId)
-        val arg_size = res.requiredColNum
-        val res_size = res.expectedResColNum
-        val tmp_list: List[Int] = i until i + res_size toList
-        val fieldList = ListBuffer[Field]()
-        for (j <- 0 until arg_size) {
-          fieldList += aggrFieldList(field_id)
-          field_id += 1
-        }
-        res.setInputFields(fieldList.toList)
-        aggrExpressionCached += ordinal -> tmp_list
-        tmp_list.foreach(j => {
-          val resAttr = ConverterUtils.getAttrFromExpr(resultExpressions(j), true)
-          val resField = Field.nullable(s"${resAttr.name}#${resAttr.exprId.id}", CodeGeneration.getResultType(resAttr.dataType))
-          expressionResultFieldList += resField
-        })
-        aggr_id += 1
-        expressionsBuffer +=
-          res.asInstanceOf[ColumnarAggregateExpressionBase]
-      }
-      aggrExpressionCached(ordinal).foreach{j =>
-        expressionToResult += j
-      }
-      i += aggrExpressionCached(ordinal).size
-    }
-  } 
-  val expressions = expressionsBuffer.toList
+      res.setInputFields(fieldList.toList)
+      res
+    })
 
-  logInfo(s"inputFieldList is ${inputFieldList}, expressionResultFieldList is ${expressionResultFieldList}, outputFieldList is ${outputFieldList}, expressionToResult is ${expressionToResult}")
-
+  // 5. create nativeAggregate evaluator
+  val allNativeExpressions = groupingNativeExpression ::: aggregateNativeExpressions
+  val allAggregateInputFieldList = groupingFieldList ::: aggregateFieldList
+  val allAggregateResultAttributes = groupingAttributes ::: aggregateAttributes.toList
+  val aggregateResultFieldList = allAggregateResultAttributes.map(attr => {
+    Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
+  })
   /* declare dummy resultType and resultField to generate Gandiva expression
    * Both won't be actually used.*/
   val resultType = CodeGeneration.getResultType()
   val resultField = Field.nullable(s"dummy_res", resultType)
 
-  val gandivaExpressionTree: List[(ExpressionTree, ExpressionTree)] = expressions.map( expr => {
-    val (node, finalNode) =
-      expr.doColumnarCodeGen_ext((keyFieldList, inputFieldList, resultType, resultField))
-    if (node == null) {
-      null
-    } else if (finalNode == null) {
-      (
-        TreeBuilder.makeExpression(node, resultField),
-        null)
-    } else {
-      (
-        TreeBuilder.makeExpression(node, resultField),
-        TreeBuilder.makeExpression(finalNode, resultField))
-    }
+  val expressionTree: List[ExpressionTree] = allNativeExpressions.map( expr => {
+    val node =
+      expr.doColumnarCodeGen_ext((groupingFieldList, allAggregateInputFieldList, resultType, resultField))
+    TreeBuilder.makeExpression(node, resultField)
   })
-
-  val aggrExprResultSchema = new Schema(expressionResultFieldList.toList.asJava)
-  val resultSchema = new Schema(outputFieldList.asJava)
+  val aggregateInputSchema = new Schema(allAggregateInputFieldList.asJava)
+  val aggregateResultSchema = new Schema(aggregateResultFieldList.asJava)
   var aggregator = new ExpressionEvaluator()
-  val arrowSchema = new Schema(inputFieldList.asJava)
-  if (keyFieldList.length > 0) {
-  aggregator.build(
-    arrowSchema,
-    gandivaExpressionTree.map(_._1).asJava, true)
-  } else {
-  aggregator.build(
-    arrowSchema,
-    gandivaExpressionTree.map(_._1).asJava, gandivaExpressionTree.map(_._2).asJava)
-  }
+  aggregator.build(aggregateInputSchema, expressionTree.asJava, true)
+  aggregator.setReturnFields(aggregateResultSchema)
+  logInfo(s"native aggregate input is $aggregateInputSchema,\noutput is $aggregateResultSchema")
 
-  aggregator.setReturnFields(aggrExprResultSchema)
-
-  def ifIn(name: String, attrList: List[Field]): Boolean = {
-    var found = false
-    attrList.foreach(attr => {
-      if (attr.getName == name) {
-        found = true
-      }
-    })
-    found
-  }
-
-  def getOrdinalFromExpr(expr: Expression): Int = {
-    expr match {
-      case e: BoundReference =>
-        e.ordinal
-      case other =>
-        throw new UnsupportedOperationException(s"getOrdinalFromExpr is unable to parse from $other (${other.getClass}).")
-    }
-  }
-
+  // 6. map grouping and aggregate result to FinalResult
+  var aggregateToResultProjector = ColumnarProjection.create(allAggregateResultAttributes, resultExpressions, skipLiteral = false, renameResult = true)
+  val aggregateToResultOrdinalList = aggregateToResultProjector.getOrdinalList
+  val resultAttributes = aggregateToResultProjector.output
+  val resultArrowSchema = new Schema(resultAttributes.map(attr => {
+    Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
+  }).asJava)
+  logInfo(s"resultAttributes is ${resultAttributes},\naggregateToResultOrdinalList is ${aggregateToResultOrdinalList}")
+//////////////////////////////////////////////////////////////////////////////////////////////////
   def close(): Unit = {
     logInfo(" closed");
     if (aggregator != null) {
       aggregator.close()
       aggregator = null
     }
-    if (projector != null) {
-      projector.close()
-      projector = null
-    }
   }
 
   def updateAggregationResult(columnarBatch: ColumnarBatch): Unit = {
     val numRows = columnarBatch.numRows
-    val projCols = projOrdinalList.map(i => {
-      columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
+    val groupingProjectCols = groupingOrdinalList.map(i => {
+      columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector]
     })
-    val aggrCols : Array[ValueVector] = if (projector != null) {
-      val inputProjRecordBatch: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(numRows, projCols)
-      val aggrArrowSchema = new Schema(aggrFieldList.asJava)
-      val aggrSchema = ArrowUtils.fromArrowSchema(aggrArrowSchema)
-      val outputVectors = ArrowWritableColumnVector.allocateColumns(numRows, aggrSchema)
-        .map(columnVector => columnVector.getValueVector())
-      projector.evaluate(inputProjRecordBatch, outputVectors.toList.asJava)
-      ConverterUtils.releaseArrowRecordBatch(inputProjRecordBatch)
-      outputVectors.toArray
+    val aggregateProjectCols = projectOrdinalList.map(i => {
+      columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector]
+    })
+
+    val groupingAggregateCols : List[ArrowWritableColumnVector] = if (groupingExpressionsProjector.needEvaluate) {
+      groupingExpressionsProjector.evaluate(numRows, groupingProjectCols.map(_.getValueVector()))
     } else {
-      projCols.toArray
+      groupingProjectCols
     }
-    val groupCols = keyOrdinalList.map(i => {
-      columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
-    })
-    val inputAggrRecordBatch: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(numRows, groupCols ++ aggrCols)
+
+    val aggregateCols : List[ArrowWritableColumnVector]= if (beforeAggregateProjector != null && beforeAggregateProjector.needEvaluate) {
+      beforeAggregateProjector.evaluate(numRows, aggregateProjectCols.map(_.getValueVector()))
+    } else {
+      aggregateProjectCols
+    }
+
+    val combinedAggregateCols = groupingAggregateCols ::: aggregateCols
+    val inputAggrRecordBatch: ArrowRecordBatch =
+      ConverterUtils.createArrowRecordBatch(numRows, combinedAggregateCols.map(_.getValueVector()))
     aggregator.evaluate(inputAggrRecordBatch)
-   
-    projCols.map(v => v.close())
-    aggrCols.map(v => v.close())
-    groupCols.map(v => v.close())
     ConverterUtils.releaseArrowRecordBatch(inputAggrRecordBatch)
+    combinedAggregateCols.map(v => v.close())
   }
 
-  def getAggregationResult(): ColumnarBatch = {
-    val resultStructType = ArrowUtils.fromArrowSchema(resultSchema)
+  def getAggregationResult(resultIter: BatchIterator): ColumnarBatch = {
+    val resultStructType = ArrowUtils.fromArrowSchema(resultArrowSchema)
     if (processedNumRows == 0) {
       val resultColumnVectors =
         ArrowWritableColumnVector.allocateColumns(0, resultStructType).toArray
       return new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), 0)
     } else {
-      val finalResultRecordBatchList = aggregator.finish()
-      if (finalResultRecordBatchList.size == 0) {
+      val finalResultRecordBatch = if (resultIter != null) {
+        resultIter.next()
+      } else {
+        aggregator.finish()(0)
+      }
+      if (finalResultRecordBatch == null) {
         val resultColumnVectors =
           ArrowWritableColumnVector.allocateColumns(0, resultStructType).toArray
         return new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), 0)
       }
-      // Since grouping column may be removed in output, we need to check here.
-      val finalResultRecordBatch = finalResultRecordBatchList(0)
-      logInfo(s"finalResultRecordBatch has numRows ${finalResultRecordBatch.getLength}, fields as ${finalResultRecordBatch.getNodes}, expected schema as ${resultSchema}")
-      val aggrExprResultColumnVectorList = ConverterUtils.fromArrowRecordBatch(aggrExprResultSchema, finalResultRecordBatch)
-      // map from aggr result to final result
-      val resultColumnVectorList = expressionToResult.toList.map(i => aggrExprResultColumnVectorList(i)).toArray
+      val resultLength = finalResultRecordBatch.getLength
 
-      val finalColumnarBatch = new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]), finalResultRecordBatchList(0).getLength())
-      ConverterUtils.releaseArrowRecordBatchList(finalResultRecordBatchList)
-      finalColumnarBatch
+      val aggrExprResultColumnVectorList = ConverterUtils.fromArrowRecordBatch(aggregateResultSchema, finalResultRecordBatch)
+      ConverterUtils.releaseArrowRecordBatch(finalResultRecordBatch)
+      val resultInputCols = aggregateToResultOrdinalList.map(i => {
+        aggrExprResultColumnVectorList(i)
+      })
+      val resultColumnVectorList = if (aggregateToResultProjector.needEvaluate) {
+        val res = aggregateToResultProjector.evaluate(resultLength, resultInputCols.map(_.getValueVector()))
+        logInfo(s"aggregateToResultProjector, input is ${resultInputCols.map(v => v.getUTF8String(0))}, output is ${res.map(v => v.getUTF8String(0))}")
+        res
+      } else {
+        resultInputCols
+      }
+
+      new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]).toArray, resultLength)
     }
   }
 
   def createIterator(cbIterator: Iterator[ColumnarBatch]): Iterator[ColumnarBatch] = {
     new Iterator[ColumnarBatch] {
       var cb: ColumnarBatch = null
+      var nextCalled = false
+      var resultColumnarBatch: ColumnarBatch = null
+      var result_iterator: BatchIterator = _
+      var data_loaded = false
+      var nextBatch = true
 
-      override def hasNext: Boolean = cbIterator.hasNext
+      override def hasNext: Boolean = {
+        if (nextCalled == false && resultColumnarBatch != null) {
+          return true
+        }
+        if ( !nextBatch ) {
+          return false
+        }
 
-      override def next(): ColumnarBatch = {
-        val beforeAgg = System.nanoTime()
-        var eval_elapse : Long = 0
-        var finish_elapse : Long = 0
-        while (cbIterator.hasNext) {
+        nextCalled = false
+        if (data_loaded == false) {
+          val beforeAgg = System.nanoTime()
+          while (cbIterator.hasNext) {
+            if (cb != null) {
+              cb.close()
+              cb = null
+            }
+            cb = cbIterator.next()
+  
+            val beforeEval = System.nanoTime()
+            if (cb.numRows > 0) {
+              updateAggregationResult(cb)
+              processedNumRows += cb.numRows
+            }
+            numInputBatches += 1
+          }
           if (cb != null) {
             cb.close()
             cb = null
           }
-          cb = cbIterator.next()
-
-          val beforeEval = System.nanoTime()
-          if (cb.numRows > 0) {
-            updateAggregationResult(cb)
-            processedNumRows += cb.numRows
+          val elapse = System.nanoTime() - beforeAgg
+          elapseTime += NANOSECONDS.toMillis(elapse)
+          if (groupingFieldList.size > 0) {
+            result_iterator = aggregator.finishByIterator()
           }
-          numInputBatches += 1
-          eval_elapse += System.nanoTime() - beforeEval
+          data_loaded = true
         }
         val beforeEval = System.nanoTime()
-        val outputBatch = getAggregationResult()
-        eval_elapse += System.nanoTime() - beforeEval
-        val elapse = System.nanoTime() - beforeAgg
-        aggrTime.set(NANOSECONDS.toMillis(eval_elapse))
-        elapseTime.set(NANOSECONDS.toMillis(elapse))
-        logInfo(s"HashAggregate Completed, total processed ${numInputBatches.value} batches, took ${NANOSECONDS.toMillis(elapse)} ms handling one file(including fetching + processing), took ${NANOSECONDS.toMillis(eval_elapse)} ms doing evaluation.");
+        resultColumnarBatch = getAggregationResult(result_iterator)
+        val eval_elapse = System.nanoTime() - beforeEval
+        aggrTime += NANOSECONDS.toMillis(eval_elapse)
+        if (resultColumnarBatch.numRows == 0)
+          return false
         numOutputBatches += 1
-        numOutputRows += outputBatch.numRows
-        if (cb != null) {
-          cb.close()
-          cb = null
+        numOutputRows += resultColumnarBatch.numRows
+        if (result_iterator == null) {
+          nextBatch = false
         }
-        outputBatch
+        true
+      }
+
+      override def next(): ColumnarBatch = {
+        if (resultColumnarBatch == null) {
+          throw new UnsupportedOperationException(s"next() called, while there is no next")
+        }
+        nextCalled = true
+        val numCols = resultColumnarBatch.numCols
+        //logInfo(s"result has ${resultColumnarBatch.numRows}, first row is ${(0 until numCols).map(resultColumnarBatch.column(_).getUTF8String(0))}")
+        resultColumnarBatch
       }
     }
   }

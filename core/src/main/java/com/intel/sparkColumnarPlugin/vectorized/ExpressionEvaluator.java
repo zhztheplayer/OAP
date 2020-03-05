@@ -14,7 +14,7 @@ import org.apache.arrow.vector.ipc.message.ArrowRecordBatch;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.pojo.Schema;
 
-public class ExpressionEvaluator {
+public class ExpressionEvaluator implements AutoCloseable {
 
   private long nativeHandler = 0;
   private ExpressionEvaluatorJniWrapper jniWrapper;
@@ -123,6 +123,7 @@ public class ExpressionEvaluator {
     jniWrapper.nativeSetDependency(nativeHandler, child.getInstanceId(), index);
   }
 
+  @Override
   public void close() {
     jniWrapper.nativeClose(nativeHandler);
   }

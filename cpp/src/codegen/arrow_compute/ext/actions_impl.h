@@ -39,7 +39,8 @@ class ActionBase {
   virtual int RequiredColNum() { return 1; }
 
   virtual arrow::Status Submit(ArrayList in, int max_group_id,
-                               std::function<arrow::Status(int)>* out) {
+                               std::function<arrow::Status(int)>* on_valid,
+                               std::function<arrow::Status()>* on_null) {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
   }
   virtual arrow::Status Submit(std::vector<std::shared_ptr<arrow::Array>> in,
@@ -89,12 +90,13 @@ class UniqueAction : public ActionBase {
   int RequiredColNum() { return 1; }
 
   arrow::Status Submit(ArrayList in_list, int max_group_id,
-                       std::function<arrow::Status(int)>* out) override {
+                       std::function<arrow::Status(int)>* on_valid,
+                       std::function<arrow::Status()>* on_null) override {
     in_ = std::dynamic_pointer_cast<ArrayType>(in_list[0]);
     // prepare evaluate lambda
     row_id_ = 0;
     if (in_->null_count()) {
-      *out = [this](int dest_group_id) {
+      *on_valid = [this](int dest_group_id) {
         if (dest_group_id >= out_size_) {
           if (in_->IsNull(row_id_)) {
             builder_->AppendNull();
@@ -107,7 +109,7 @@ class UniqueAction : public ActionBase {
         return arrow::Status::OK();
       };
     } else {
-      *out = [this](int dest_group_id) {
+      *on_valid = [this](int dest_group_id) {
         if (dest_group_id >= out_size_) {
           builder_->Append(in_->GetView(row_id_));
           out_size_++;
@@ -116,6 +118,11 @@ class UniqueAction : public ActionBase {
         return arrow::Status::OK();
       };
     }
+
+    *on_null = [this]() {
+      row_id_++;
+      return arrow::Status::OK();
+    };
     return arrow::Status::OK();
   }
 
@@ -157,34 +164,34 @@ class CountAction : public ActionBase {
   int RequiredColNum() { return 1; }
 
   arrow::Status Submit(ArrayList in_list, int max_group_id,
-                       std::function<arrow::Status(int)>* out) override {
+                       std::function<arrow::Status(int)>* on_valid,
+                       std::function<arrow::Status()>* on_null) override {
     // resize result data
     if (cache_validity_.size() <= max_group_id) {
       cache_validity_.resize(max_group_id + 1, false);
       cache_.resize(max_group_id + 1, 0);
     }
 
-    auto in = in_list[0];
+    in_ = in_list[0];
+    row_id = 0;
     // prepare evaluate lambda
-    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
-        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
-    if (in->null_count()) {
-      *out = [this](int dest_group_id) {
+    if (in_->null_count()) {
+      *on_valid = [this](int dest_group_id) {
         cache_validity_[dest_group_id] = true;
-        const bool is_null = valid_reader->IsNotSet();
-        valid_reader->Next();
+        const bool is_null = in_->IsNull(row_id);
         if (!is_null) {
           cache_[dest_group_id] += 1;
         }
         return arrow::Status::OK();
       };
     } else {
-      *out = [this](int dest_group_id) {
+      *on_valid = [this](int dest_group_id) {
         cache_validity_[dest_group_id] = true;
         cache_[dest_group_id] += 1;
         return arrow::Status::OK();
       };
     }
+    *on_null = [this]() { return arrow::Status::OK(); };
     return arrow::Status::OK();
   }
 
@@ -209,7 +216,8 @@ class CountAction : public ActionBase {
   using ResBuilderType = typename arrow::TypeTraits<DataType>::BuilderType;
   // input
   arrow::compute::FunctionContext* ctx_;
-  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  std::shared_ptr<arrow::Array> in_;
+  int32_t row_id;
   // result
   using CType = typename arrow::TypeTraits<DataType>::CType;
   std::vector<CType> cache_;
@@ -235,7 +243,8 @@ class CountLiteralAction : public ActionBase {
   int RequiredColNum() { return 0; }
 
   arrow::Status Submit(ArrayList in_list, int max_group_id,
-                       std::function<arrow::Status(int)>* out) override {
+                       std::function<arrow::Status(int)>* on_valid,
+                       std::function<arrow::Status()>* on_null) override {
     // resize result data
     if (cache_validity_.size() <= max_group_id) {
       cache_validity_.resize(max_group_id + 1, false);
@@ -243,11 +252,13 @@ class CountLiteralAction : public ActionBase {
     }
 
     // prepare evaluate lambda
-    *out = [this](int dest_group_id) {
+    *on_valid = [this](int dest_group_id) {
       cache_validity_[dest_group_id] = true;
       cache_[dest_group_id] += arg_;
       return arrow::Status::OK();
     };
+
+    *on_null = [this]() { return arrow::Status::OK(); };
     return arrow::Status::OK();
   }
 
@@ -297,27 +308,25 @@ class MinAction : public ActionBase {
   int RequiredColNum() { return 1; }
 
   arrow::Status Submit(ArrayList in_list, int max_group_id,
-                       std::function<arrow::Status(int)>* out) override {
+                       std::function<arrow::Status(int)>* on_valid,
+                       std::function<arrow::Status()>* on_null) override {
     // resize result data
     if (cache_validity_.size() <= max_group_id) {
       cache_validity_.resize(max_group_id + 1, false);
       cache_.resize(max_group_id + 1, 0);
     }
 
-    auto in = in_list[0];
+    in_ = in_list[0];
     // prepare evaluate lambda
-    data_ = const_cast<CType*>(in->data()->GetValues<CType>(1));
-    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
-        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
+    data_ = const_cast<CType*>(in_->data()->GetValues<CType>(1));
     row_id = 0;
-    if (in->null_count()) {
-      *out = [this](int dest_group_id) {
+    if (in_->null_count()) {
+      *on_valid = [this](int dest_group_id) {
         if (!cache_validity_[dest_group_id]) {
           cache_[dest_group_id] = data_[row_id];
           cache_validity_[dest_group_id] = true;
         }
-        const bool is_null = valid_reader->IsNotSet();
-        valid_reader->Next();
+        const bool is_null = in_->IsNull(row_id);
         if (!is_null) {
           if (data_[row_id] < cache_[dest_group_id]) {
             cache_[dest_group_id] = data_[row_id];
@@ -327,7 +336,7 @@ class MinAction : public ActionBase {
         return arrow::Status::OK();
       };
     } else {
-      *out = [this](int dest_group_id) {
+      *on_valid = [this](int dest_group_id) {
         if (!cache_validity_[dest_group_id]) {
           cache_[dest_group_id] = data_[row_id];
           cache_validity_[dest_group_id] = true;
@@ -339,6 +348,10 @@ class MinAction : public ActionBase {
         return arrow::Status::OK();
       };
     }
+    *on_null = [this]() {
+      row_id++;
+      return arrow::Status::OK();
+    };
     return arrow::Status::OK();
   }
 
@@ -366,7 +379,7 @@ class MinAction : public ActionBase {
   using ResBuilderType = typename arrow::TypeTraits<ResDataType>::BuilderType;
   // input
   arrow::compute::FunctionContext* ctx_;
-  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  std::shared_ptr<arrow::Array> in_;
   CType* data_;
   int row_id;
   // result
@@ -392,27 +405,25 @@ class MaxAction : public ActionBase {
   int RequiredColNum() { return 1; }
 
   arrow::Status Submit(ArrayList in_list, int max_group_id,
-                       std::function<arrow::Status(int)>* out) override {
+                       std::function<arrow::Status(int)>* on_valid,
+                       std::function<arrow::Status()>* on_null) override {
     // resize result data
     if (cache_validity_.size() <= max_group_id) {
       cache_validity_.resize(max_group_id + 1, false);
       cache_.resize(max_group_id + 1, 0);
     }
 
-    auto in = in_list[0];
+    in_ = in_list[0];
     // prepare evaluate lambda
-    data_ = const_cast<CType*>(in->data()->GetValues<CType>(1));
-    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
-        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
+    data_ = const_cast<CType*>(in_->data()->GetValues<CType>(1));
     row_id = 0;
-    if (in->null_count()) {
-      *out = [this](int dest_group_id) {
+    if (in_->null_count()) {
+      *on_valid = [this](int dest_group_id) {
         if (!cache_validity_[dest_group_id]) {
           cache_[dest_group_id] = data_[row_id];
           cache_validity_[dest_group_id] = true;
         }
-        const bool is_null = valid_reader->IsNotSet();
-        valid_reader->Next();
+        const bool is_null = in_->IsNull(row_id);
         if (!is_null) {
           if (data_[row_id] > cache_[dest_group_id]) {
             cache_[dest_group_id] = data_[row_id];
@@ -422,7 +433,7 @@ class MaxAction : public ActionBase {
         return arrow::Status::OK();
       };
     } else {
-      *out = [this](int dest_group_id) {
+      *on_valid = [this](int dest_group_id) {
         if (!cache_validity_[dest_group_id]) {
           cache_[dest_group_id] = data_[row_id];
           cache_validity_[dest_group_id] = true;
@@ -434,6 +445,10 @@ class MaxAction : public ActionBase {
         return arrow::Status::OK();
       };
     }
+    *on_null = [this]() {
+      row_id++;
+      return arrow::Status::OK();
+    };
     return arrow::Status::OK();
   }
 
@@ -461,7 +476,7 @@ class MaxAction : public ActionBase {
   using ResBuilderType = typename arrow::TypeTraits<ResDataType>::BuilderType;
   // input
   arrow::compute::FunctionContext* ctx_;
-  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  std::shared_ptr<arrow::Array> in_;
   CType* data_;
   int row_id;
   // result
@@ -487,24 +502,22 @@ class SumAction : public ActionBase {
   int RequiredColNum() { return 1; }
 
   arrow::Status Submit(ArrayList in_list, int max_group_id,
-                       std::function<arrow::Status(int)>* out) override {
+                       std::function<arrow::Status(int)>* on_valid,
+                       std::function<arrow::Status()>* on_null) override {
     // resize result data
     if (cache_validity_.size() <= max_group_id) {
       cache_validity_.resize(max_group_id + 1, false);
       cache_.resize(max_group_id + 1, 0);
     }
 
-    auto in = in_list[0];
+    in_ = in_list[0];
     // prepare evaluate lambda
-    data_ = const_cast<CType*>(in->data()->GetValues<CType>(1));
-    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
-        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
+    data_ = const_cast<CType*>(in_->data()->GetValues<CType>(1));
     row_id = 0;
-    if (in->null_count()) {
-      *out = [this](int dest_group_id) {
+    if (in_->null_count()) {
+      *on_valid = [this](int dest_group_id) {
         cache_validity_[dest_group_id] = true;
-        const bool is_null = valid_reader->IsNotSet();
-        valid_reader->Next();
+        const bool is_null = in_->IsNull(row_id);
         if (!is_null) {
           cache_[dest_group_id] += data_[row_id];
         }
@@ -512,13 +525,17 @@ class SumAction : public ActionBase {
         return arrow::Status::OK();
       };
     } else {
-      *out = [this](int dest_group_id) {
+      *on_valid = [this](int dest_group_id) {
         cache_validity_[dest_group_id] = true;
         cache_[dest_group_id] += data_[row_id];
         row_id++;
         return arrow::Status::OK();
       };
     }
+    *on_null = [this]() {
+      row_id++;
+      return arrow::Status::OK();
+    };
     return arrow::Status::OK();
   }
 
@@ -546,7 +563,7 @@ class SumAction : public ActionBase {
   using ResBuilderType = typename arrow::TypeTraits<ResDataType>::BuilderType;
   // input
   arrow::compute::FunctionContext* ctx_;
-  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  std::shared_ptr<arrow::Array> in_;
   CType* data_;
   int row_id;
   // result
@@ -572,7 +589,8 @@ class AvgAction : public ActionBase {
   int RequiredColNum() { return 1; }
 
   arrow::Status Submit(ArrayList in_list, int max_group_id,
-                       std::function<arrow::Status(int)>* out) override {
+                       std::function<arrow::Status(int)>* on_valid,
+                       std::function<arrow::Status()>* on_null) override {
     // resize result data
     if (cache_validity_.size() <= max_group_id) {
       cache_validity_.resize(max_group_id + 1, false);
@@ -580,16 +598,13 @@ class AvgAction : public ActionBase {
       cache_count_.resize(max_group_id + 1, 0);
     }
 
-    auto in = in_list[0];
+    in_ = in_list[0];
     // prepare evaluate lambda
-    data_ = const_cast<CType*>(in->data()->GetValues<CType>(1));
-    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
-        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
+    data_ = const_cast<CType*>(in_->data()->GetValues<CType>(1));
     row_id = 0;
-    if (in->null_count()) {
-      *out = [this](int dest_group_id) {
-        const bool is_null = valid_reader->IsNotSet();
-        valid_reader->Next();
+    if (in_->null_count()) {
+      *on_valid = [this](int dest_group_id) {
+        const bool is_null = in_->IsNull(row_id);
         if (!is_null) {
           cache_validity_[dest_group_id] = true;
           cache_sum_[dest_group_id] += data_[row_id];
@@ -599,7 +614,7 @@ class AvgAction : public ActionBase {
         return arrow::Status::OK();
       };
     } else {
-      *out = [this](int dest_group_id) {
+      *on_valid = [this](int dest_group_id) {
         cache_validity_[dest_group_id] = true;
         cache_sum_[dest_group_id] += data_[row_id];
         cache_count_[dest_group_id] += 1;
@@ -607,6 +622,10 @@ class AvgAction : public ActionBase {
         return arrow::Status::OK();
       };
     }
+    *on_null = [this]() {
+      row_id++;
+      return arrow::Status::OK();
+    };
     return arrow::Status::OK();
   }
 
@@ -631,7 +650,7 @@ class AvgAction : public ActionBase {
   // input
   arrow::compute::FunctionContext* ctx_;
   CType* data_;
-  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  std::shared_ptr<arrow::Array> in_;
   int row_id;
   // result
   std::vector<double> cache_sum_;
@@ -657,7 +676,8 @@ class SumCountAction : public ActionBase {
   int RequiredColNum() { return 1; }
 
   arrow::Status Submit(ArrayList in_list, int max_group_id,
-                       std::function<arrow::Status(int)>* out) override {
+                       std::function<arrow::Status(int)>* on_valid,
+                       std::function<arrow::Status()>* on_null) override {
     // resize result data
     if (cache_validity_.size() <= max_group_id) {
       cache_validity_.resize(max_group_id + 1, false);
@@ -665,16 +685,13 @@ class SumCountAction : public ActionBase {
       cache_count_.resize(max_group_id + 1, 0);
     }
 
-    auto in = in_list[0];
+    in_ = in_list[0];
     // prepare evaluate lambda
-    data_ = const_cast<CType*>(in->data()->GetValues<CType>(1));
-    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
-        in->data()->buffers[0]->data(), in->data()->offset, in->data()->length);
+    data_ = const_cast<CType*>(in_->data()->GetValues<CType>(1));
     row_id = 0;
-    if (in->null_count()) {
-      *out = [this](int dest_group_id) {
-        const bool is_null = valid_reader->IsNotSet();
-        valid_reader->Next();
+    if (in_->null_count()) {
+      *on_valid = [this](int dest_group_id) {
+        const bool is_null = in_->IsNull(row_id);
         if (!is_null) {
           cache_validity_[dest_group_id] = true;
           cache_sum_[dest_group_id] += data_[row_id];
@@ -684,7 +701,7 @@ class SumCountAction : public ActionBase {
         return arrow::Status::OK();
       };
     } else {
-      *out = [this](int dest_group_id) {
+      *on_valid = [this](int dest_group_id) {
         cache_validity_[dest_group_id] = true;
         cache_sum_[dest_group_id] += data_[row_id];
         cache_count_[dest_group_id] += 1;
@@ -692,6 +709,10 @@ class SumCountAction : public ActionBase {
         return arrow::Status::OK();
       };
     }
+    *on_null = [this]() {
+      row_id++;
+      return arrow::Status::OK();
+    };
     return arrow::Status::OK();
   }
 
@@ -720,7 +741,7 @@ class SumCountAction : public ActionBase {
   // input
   arrow::compute::FunctionContext* ctx_;
   CType* data_;
-  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
+  std::shared_ptr<arrow::Array> in_;
   int row_id;
   // result
   std::vector<double> cache_sum_;
@@ -746,7 +767,8 @@ class AvgByCountAction : public ActionBase {
   int RequiredColNum() { return 2; }
 
   arrow::Status Submit(ArrayList in_list, int max_group_id,
-                       std::function<arrow::Status(int)>* out) override {
+                       std::function<arrow::Status(int)>* on_valid,
+                       std::function<arrow::Status()>* on_null) override {
     // resize result data
     if (cache_validity_.size() <= max_group_id) {
       cache_validity_.resize(max_group_id + 1, false);
@@ -754,19 +776,15 @@ class AvgByCountAction : public ActionBase {
       cache_count_.resize(max_group_id + 1, 0);
     }
 
-    auto in_sum = in_list[0];
-    auto in_count = in_list[1];
+    in_sum_ = in_list[0];
+    in_count_ = in_list[1];
     // prepare evaluate lambda
-    data_sum_ = const_cast<double*>(in_sum->data()->GetValues<double>(1));
-    data_count_ = const_cast<int64_t*>(in_count->data()->GetValues<int64_t>(1));
-    valid_reader = std::make_shared<arrow::internal::BitmapReader>(
-        in_sum->data()->buffers[0]->data(), in_sum->data()->offset,
-        in_sum->data()->length);
+    data_sum_ = const_cast<double*>(in_sum_->data()->GetValues<double>(1));
+    data_count_ = const_cast<int64_t*>(in_count_->data()->GetValues<int64_t>(1));
     row_id = 0;
-    if (in_sum->null_count()) {
-      *out = [this](int dest_group_id) {
-        const bool is_null = valid_reader->IsNotSet();
-        valid_reader->Next();
+    if (in_sum_->null_count()) {
+      *on_valid = [this](int dest_group_id) {
+        const bool is_null = in_sum_->IsNull(row_id);
         if (!is_null) {
           cache_validity_[dest_group_id] = true;
           cache_sum_[dest_group_id] += data_sum_[row_id];
@@ -776,7 +794,7 @@ class AvgByCountAction : public ActionBase {
         return arrow::Status::OK();
       };
     } else {
-      *out = [this](int dest_group_id) {
+      *on_valid = [this](int dest_group_id) {
         cache_validity_[dest_group_id] = true;
         cache_sum_[dest_group_id] += data_sum_[row_id];
         cache_count_[dest_group_id] += data_count_[row_id];
@@ -784,6 +802,10 @@ class AvgByCountAction : public ActionBase {
         return arrow::Status::OK();
       };
     }
+    *on_null = [this]() {
+      row_id++;
+      return arrow::Status::OK();
+    };
     return arrow::Status::OK();
   }
 
@@ -810,8 +832,9 @@ class AvgByCountAction : public ActionBase {
   arrow::compute::FunctionContext* ctx_;
   double* data_sum_;
   int64_t* data_count_;
-  std::shared_ptr<arrow::internal::BitmapReader> valid_reader;
   int row_id;
+  std::shared_ptr<arrow::Array> in_sum_;
+  std::shared_ptr<arrow::Array> in_count_;
   // result
   std::vector<double> cache_sum_;
   std::vector<int64_t> cache_count_;

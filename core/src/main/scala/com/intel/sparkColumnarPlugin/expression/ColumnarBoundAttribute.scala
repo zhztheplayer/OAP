@@ -22,9 +22,7 @@ class ColumnarBoundReference(ordinal: Int, dataType: DataType, nullable: Boolean
     val resultType = CodeGeneration.getResultType(dataType)
     val field = Field.nullable(s"c_$ordinal", resultType)
     val fieldTypes = args.asInstanceOf[java.util.List[Field]]
-    if (!fieldTypes.contains(field)) {
-      fieldTypes.add(field)
-    }
+    fieldTypes.add(field)
     (TreeBuilder.makeField(field), resultType)
   }
 

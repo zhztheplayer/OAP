@@ -96,6 +96,9 @@ class SplitArrayListWithActionKernel : public KernalBase {
   arrow::Status Evaluate(const ArrayList& in,
                          const std::shared_ptr<arrow::Array>& dict) override;
   arrow::Status Finish(ArrayList* out) override;
+  arrow::Status MakeResultIterator(
+      std::shared_ptr<arrow::Schema> schema,
+      std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) override;
 
  private:
   class Impl;
@@ -236,10 +239,12 @@ class AppendArrayKernel : public KernalBase {
 class SumArrayKernel : public KernalBase {
  public:
   static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<arrow::DataType> data_type,
                             std::shared_ptr<KernalBase>* out);
-  SumArrayKernel(arrow::compute::FunctionContext* ctx);
-  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
-  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override;
+  SumArrayKernel(arrow::compute::FunctionContext* ctx,
+                 std::shared_ptr<arrow::DataType> data_type);
+  arrow::Status Evaluate(const ArrayList& in) override;
+  arrow::Status Finish(ArrayList* out) override;
 
  private:
   class Impl;
@@ -250,10 +255,76 @@ class SumArrayKernel : public KernalBase {
 class CountArrayKernel : public KernalBase {
  public:
   static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<arrow::DataType> data_type,
                             std::shared_ptr<KernalBase>* out);
-  CountArrayKernel(arrow::compute::FunctionContext* ctx);
-  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
-  arrow::Status Finish(std::shared_ptr<arrow::Array>* out) override;
+  CountArrayKernel(arrow::compute::FunctionContext* ctx,
+                   std::shared_ptr<arrow::DataType> data_type);
+  arrow::Status Evaluate(const ArrayList& in) override;
+  arrow::Status Finish(ArrayList* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class SumCountArrayKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<arrow::DataType> data_type,
+                            std::shared_ptr<KernalBase>* out);
+  SumCountArrayKernel(arrow::compute::FunctionContext* ctx,
+                      std::shared_ptr<arrow::DataType> data_type);
+  arrow::Status Evaluate(const ArrayList& in) override;
+  arrow::Status Finish(ArrayList* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class AvgByCountArrayKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<arrow::DataType> data_type,
+                            std::shared_ptr<KernalBase>* out);
+  AvgByCountArrayKernel(arrow::compute::FunctionContext* ctx,
+                        std::shared_ptr<arrow::DataType> data_type);
+  arrow::Status Evaluate(const ArrayList& in) override;
+  arrow::Status Finish(ArrayList* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class MinArrayKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<arrow::DataType> data_type,
+                            std::shared_ptr<KernalBase>* out);
+  MinArrayKernel(arrow::compute::FunctionContext* ctx,
+                 std::shared_ptr<arrow::DataType> data_type);
+  arrow::Status Evaluate(const ArrayList& in) override;
+  arrow::Status Finish(ArrayList* out) override;
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+  arrow::compute::FunctionContext* ctx_;
+};
+
+class MaxArrayKernel : public KernalBase {
+ public:
+  static arrow::Status Make(arrow::compute::FunctionContext* ctx,
+                            std::shared_ptr<arrow::DataType> data_type,
+                            std::shared_ptr<KernalBase>* out);
+  MaxArrayKernel(arrow::compute::FunctionContext* ctx,
+                 std::shared_ptr<arrow::DataType> data_type);
+  arrow::Status Evaluate(const ArrayList& in) override;
+  arrow::Status Finish(ArrayList* out) override;
 
  private:
   class Impl;
