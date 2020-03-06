@@ -7,6 +7,7 @@ import java.util.List;
 import io.netty.buffer.ArrowBuf;
 import java.io.ByteArrayOutputStream;
 import java.nio.channels.Channels;
+import org.apache.arrow.gandiva.evaluator.SelectionVectorInt16;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.ArrowBuffer;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
@@ -15,6 +16,10 @@ public class BatchIterator {
   private native ArrowRecordBatchBuilder nativeNext(long nativeHandler);
   private native ArrowRecordBatchBuilder nativeProcess(long nativeHandler, byte[] schemaBuf, int numRows, long[] bufAddrs, long[] bufSizes);
   private native void nativeProcessAndCacheOne(long nativeHandler, byte[] schemaBuf, int numRows, long[] bufAddrs, long[] bufSizes);
+  private native ArrowRecordBatchBuilder nativeProcessWithSelection(long nativeHandler, byte[] schemaBuf, int numRows, long[] bufAddrs, long[] bufSizes,
+      int selectionVectorRecordCount, long selectionVectorAddr, long selectionVectorSize);
+  private native void nativeProcessAndCacheOneWithSelection(long nativeHandler, byte[] schemaBuf, int numRows, long[] bufAddrs, long[] bufSizes,
+      int selectionVectorRecordCount, long selectionVectorAddr, long selectionVectorSize);
 
   private native void nativeClose(long nativeHandler);
 
@@ -43,6 +48,11 @@ public class BatchIterator {
   }
 
   public ArrowRecordBatch process(Schema schema, ArrowRecordBatch recordBatch) throws IOException {
+    return process(schema, recordBatch, null);
+  }
+
+  public ArrowRecordBatch process(Schema schema, ArrowRecordBatch recordBatch,
+      SelectionVectorInt16 selectionVector) throws IOException {
     int num_rows = recordBatch.getLength();
     List<ArrowBuf> buffers = recordBatch.getBuffers();
     List<ArrowBuffer> buffersLayout = recordBatch.getBuffersLayout();
@@ -63,7 +73,17 @@ public class BatchIterator {
     if (nativeHandler == 0) {
       return null;
     }
-    ArrowRecordBatchBuilder resRecordBatchBuilder = nativeProcess(nativeHandler, getSchemaBytesBuf(schema), num_rows, bufAddrs, bufSizes);
+    ArrowRecordBatchBuilder resRecordBatchBuilder;
+    if (selectionVector != null) {
+      int selectionVectorRecordCount = selectionVector.getRecordCount();
+      long selectionVectorAddr = selectionVector.getBuffer().memoryAddress();
+      long selectionVectorSize = selectionVector.getBuffer().capacity();
+      resRecordBatchBuilder = nativeProcessWithSelection(
+        nativeHandler, getSchemaBytesBuf(schema), num_rows, bufAddrs, bufSizes, 
+        selectionVectorRecordCount, selectionVectorAddr, selectionVectorSize);
+    } else {
+      resRecordBatchBuilder = nativeProcess(nativeHandler, getSchemaBytesBuf(schema), num_rows, bufAddrs, bufSizes);
+    }
     if (resRecordBatchBuilder == null) {
       return null;
     }
@@ -73,6 +93,11 @@ public class BatchIterator {
   }
 
   public void processAndCacheOne(Schema schema, ArrowRecordBatch recordBatch) throws IOException {
+    processAndCacheOne(schema, recordBatch, null);
+  }
+
+  public void processAndCacheOne(Schema schema, ArrowRecordBatch recordBatch, 
+      SelectionVectorInt16 selectionVector) throws IOException {
     int num_rows = recordBatch.getLength();
     List<ArrowBuf> buffers = recordBatch.getBuffers();
     List<ArrowBuffer> buffersLayout = recordBatch.getBuffersLayout();
@@ -93,7 +118,16 @@ public class BatchIterator {
     if (nativeHandler == 0) {
       return;
     }
-    nativeProcessAndCacheOne(nativeHandler, getSchemaBytesBuf(schema), num_rows, bufAddrs, bufSizes);
+    if (selectionVector != null) {
+      int selectionVectorRecordCount = selectionVector.getRecordCount();
+      long selectionVectorAddr = selectionVector.getBuffer().memoryAddress();
+      long selectionVectorSize = selectionVector.getBuffer().capacity();
+      nativeProcessAndCacheOneWithSelection(
+          nativeHandler, getSchemaBytesBuf(schema), num_rows, bufAddrs, bufSizes,
+          selectionVectorRecordCount, selectionVectorAddr, selectionVectorSize);
+    } else {
+      nativeProcessAndCacheOne(nativeHandler, getSchemaBytesBuf(schema), num_rows, bufAddrs, bufSizes);
+    }
   }
 
   public void close() {

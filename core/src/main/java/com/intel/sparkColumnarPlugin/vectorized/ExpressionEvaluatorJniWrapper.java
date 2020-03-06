@@ -65,6 +65,26 @@ public class ExpressionEvaluatorJniWrapper {
   native ArrowRecordBatchBuilder[] nativeEvaluate(
       long nativeHandler, int numRows, long[] bufAddrs, long[] bufSizes) throws RuntimeException;
 
+  /**
+   * Evaluate the expressions represented by the nativeHandler on a record batch and store the
+   * output in ValueVectors. Throws an exception in case of errors
+   *
+   * @param nativeHandler nativeHandler representing expressions. Created using a call to
+   *     buildNativeCode
+   * @param numRows Number of rows in the record batch
+   * @param bufAddrs An array of memory addresses. Each memory address points to a validity vector
+   *     or a data vector (will add support for offset vectors later).
+   * @param bufSizes An array of buffer sizes. For each memory address in bufAddrs, the size of the
+   *     buffer is present in bufSizes
+   * @param selectionVector valid selected item record count
+   * @param selectionVector selectionVector memory address
+   * @param selectionVectorSize selectionVector total size
+   * @return A list of ArrowRecordBatchBuilder which can be used to build a List of ArrowRecordBatch
+   */
+  native ArrowRecordBatchBuilder[] nativeEvaluateWithSelection(
+      long nativeHandler, int numRows, long[] bufAddrs, long[] bufSizes,
+      int selectionVectorRecordCount, long selectionVectorAddr, long selectionVectorSize) throws RuntimeException;
+
   native void nativeSetMember(
       long nativeHandler, int numRows, long[] bufAddrs, long[] bufSizes);
 

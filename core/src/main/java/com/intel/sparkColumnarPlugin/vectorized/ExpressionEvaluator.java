@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.channels.Channels;
 import java.util.List;
+import org.apache.arrow.gandiva.evaluator.SelectionVectorInt16;
 import org.apache.arrow.gandiva.exceptions.GandivaException;
 import org.apache.arrow.gandiva.expression.ExpressionTree;
 import org.apache.arrow.gandiva.ipc.GandivaTypes;
@@ -50,6 +51,12 @@ public class ExpressionEvaluator implements AutoCloseable {
   /** Evaluate input data using builded native function, and output as recordBatch. */
   public ArrowRecordBatch[] evaluate(ArrowRecordBatch recordBatch)
       throws RuntimeException, IOException {
+    return evaluate(recordBatch, null);
+  }
+
+  /** Evaluate input data using builded native function, and output as recordBatch. */
+  public ArrowRecordBatch[] evaluate(ArrowRecordBatch recordBatch, SelectionVectorInt16 selectionVector)
+      throws RuntimeException, IOException {
     List<ArrowBuf> buffers = recordBatch.getBuffers();
     List<ArrowBuffer> buffersLayout = recordBatch.getBuffersLayout();
     long[] bufAddrs = new long[buffers.size()];
@@ -64,8 +71,18 @@ public class ExpressionEvaluator implements AutoCloseable {
       bufSizes[idx++] = bufLayout.getSize();
     }
 
-    ArrowRecordBatchBuilder[] resRecordBatchBuilderList =
+    ArrowRecordBatchBuilder[] resRecordBatchBuilderList;
+    if (selectionVector != null) {
+      int selectionVectorRecordCount = selectionVector.getRecordCount();
+      long selectionVectorAddr = selectionVector.getBuffer().memoryAddress();
+      long selectionVectorSize = selectionVector.getBuffer().capacity();
+      resRecordBatchBuilderList =
+        jniWrapper.nativeEvaluateWithSelection(nativeHandler, recordBatch.getLength(), bufAddrs, bufSizes,
+            selectionVectorRecordCount, selectionVectorAddr, selectionVectorSize);
+    } else {
+      resRecordBatchBuilderList =
         jniWrapper.nativeEvaluate(nativeHandler, recordBatch.getLength(), bufAddrs, bufSizes);
+    }
     ArrowRecordBatch[] recordBatchList = new ArrowRecordBatch[resRecordBatchBuilderList.length];
     for (int i = 0; i < resRecordBatchBuilderList.length; i++) {
       if (resRecordBatchBuilderList[i] == null) {
