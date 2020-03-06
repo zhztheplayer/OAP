@@ -247,6 +247,14 @@ arrow::Status ExprVisitor::SetDependency(
   return arrow::Status::OK();
 }
 
+arrow::Status ExprVisitor::Eval(const std::shared_ptr<arrow::Array>& selection_in,
+                                const std::shared_ptr<arrow::RecordBatch>& in) {
+  in_selection_array_ = selection_in;
+  in_record_batch_ = in;
+  RETURN_NOT_OK(Eval());
+  return arrow::Status::OK();
+}
+
 arrow::Status ExprVisitor::Eval(const std::shared_ptr<arrow::RecordBatch>& in) {
   in_record_batch_ = in;
   RETURN_NOT_OK(Eval());
@@ -267,7 +275,11 @@ arrow::Status ExprVisitor::Eval() {
 #endif
   if (dependency_) {
     // if this visitor has dependency, we need to get dependency result firstly.
-    RETURN_NOT_OK(dependency_->Eval(in_record_batch_));
+    if (in_selection_array_) {
+      RETURN_NOT_OK(dependency_->Eval(in_selection_array_, in_record_batch_));
+    } else {
+      RETURN_NOT_OK(dependency_->Eval(in_record_batch_));
+    }
     RETURN_NOT_OK(GetResultFromDependency());
   }
 #ifdef DEBUG_LEVEL_2

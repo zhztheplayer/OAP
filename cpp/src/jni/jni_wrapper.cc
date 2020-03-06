@@ -307,6 +307,63 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
   return record_batch_builder_array;
 }
 
+JNIEXPORT jobject JNICALL
+Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeEvaluateWithSelection(
+    JNIEnv* env, jobject obj, jlong id, jint num_rows, jlongArray buf_addrs,
+    jlongArray buf_sizes, jint selection_vector_count, jlong selection_vector_buf_addr,
+    jlong selection_vector_buf_size) {
+  arrow::Status status;
+  std::shared_ptr<CodeGenerator> handler = GetCodeGenerator(env, id);
+  std::shared_ptr<arrow::Schema> schema;
+  status = handler->getSchema(&schema);
+
+  int in_bufs_len = env->GetArrayLength(buf_addrs);
+  if (in_bufs_len != env->GetArrayLength(buf_sizes)) {
+    std::string error_message =
+        "nativeEvaluate: mismatch in arraylen of buf_addrs and buf_sizes";
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  jlong* in_buf_addrs = env->GetLongArrayElements(buf_addrs, 0);
+  jlong* in_buf_sizes = env->GetLongArrayElements(buf_sizes, 0);
+
+  std::shared_ptr<arrow::RecordBatch> in;
+  status =
+      MakeRecordBatch(schema, num_rows, in_buf_addrs, in_buf_sizes, in_bufs_len, &in);
+
+  // Make Array From SelectionVector
+  auto selection_vector_buf = std::make_shared<arrow::MutableBuffer>(
+      reinterpret_cast<uint8_t*>(selection_vector_buf_addr), selection_vector_buf_size);
+
+  auto selection_arraydata = arrow::ArrayData::Make(
+      arrow::uint16(), selection_vector_count, {NULLPTR, selection_vector_buf});
+  auto selection_array = arrow::MakeArray(selection_arraydata);
+
+  std::vector<std::shared_ptr<arrow::RecordBatch>> out;
+  status = handler->evaluate(selection_array, in, &out);
+
+  if (!status.ok()) {
+    std::string error_message =
+        "nativeEvaluate: evaluate failed with error msg " + status.ToString();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  std::shared_ptr<arrow::Schema> res_schema;
+  status = handler->getResSchema(&res_schema);
+  jobjectArray record_batch_builder_array =
+      env->NewObjectArray(out.size(), arrow_record_batch_builder_class, nullptr);
+  int i = 0;
+  for (auto record_batch : out) {
+    jobject record_batch_builder = MakeRecordBatchBuilder(env, res_schema, record_batch);
+    env->SetObjectArrayElement(record_batch_builder_array, i++, record_batch_builder);
+  }
+
+  env->ReleaseLongArrayElements(buf_addrs, in_buf_addrs, JNI_ABORT);
+  env->ReleaseLongArrayElements(buf_sizes, in_buf_sizes, JNI_ABORT);
+
+  return record_batch_builder_array;
+}
+
 JNIEXPORT void JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeSetMember(
     JNIEnv* env, jobject obj, jlong id, jint num_rows, jlongArray buf_addrs,
@@ -466,6 +523,62 @@ Java_com_intel_sparkColumnarPlugin_vectorized_BatchIterator_nativeProcess(
   return MakeRecordBatchBuilder(env, out->schema(), out);
 }
 
+JNIEXPORT jobject JNICALL
+Java_com_intel_sparkColumnarPlugin_vectorized_BatchIterator_nativeProcessWithSelection(
+    JNIEnv* env, jobject obj, jlong id, jbyteArray schema_arr, jint num_rows,
+    jlongArray buf_addrs, jlongArray buf_sizes, jint selection_vector_count,
+    jlong selection_vector_buf_addr, jlong selection_vector_buf_size) {
+  arrow::Status status;
+  std::shared_ptr<arrow::Schema> schema;
+  arrow::Status msg = MakeSchema(env, schema_arr, &schema);
+  if (!msg.ok()) {
+    std::string error_message = "failed to readSchema, err msg is " + msg.message();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  int in_bufs_len = env->GetArrayLength(buf_addrs);
+  if (in_bufs_len != env->GetArrayLength(buf_sizes)) {
+    std::string error_message =
+        "nativeProcess: mismatch in arraylen of buf_addrs and buf_sizes";
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  jlong* in_buf_addrs = env->GetLongArrayElements(buf_addrs, 0);
+  jlong* in_buf_sizes = env->GetLongArrayElements(buf_sizes, 0);
+
+  std::shared_ptr<arrow::RecordBatch> batch;
+  status =
+      MakeRecordBatch(schema, num_rows, in_buf_addrs, in_buf_sizes, in_bufs_len, &batch);
+  std::vector<std::shared_ptr<arrow::Array>> in;
+  for (int i = 0; i < batch->num_columns(); i++) {
+    in.push_back(batch->column(i));
+  }
+
+  auto iter = GetBatchIterator(env, id);
+  // Make Array From SelectionVector
+  auto selection_vector_buf = std::make_shared<arrow::MutableBuffer>(
+      reinterpret_cast<uint8_t*>(selection_vector_buf_addr), selection_vector_buf_size);
+
+  auto selection_arraydata = arrow::ArrayData::Make(
+      arrow::uint16(), selection_vector_count, {NULLPTR, selection_vector_buf});
+  auto selection_array = arrow::MakeArray(selection_arraydata);
+
+  std::shared_ptr<arrow::RecordBatch> out;
+  status = iter->Process(in, &out, selection_array);
+
+  if (!status.ok()) {
+    std::string error_message =
+        "nativeProcess: ResultIterator process next failed with error msg " +
+        status.ToString();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  env->ReleaseLongArrayElements(buf_addrs, in_buf_addrs, JNI_ABORT);
+  env->ReleaseLongArrayElements(buf_sizes, in_buf_sizes, JNI_ABORT);
+
+  return MakeRecordBatchBuilder(env, out->schema(), out);
+}
+
 JNIEXPORT void JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_BatchIterator_nativeProcessAndCacheOne(
     JNIEnv* env, jobject obj, jlong id, jbyteArray schema_arr, jint num_rows,
@@ -498,6 +611,58 @@ Java_com_intel_sparkColumnarPlugin_vectorized_BatchIterator_nativeProcessAndCach
 
   auto iter = GetBatchIterator(env, id);
   status = iter->ProcessAndCacheOne(in);
+
+  if (!status.ok()) {
+    std::string error_message =
+        "nativeProcessAndCache: ResultIterator process next failed with error msg " +
+        status.ToString();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  env->ReleaseLongArrayElements(buf_addrs, in_buf_addrs, JNI_ABORT);
+  env->ReleaseLongArrayElements(buf_sizes, in_buf_sizes, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL
+Java_com_intel_sparkColumnarPlugin_vectorized_BatchIterator_nativeProcessAndCacheOneWithSelection(
+    JNIEnv* env, jobject obj, jlong id, jbyteArray schema_arr, jint num_rows,
+    jlongArray buf_addrs, jlongArray buf_sizes, jint selection_vector_count,
+    jlong selection_vector_buf_addr, jlong selection_vector_buf_size) {
+  arrow::Status status;
+  std::shared_ptr<arrow::Schema> schema;
+  arrow::Status msg = MakeSchema(env, schema_arr, &schema);
+  if (!msg.ok()) {
+    std::string error_message = "failed to readSchema, err msg is " + msg.message();
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  int in_bufs_len = env->GetArrayLength(buf_addrs);
+  if (in_bufs_len != env->GetArrayLength(buf_sizes)) {
+    std::string error_message =
+        "nativeProcess: mismatch in arraylen of buf_addrs and buf_sizes";
+    env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  jlong* in_buf_addrs = env->GetLongArrayElements(buf_addrs, 0);
+  jlong* in_buf_sizes = env->GetLongArrayElements(buf_sizes, 0);
+
+  std::shared_ptr<arrow::RecordBatch> batch;
+  status =
+      MakeRecordBatch(schema, num_rows, in_buf_addrs, in_buf_sizes, in_bufs_len, &batch);
+  std::vector<std::shared_ptr<arrow::Array>> in;
+  for (int i = 0; i < batch->num_columns(); i++) {
+    in.push_back(batch->column(i));
+  }
+
+  auto iter = GetBatchIterator(env, id);
+  // Make Array From SelectionVector
+  auto selection_vector_buf = std::make_shared<arrow::MutableBuffer>(
+      reinterpret_cast<uint8_t*>(selection_vector_buf_addr), selection_vector_buf_size);
+
+  auto selection_arraydata = arrow::ArrayData::Make(
+      arrow::uint16(), selection_vector_count, {NULLPTR, selection_vector_buf});
+  auto selection_array = arrow::MakeArray(selection_arraydata);
+  status = iter->ProcessAndCacheOne(in, selection_array);
 
   if (!status.ok()) {
     std::string error_message =

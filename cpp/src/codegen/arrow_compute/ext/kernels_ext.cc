@@ -940,12 +940,13 @@ class SumArrayKernel::Impl {
   arrow::Status Evaluate(const ArrayList& in) {
     arrow::compute::Datum output;
     RETURN_NOT_OK(arrow::compute::Sum(ctx_, *in[0].get(), &output));
+    res_data_type_ = output.scalar()->type;
     scalar_list_.push_back(output.scalar());
     return arrow::Status::OK();
   }
 
   arrow::Status Finish(ArrayList* out) {
-    switch (data_type_->id()) {
+    switch (res_data_type_->id()) {
 #define PROCESS(DataType)                         \
   case DataType::type_id: {                       \
     RETURN_NOT_OK(FinishInternal<DataType>(out)); \
@@ -958,8 +959,8 @@ class SumArrayKernel::Impl {
 
   template <typename DataType>
   arrow::Status FinishInternal(ArrayList* out) {
-    using CType = typename arrow::TypeTraits<DataType>::CType;
     using ScalarType = typename arrow::TypeTraits<DataType>::ScalarType;
+    using CType = typename arrow::TypeTraits<DataType>::CType;
     CType res = 0;
     for (auto scalar_item : scalar_list_) {
       auto typed_scalar = std::dynamic_pointer_cast<ScalarType>(scalar_item);
@@ -967,7 +968,7 @@ class SumArrayKernel::Impl {
     }
     std::shared_ptr<arrow::Array> arr_out;
     std::shared_ptr<arrow::Scalar> scalar_out;
-    RETURN_NOT_OK(arrow::MakeScalar(data_type_, res, &scalar_out));
+    RETURN_NOT_OK(arrow::MakeScalar(res_data_type_, res, &scalar_out));
     RETURN_NOT_OK(arrow::MakeArrayFromScalar(*scalar_out.get(), 1, &arr_out));
     out->push_back(arr_out);
     return arrow::Status::OK();
@@ -976,6 +977,7 @@ class SumArrayKernel::Impl {
  private:
   arrow::compute::FunctionContext* ctx_;
   std::shared_ptr<arrow::DataType> data_type_;
+  std::shared_ptr<arrow::DataType> res_data_type_;
   std::vector<std::shared_ptr<arrow::Scalar>> scalar_list_;
 };
 
@@ -1071,13 +1073,14 @@ class SumCountArrayKernel::Impl {
     arrow::compute::CountOptions option(arrow::compute::CountOptions::COUNT_ALL);
     RETURN_NOT_OK(arrow::compute::Sum(ctx_, *in[0].get(), &sum_out));
     RETURN_NOT_OK(arrow::compute::Count(ctx_, option, *in[0].get(), &cnt_out));
+    res_data_type_ = sum_out.scalar()->type;
     sum_scalar_list_.push_back(sum_out.scalar());
     cnt_scalar_list_.push_back(cnt_out.scalar());
     return arrow::Status::OK();
   }
 
   arrow::Status Finish(ArrayList* out) {
-    switch (data_type_->id()) {
+    switch (res_data_type_->id()) {
 #define PROCESS(DataType)                         \
   case DataType::type_id: {                       \
     RETURN_NOT_OK(FinishInternal<DataType>(out)); \
@@ -1104,7 +1107,7 @@ class SumCountArrayKernel::Impl {
     }
     std::shared_ptr<arrow::Array> sum_out;
     std::shared_ptr<arrow::Scalar> sum_scalar_out;
-    RETURN_NOT_OK(arrow::MakeScalar(data_type_, sum_res, &sum_scalar_out));
+    RETURN_NOT_OK(arrow::MakeScalar(res_data_type_, sum_res, &sum_scalar_out));
     RETURN_NOT_OK(arrow::MakeArrayFromScalar(*sum_scalar_out.get(), 1, &sum_out));
 
     std::shared_ptr<arrow::Array> cnt_out;
@@ -1120,6 +1123,7 @@ class SumCountArrayKernel::Impl {
 
  private:
   arrow::compute::FunctionContext* ctx_;
+  std::shared_ptr<arrow::DataType> res_data_type_;
   std::shared_ptr<arrow::DataType> data_type_;
   std::vector<std::shared_ptr<arrow::Scalar>> sum_scalar_list_;
   std::vector<std::shared_ptr<arrow::Scalar>> cnt_scalar_list_;
@@ -1157,11 +1161,12 @@ class AvgByCountArrayKernel::Impl {
     RETURN_NOT_OK(arrow::compute::Sum(ctx_, *in[1].get(), &cnt_out));
     sum_scalar_list_.push_back(sum_out.scalar());
     cnt_scalar_list_.push_back(cnt_out.scalar());
+    res_data_type_ = sum_out.scalar()->type;
     return arrow::Status::OK();
   }
 
   arrow::Status Finish(ArrayList* out) {
-    switch (data_type_->id()) {
+    switch (res_data_type_->id()) {
 #define PROCESS(DataType)                         \
   case DataType::type_id: {                       \
     RETURN_NOT_OK(FinishInternal<DataType>(out)); \
@@ -1176,13 +1181,11 @@ class AvgByCountArrayKernel::Impl {
   arrow::Status FinishInternal(ArrayList* out) {
     using CType = typename arrow::TypeTraits<DataType>::CType;
     using ScalarType = typename arrow::TypeTraits<DataType>::ScalarType;
-    using CntScalarType = typename arrow::TypeTraits<arrow::UInt64Type>::ScalarType;
     CType sum_res = 0;
-    uint64_t cnt_res = 0;
+    CType cnt_res = 0;
     for (size_t i = 0; i < sum_scalar_list_.size(); i++) {
       auto sum_typed_scalar = std::dynamic_pointer_cast<ScalarType>(sum_scalar_list_[i]);
-      auto cnt_typed_scalar =
-          std::dynamic_pointer_cast<CntScalarType>(cnt_scalar_list_[i]);
+      auto cnt_typed_scalar = std::dynamic_pointer_cast<ScalarType>(cnt_scalar_list_[i]);
       sum_res += sum_typed_scalar->value;
       cnt_res += cnt_typed_scalar->value;
     }
@@ -1200,6 +1203,7 @@ class AvgByCountArrayKernel::Impl {
  private:
   arrow::compute::FunctionContext* ctx_;
   std::shared_ptr<arrow::DataType> data_type_;
+  std::shared_ptr<arrow::DataType> res_data_type_;
   std::vector<std::shared_ptr<arrow::Scalar>> sum_scalar_list_;
   std::vector<std::shared_ptr<arrow::Scalar>> cnt_scalar_list_;
 };
@@ -1596,7 +1600,8 @@ class ProbeArraysKernel::Impl {
  public:
   Impl() {}
   ~Impl() {}
-  virtual arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) {
+  virtual arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& selection,
+                                 const std::shared_ptr<arrow::Array>& in) {
     return arrow::Status::NotImplemented("ProbeArraysKernel::Impl Evaluate is abstract");
   }  // namespace extra
   virtual arrow::Status MakeResultIterator(
@@ -1615,7 +1620,8 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
     hash_table_ = std::make_shared<MemoTableType>(ctx_->memory_pool());
   }
 
-  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override {
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& selection,
+                         const std::shared_ptr<arrow::Array>& in) override {
     // we should put items into hashmap
     auto typed_array = std::dynamic_pointer_cast<ArrayType>(in);
     auto insert_on_found = [this](int32_t i) {
@@ -1626,18 +1632,40 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
     };
 
     cur_id_ = 0;
-    if (typed_array->null_count() == 0) {
-      for (; cur_id_ < typed_array->length(); cur_id_++) {
-        hash_table_->GetOrInsert(typed_array->GetView(cur_id_), insert_on_found,
-                                 insert_on_not_found);
-      }
-    } else {
-      for (; cur_id_ < typed_array->length(); cur_id_++) {
-        if (typed_array->IsNull(cur_id_)) {
-          hash_table_->GetOrInsertNull(insert_on_found, insert_on_not_found);
-        } else {
+    if (selection) {
+      auto selection_typed_array =
+          std::dynamic_pointer_cast<arrow::UInt16Array>(selection);
+      if (typed_array->null_count() == 0) {
+        for (int i = 0; i < selection_typed_array->length(); i++) {
+          cur_id_ = selection_typed_array->GetView(i);
           hash_table_->GetOrInsert(typed_array->GetView(cur_id_), insert_on_found,
                                    insert_on_not_found);
+        }
+      } else {
+        for (int i = 0; i < selection_typed_array->length(); i++) {
+          cur_id_ = selection_typed_array->GetView(i);
+          if (typed_array->IsNull(cur_id_)) {
+            hash_table_->GetOrInsertNull(insert_on_found, insert_on_not_found);
+          } else {
+            hash_table_->GetOrInsert(typed_array->GetView(cur_id_), insert_on_found,
+                                     insert_on_not_found);
+          }
+        }
+      }
+    } else {
+      if (typed_array->null_count() == 0) {
+        for (; cur_id_ < typed_array->length(); cur_id_++) {
+          hash_table_->GetOrInsert(typed_array->GetView(cur_id_), insert_on_found,
+                                   insert_on_not_found);
+        }
+      } else {
+        for (; cur_id_ < typed_array->length(); cur_id_++) {
+          if (typed_array->IsNull(cur_id_)) {
+            hash_table_->GetOrInsertNull(insert_on_found, insert_on_not_found);
+          } else {
+            hash_table_->GetOrInsert(typed_array->GetView(cur_id_), insert_on_found,
+                                     insert_on_not_found);
+          }
         }
       }
     }
@@ -1649,7 +1677,8 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
       std::shared_ptr<arrow::Schema> schema,
       std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) override {
     // prepare process next function
-    auto eval_func = [this, schema](const std::shared_ptr<arrow::Array>& in,
+    auto eval_func = [this, schema](const std::shared_ptr<arrow::Array>& selection,
+                                    const std::shared_ptr<arrow::Array>& in,
                                     std::shared_ptr<arrow::RecordBatch>* out) {
       // prepare
       std::unique_ptr<arrow::FixedSizeBinaryBuilder> left_indices_builder;
@@ -1666,34 +1695,75 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
       // evaluate
       switch (join_type_) {
         case 0: { /*Inner Join*/
-          for (int i = 0; i < typed_array->length(); i++) {
-            if (!typed_array->IsNull(i)) {
-              auto index = hash_table_->Get(typed_array->GetView(i));
-              if (index != -1) {
-                auto tmp = memo_index_to_arrayid_[index];
-                RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
-                RETURN_NOT_OK(right_indices_builder->Append(i));
+          if (selection) {
+            auto selection_typed_array =
+                std::dynamic_pointer_cast<arrow::UInt16Array>(selection);
+            for (int j = 0; j < selection_typed_array->length(); j++) {
+              int i = selection_typed_array->GetView(j);
+              if (!typed_array->IsNull(i)) {
+                auto index = hash_table_->Get(typed_array->GetView(i));
+                if (index != -1) {
+                  auto tmp = memo_index_to_arrayid_[index];
+                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  RETURN_NOT_OK(right_indices_builder->Append(i));
+                }
+              }
+            }
+          } else {
+            for (int i = 0; i < typed_array->length(); i++) {
+              if (!typed_array->IsNull(i)) {
+                auto index = hash_table_->Get(typed_array->GetView(i));
+                if (index != -1) {
+                  auto tmp = memo_index_to_arrayid_[index];
+                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  RETURN_NOT_OK(right_indices_builder->Append(i));
+                }
               }
             }
           }
         } break;
         case 2: { /*Right Join*/
-          for (int i = 0; i < typed_array->length(); i++) {
-            if (typed_array->IsNull(i)) {
-              auto index = hash_table_->GetNull();
-              if (index == -1) {
-                RETURN_NOT_OK(left_indices_builder->AppendNull());
+          if (selection) {
+            auto selection_typed_array =
+                std::dynamic_pointer_cast<arrow::UInt16Array>(selection);
+            for (int j = 0; j < selection_typed_array->length(); j++) {
+              int i = selection_typed_array->GetView(j);
+              if (typed_array->IsNull(i)) {
+                auto index = hash_table_->GetNull();
+                if (index == -1) {
+                  RETURN_NOT_OK(left_indices_builder->AppendNull());
+                } else {
+                  auto tmp = memo_index_to_arrayid_[index];
+                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                }
               } else {
-                auto tmp = memo_index_to_arrayid_[index];
-                RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                auto index = hash_table_->Get(typed_array->GetView(i));
+                if (index == -1) {
+                  RETURN_NOT_OK(left_indices_builder->AppendNull());
+                } else {
+                  auto tmp = memo_index_to_arrayid_[index];
+                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                }
               }
-            } else {
-              auto index = hash_table_->Get(typed_array->GetView(i));
-              if (index == -1) {
-                RETURN_NOT_OK(left_indices_builder->AppendNull());
+            }
+          } else {
+            for (int i = 0; i < typed_array->length(); i++) {
+              if (typed_array->IsNull(i)) {
+                auto index = hash_table_->GetNull();
+                if (index == -1) {
+                  RETURN_NOT_OK(left_indices_builder->AppendNull());
+                } else {
+                  auto tmp = memo_index_to_arrayid_[index];
+                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                }
               } else {
-                auto tmp = memo_index_to_arrayid_[index];
-                RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                auto index = hash_table_->Get(typed_array->GetView(i));
+                if (index == -1) {
+                  RETURN_NOT_OK(left_indices_builder->AppendNull());
+                } else {
+                  auto tmp = memo_index_to_arrayid_[index];
+                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                }
               }
             }
           }
@@ -1739,7 +1809,8 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
    public:
     ProbeArraysResultIterator(
         arrow::compute::FunctionContext* ctx,
-        std::function<arrow::Status(const std::shared_ptr<arrow::Array>& in,
+        std::function<arrow::Status(const std::shared_ptr<arrow::Array>& selection,
+                                    const std::shared_ptr<arrow::Array>& in,
                                     std::shared_ptr<arrow::RecordBatch>* out)>
             eval_func)
         : eval_func_(eval_func), ctx_(ctx) {}
@@ -1747,7 +1818,8 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
     bool HasNext() override { return true; }
 
     arrow::Status Process(std::vector<std::shared_ptr<arrow::Array>> in,
-                          std::shared_ptr<arrow::RecordBatch>* out) {
+                          std::shared_ptr<arrow::RecordBatch>* out,
+                          const std::shared_ptr<arrow::Array>& selection) {
       std::shared_ptr<arrow::Array> in_arr;
       if (in.size() > 1) {
         std::vector<std::shared_ptr<arrow::DataType>> type_list;
@@ -1760,11 +1832,12 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
       } else {
         in_arr = in[0];
       }
-      RETURN_NOT_OK(eval_func_(in_arr, out));
+      RETURN_NOT_OK(eval_func_(selection, in_arr, out));
       return arrow::Status::OK();
     }
 
-    arrow::Status ProcessAndCacheOne(std::vector<std::shared_ptr<arrow::Array>> in) {
+    arrow::Status ProcessAndCacheOne(std::vector<std::shared_ptr<arrow::Array>> in,
+                                     const std::shared_ptr<arrow::Array>& selection) {
       std::shared_ptr<arrow::Array> in_arr;
       if (in.size() > 1) {
         std::vector<std::shared_ptr<arrow::DataType>> type_list;
@@ -1777,7 +1850,7 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
       } else {
         in_arr = in[0];
       }
-      RETURN_NOT_OK(eval_func_(in_arr, &out_cache_));
+      RETURN_NOT_OK(eval_func_(selection, in_arr, &out_cache_));
       return arrow::Status::OK();
     }
 
@@ -1787,7 +1860,8 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
     }
 
    private:
-    std::function<arrow::Status(const std::shared_ptr<arrow::Array>& in,
+    std::function<arrow::Status(const std::shared_ptr<arrow::Array>& selection,
+                                const std::shared_ptr<arrow::Array>& in,
                                 std::shared_ptr<arrow::RecordBatch>* out)>
         eval_func_;
     std::shared_ptr<arrow::RecordBatch> out_cache_;
@@ -1841,8 +1915,9 @@ ProbeArraysKernel::ProbeArraysKernel(arrow::compute::FunctionContext* ctx,
 }
 #undef PROCESS_SUPPORTED_TYPES
 
-arrow::Status ProbeArraysKernel::Evaluate(const std::shared_ptr<arrow::Array>& in) {
-  return impl_->Evaluate(in);
+arrow::Status ProbeArraysKernel::Evaluate(const std::shared_ptr<arrow::Array>& selection,
+                                          const std::shared_ptr<arrow::Array>& in) {
+  return impl_->Evaluate(selection, in);
 }
 
 arrow::Status ProbeArraysKernel::MakeResultIterator(
