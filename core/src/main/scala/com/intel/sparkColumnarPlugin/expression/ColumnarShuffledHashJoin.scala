@@ -75,9 +75,9 @@ class ColumnarShuffledHashJoin(
 
     val inputBatchHolder = new ListBuffer[ArrowRecordBatch]() 
     // TODO
-    val l_input_schema: Seq[Attribute] = left.output
-    val r_input_schema: Seq[Attribute] = right.output
-    logInfo(s"\nleft_schema is ${l_input_schema}, right_schema is ${r_input_schema}, \nleftKeys is ${leftKeys}, rightKeys is ${rightKeys}, \nresultSchema is ${resultSchema}, joinType is ${joinType}, buildSide is ${buildSide}, condition is ${condition}")
+    val l_input_schema: List[Attribute] = left.output.toList
+    val r_input_schema: List[Attribute] = right.output.toList
+    logInfo(s"\nleft_schema is ${l_input_schema}, right_schema is ${r_input_schema}, \nleftKeys is ${leftKeys}, rightKeys is ${rightKeys}, \nresultSchema is ${resultSchema}, \njoinType is ${joinType}, buildSide is ${buildSide}, condition is ${condition}")
 
     val l_input_field_list: List[Field] = l_input_schema.toList.map(attr => {
       Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
@@ -129,6 +129,23 @@ class ColumnarShuffledHashJoin(
     }
 
     val build_input_arrow_schema: Schema = new Schema(build_input_field_list.asJava)
+    val (buildConditioner, streamConditioner) = condition match { 
+      case Some(c) =>  
+        buildSide match {
+          case BuildLeft => {
+            val buildConditioner = new ColumnarFilter(l_input_schema, c)
+            val streamConditioner = new ColumnarFilter(r_input_schema, c)
+            (buildConditioner, streamConditioner)
+          }
+          case BuildRight => {
+            val buildConditioner = new ColumnarFilter(r_input_schema, c)
+            val streamConditioner = new ColumnarFilter(l_input_schema, c)
+            (buildConditioner, streamConditioner)
+          }
+        }
+      case None => (null, null)
+    } 
+
     val stream_input_arrow_schema: Schema = new Schema(stream_input_field_list.asJava)
 
     val build_output_arrow_schema: Schema = new Schema(build_output_field_list.asJava)
@@ -214,9 +231,19 @@ class ColumnarShuffledHashJoin(
         build_cb = null
       }
       build_cb = buildIter.next()
+      ///////////////////////// Condition? ////////////////////////
+      val selectionVector = if (buildConditioner != null) {
+        val conditionCols = buildConditioner.getOrdinalList.map(i => {
+          build_cb.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector
+        })
+        buildConditioner.evaluate(build_cb.numRows, conditionCols)
+      } else {
+        null
+      }
+      /////////////////////////////////////////////////////////////
       val build_rb = ConverterUtils.createArrowRecordBatch(build_cb)
       inputBatchHolder += build_rb
-      prober.evaluate(build_rb)
+      prober.evaluate(build_rb, selectionVector)
       build_shuffler.evaluate(build_rb)
     }
     if (build_cb != null) {
@@ -251,14 +278,24 @@ class ColumnarShuffledHashJoin(
       }
       val beforeJoin = System.nanoTime()
       last_cb = cb
+      ///////////////////////// Condition? ////////////////////////
+      val selectionVector = if (streamConditioner != null) {
+        val conditionCols = streamConditioner.getOrdinalList.map(i => {
+          cb.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector
+        })
+        streamConditioner.evaluate(cb.numRows, conditionCols)
+      } else {
+        null
+      }
+      /////////////////////////////////////////////////////////////
       val stream_key_cols = stream_key_ordinal_list.map(i => {
         cb.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
       })
       val process_input_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb.numRows, stream_key_cols)
-      probe_iterator.processAndCacheOne(stream_key_arrow_schema, process_input_rb)
+      probe_iterator.processAndCacheOne(stream_key_arrow_schema, process_input_rb, selectionVector)
 
       val stream_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb)
-      val stream_output_rb: ArrowRecordBatch = stream_shuffler.evaluate(stream_rb)(0)
+      val stream_output_rb: ArrowRecordBatch = stream_shuffler.evaluate(stream_rb, selectionVector)(0)
       if (stream_output_rb == null) {
         ConverterUtils.releaseArrowRecordBatch(process_input_rb)
         ConverterUtils.releaseArrowRecordBatch(stream_rb)
@@ -322,6 +359,12 @@ class ColumnarShuffledHashJoin(
     if (build_shuffle_iterator != null) {
       build_shuffle_iterator.close()
       build_shuffle_iterator = null
+    }
+    if (buildConditioner != null) {
+      buildConditioner.close()
+    }
+    if (streamConditioner != null) {
+      streamConditioner.close()
     }
   }
 
