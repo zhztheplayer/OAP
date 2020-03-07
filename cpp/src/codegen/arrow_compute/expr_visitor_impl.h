@@ -793,7 +793,8 @@ class ProbeArraysVisitorImpl : public ExprVisitorImpl {
         } else {
           col = p_->in_record_batch_->column(col_id_list_[0]);
         }
-        TIME_MICRO_OR_RAISE(p_->elapse_time_, kernel_->Evaluate(col));
+        TIME_MICRO_OR_RAISE(p_->elapse_time_,
+                            kernel_->Evaluate(p_->in_selection_array_, col));
         finish_return_type_ = ArrowComputeResultType::Batch;
       } break;
       default:

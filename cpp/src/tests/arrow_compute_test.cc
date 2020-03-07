@@ -180,18 +180,20 @@ TEST(TestArrowCompute, JoinTest) {
 
 TEST(TestArrowCompute, AggregatewithMultipleBatchTest) {
   ////////////////////// prepare expr_vector ///////////////////////
-  auto f0 = field("f0", uint64());
-  auto f1 = field("f1", uint64());
+  auto f0 = field("f0", uint32());
+  auto f1 = field("f1", uint32());
+  auto f2 = field("f2", uint64());
   auto f_sum = field("sum", uint64());
-  auto f_count = field("count", int64());
+  auto f_count = field("count", int32());
   auto f_float = field("float", float64());
-  auto f_res = field("res", uint64());
+  auto f_res = field("res", uint32());
   auto arg_0 = TreeExprBuilder::MakeField(f0);
   auto arg_1 = TreeExprBuilder::MakeField(f1);
+  auto arg_2 = TreeExprBuilder::MakeField(f2);
   auto n_sum = TreeExprBuilder::MakeFunction("sum", {arg_0}, uint64());
   auto n_count = TreeExprBuilder::MakeFunction("count", {arg_0}, uint64());
   auto n_sum_count = TreeExprBuilder::MakeFunction("sum_count", {arg_0}, uint64());
-  auto n_avg = TreeExprBuilder::MakeFunction("avgByCount", {arg_0, arg_1}, uint64());
+  auto n_avg = TreeExprBuilder::MakeFunction("avgByCount", {arg_2, arg_1}, uint64());
   auto n_min = TreeExprBuilder::MakeFunction("min", {arg_0}, uint64());
   auto n_max = TreeExprBuilder::MakeFunction("max", {arg_0}, uint64());
 
@@ -204,7 +206,7 @@ TEST(TestArrowCompute, AggregatewithMultipleBatchTest) {
 
   std::vector<std::shared_ptr<::gandiva::Expression>> expr_vector = {
       sum_expr, count_expr, sum_count_expr, avg_expr, min_expr, max_expr};
-  auto sch = arrow::schema({f0, f1});
+  auto sch = arrow::schema({f0, f1, f2});
   std::vector<std::shared_ptr<Field>> ret_types = {f_sum,   f_count, f_sum, f_count,
                                                    f_float, f_res,   f_res};
   ///////////////////// Calculation //////////////////
@@ -213,11 +215,13 @@ TEST(TestArrowCompute, AggregatewithMultipleBatchTest) {
   std::shared_ptr<arrow::RecordBatch> input_batch;
   std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch;
   std::vector<std::string> input_data_string = {"[8, 10, 9, 20, 55, 42, 28, 32, 54, 70]",
-                                                "[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]"};
+                                                "[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]",
+                                                "[8, 10, 9, 20, 55, 42, 28, 32, 54, 70]"};
   MakeInputBatch(input_data_string, sch, &input_batch);
   ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
   std::vector<std::string> input_data_2_string = {
-      "[8, 10, 9, 20, null, 42, 28, 32, 54, 70]", "[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]"};
+      "[8, 10, 9, 20, null, 42, 28, 32, 54, 70]", "[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]",
+      "[8, 10, 9, 20, null, 42, 28, 32, 54, 70]"};
   MakeInputBatch(input_data_2_string, sch, &input_batch);
   ASSERT_NOT_OK(expr->evaluate(input_batch, &result_batch));
   ASSERT_NOT_OK(expr->finish(&result_batch));

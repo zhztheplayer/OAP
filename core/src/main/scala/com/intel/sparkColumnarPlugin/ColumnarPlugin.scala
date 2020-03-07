@@ -61,7 +61,7 @@ case class ColumnarOverrides() extends Rule[SparkPlan] {
       val left = replaceWithColumnarPlan(plan.left)
       val right = replaceWithColumnarPlan(plan.right)
       logWarning(s"Columnar Processing for ${plan.getClass} is currently supported.")
-      new ColumnarShuffledHashJoinExec(
+      val res = new ColumnarShuffledHashJoinExec(
         plan.leftKeys,
         plan.rightKeys,
         plan.joinType,
@@ -69,6 +69,11 @@ case class ColumnarOverrides() extends Rule[SparkPlan] {
         plan.condition,
         left,
         right)
+      if (!plan.condition.isEmpty) {
+        new ColumnarConditionProjectExec(plan.condition.get, null, res)
+      } else {
+        res
+      }
     case p =>
       val children = p.children.map(replaceWithColumnarPlan)
       logWarning(s"Columnar Processing for ${p.getClass} is not currently supported.")

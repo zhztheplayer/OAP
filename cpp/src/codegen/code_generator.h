@@ -30,6 +30,12 @@ class CodeGenerator {
   virtual arrow::Status SetResSchema(const std::shared_ptr<arrow::Schema>& in) {
     return arrow::Status::NotImplemented("setResSchema is not Implemented.");
   }
+  virtual arrow::Status evaluate(const std::shared_ptr<arrow::Array>& selection_in,
+                                 const std::shared_ptr<arrow::RecordBatch>& in,
+                                 std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
+    return arrow::Status::NotImplemented(
+        "evaluate with selection array is not Implemented.");
+  }
 };
 }  // namespace codegen
 }  // namespace sparkcolumnarplugin

@@ -86,6 +86,8 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   arrow::Status AppendAction(const std::string& func_name,
                              std::vector<std::string> param_name);
   arrow::Status Init();
+  arrow::Status Eval(const std::shared_ptr<arrow::Array>& selection_in,
+                     const std::shared_ptr<arrow::RecordBatch>& in);
   arrow::Status Eval(const std::shared_ptr<arrow::RecordBatch>& in);
   arrow::Status Eval();
   arrow::Status SetMember(const std::shared_ptr<arrow::RecordBatch>& ms);
@@ -120,6 +122,7 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   std::shared_ptr<arrow::Schema> schema_;
   std::string func_name_;
   std::shared_ptr<ExprVisitor> dependency_;
+  std::shared_ptr<arrow::Array> in_selection_array_;
   std::shared_ptr<arrow::RecordBatch> in_record_batch_;
 
   // For dual input kernels like probe

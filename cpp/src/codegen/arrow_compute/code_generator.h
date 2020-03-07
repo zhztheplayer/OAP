@@ -128,6 +128,46 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     return status;
   }
 
+  arrow::Status evaluate(const std::shared_ptr<arrow::Array>& selection_in,
+                         const std::shared_ptr<arrow::RecordBatch>& in,
+                         std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
+    arrow::Status status = arrow::Status::OK();
+    std::vector<ArrayList> batch_array;
+    std::vector<int> batch_size_array;
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+
+    for (auto visitor : visitor_list_) {
+      TIME_MICRO_OR_RAISE(eval_elapse_time_, visitor->Eval(selection_in, in));
+      if (!return_when_finish_) {
+        RETURN_NOT_OK(GetResult(visitor, &batch_array, &batch_size_array, &fields));
+      }
+    }
+
+    if (!return_when_finish_) {
+      res_schema_ = arrow::schema(ret_types_);
+      for (int i = 0; i < batch_array.size(); i++) {
+        auto record_batch =
+            arrow::RecordBatch::Make(res_schema_, batch_size_array[i], batch_array[i]);
+#ifdef DEBUG_LEVEL_1
+        std::cout << "ArrowCompute Finish func get output recordBatch length "
+                  << record_batch->num_rows() << std::endl;
+        auto status = arrow::PrettyPrint(*record_batch.get(), 2, &std::cout);
+#endif
+        out->push_back(record_batch);
+      }
+
+      // we need to clean up this visitor chain result for next record_batch.
+      for (auto visitor : visitor_list_) {
+        RETURN_NOT_OK(visitor->Reset());
+      }
+    } else {
+      for (auto visitor : visitor_list_) {
+        RETURN_NOT_OK(visitor->ResetDependency());
+      }
+    }
+    return status;
+  }
+
   arrow::Status finish(std::vector<std::shared_ptr<arrow::RecordBatch>>* out) {
     arrow::Status status = arrow::Status::OK();
     std::vector<ArrayList> batch_array;

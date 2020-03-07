@@ -43,6 +43,12 @@ class KernalBase {
     return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
                                          kernel_name_, ", input is array.");
   }
+  virtual arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& selection_arr,
+                                 const std::shared_ptr<arrow::Array>& in) {
+    return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
+                                         kernel_name_,
+                                         ", input is selection_array and array.");
+  }
   virtual arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in, int group_id) {
     return arrow::Status::NotImplemented("Evaluate is abstract interface for ",
                                          kernel_name_, ", input is array and group_id");
@@ -165,7 +171,8 @@ class ProbeArraysKernel : public KernalBase {
                             std::shared_ptr<KernalBase>* out);
   ProbeArraysKernel(arrow::compute::FunctionContext* ctx,
                     std::shared_ptr<arrow::DataType> type, int join_type);
-  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& in) override;
+  arrow::Status Evaluate(const std::shared_ptr<arrow::Array>& selection,
+                         const std::shared_ptr<arrow::Array>& in) override;
   arrow::Status MakeResultIterator(
       std::shared_ptr<arrow::Schema> schema,
       std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) override;
