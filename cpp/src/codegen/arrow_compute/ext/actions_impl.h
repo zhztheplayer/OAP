@@ -44,7 +44,6 @@ class ActionBase {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
   }
   virtual arrow::Status Submit(std::vector<std::shared_ptr<arrow::Array>> in,
-                               uint64_t reserved_length,
                                std::function<arrow::Status(uint64_t, uint64_t)>* on_valid,
                                std::function<arrow::Status()>* on_null) {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
@@ -55,7 +54,6 @@ class ActionBase {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
   }
   virtual arrow::Status Submit(const std::shared_ptr<arrow::Array>& in,
-                               uint64_t reserved_length,
                                std::function<arrow::Status(uint32_t)>* on_valid,
                                std::function<arrow::Status()>* on_null) {
     return arrow::Status::NotImplemented("ActionBase Submit is abstract.");
@@ -861,10 +859,8 @@ class ShuffleAction : public ActionBase {
   }
 
   arrow::Status Submit(std::vector<std::shared_ptr<arrow::Array>> in,
-                       uint64_t reserved_length,
                        std::function<arrow::Status(uint64_t, uint64_t)>* on_valid,
                        std::function<arrow::Status()>* on_null) override {
-    reserved_length_ = reserved_length;
     for (auto array : in) {
       typed_arrays_.push_back(std::dynamic_pointer_cast<ResArrayType>(array));
     }
@@ -886,10 +882,9 @@ class ShuffleAction : public ActionBase {
     return arrow::Status::OK();
   }
 
-  arrow::Status Submit(const std::shared_ptr<arrow::Array>& in, uint64_t reserved_length,
+  arrow::Status Submit(const std::shared_ptr<arrow::Array>& in,
                        std::function<arrow::Status(uint32_t)>* on_valid,
                        std::function<arrow::Status()>* on_null) override {
-    reserved_length_ = reserved_length;
     if (typed_arrays_.size() == 0) {
       typed_arrays_.push_back(std::dynamic_pointer_cast<ResArrayType>(in));
     } else {
@@ -926,13 +921,7 @@ class ShuffleAction : public ActionBase {
     RETURN_NOT_OK(builder_->Finish(&arr_out));
     out->push_back(arr_out);
 
-    /*std::unique_ptr<arrow::ArrayBuilder> builder;
-    arrow::MakeBuilder(ctx_->memory_pool(),
-                       arrow::TypeTraits<ResDataType>::type_singleton(), &builder);
-    builder_.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
-    */
     builder_->Reset();
-    // builder_->Reserve(reserved_length_);
     return arrow::Status::OK();
   }
 
@@ -943,7 +932,6 @@ class ShuffleAction : public ActionBase {
   // input
   arrow::compute::FunctionContext* ctx_;
   std::vector<std::shared_ptr<ResArrayType>> typed_arrays_;
-  uint64_t reserved_length_;
   // result
   std::shared_ptr<BuilderType> builder_;
 };

@@ -279,7 +279,7 @@ class ShuffleArrayListKernel::Impl {
       auto action = action_list_[i];
       std::function<arrow::Status(uint32_t)> func;
       std::function<arrow::Status()> null_func;
-      action->Submit(col, in_indices_->length(), &func, &null_func);
+      action->Submit(col, &func, &null_func);
       eval_func_list.push_back(func);
       eval_null_func_list.push_back(null_func);
     }
@@ -337,7 +337,7 @@ class ShuffleArrayListKernel::Impl {
       auto action = action_list_[i];
       std::function<arrow::Status(uint64_t, uint64_t)> func;
       std::function<arrow::Status()> null_func;
-      action->Submit(col_list, in_indices_->length(), &func, &null_func);
+      action->Submit(col_list, &func, &null_func);
       eval_func_list.push_back(func);
       eval_null_func_list.push_back(null_func);
     }
@@ -396,7 +396,7 @@ class ShuffleArrayListKernel::Impl {
       auto action = action_list_[i];
       std::function<arrow::Status(uint64_t, uint64_t)> func;
       std::function<arrow::Status()> null_func;
-      action->Submit(col_list, MAXBATCHNUMROWS, &func, &null_func);
+      action->Submit(col_list, &func, &null_func);
       eval_func_list.push_back(func);
       eval_null_func_list.push_back(null_func);
     }
@@ -493,6 +493,7 @@ class ShuffleArrayListKernel::Impl {
         }
         total_length_ = in_indices_->length();
         row_id_ = 0;
+        max_batch_num_ = total_length_;
       }
 
       int output_num_rows = 0;
@@ -1625,10 +1626,10 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
     // we should put items into hashmap
     auto typed_array = std::dynamic_pointer_cast<ArrayType>(in);
     auto insert_on_found = [this](int32_t i) {
-      // TODO: need to be handled when key is duplicated
+      memo_index_to_arrayid_[i].emplace_back(cur_array_id_, cur_id_);
     };
     auto insert_on_not_found = [this](int32_t i) {
-      memo_index_to_arrayid_.emplace_back(cur_array_id_, cur_id_);
+      memo_index_to_arrayid_.push_back({ArrayItemIndex(cur_array_id_, cur_id_)});
     };
 
     cur_id_ = 0;
@@ -1703,9 +1704,10 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
               if (!typed_array->IsNull(i)) {
                 auto index = hash_table_->Get(typed_array->GetView(i));
                 if (index != -1) {
-                  auto tmp = memo_index_to_arrayid_[index];
-                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
-                  RETURN_NOT_OK(right_indices_builder->Append(i));
+                  for (auto tmp : memo_index_to_arrayid_[index]) {
+                    RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                    RETURN_NOT_OK(right_indices_builder->Append(i));
+                  }
                 }
               }
             }
@@ -1714,9 +1716,10 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
               if (!typed_array->IsNull(i)) {
                 auto index = hash_table_->Get(typed_array->GetView(i));
                 if (index != -1) {
-                  auto tmp = memo_index_to_arrayid_[index];
-                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
-                  RETURN_NOT_OK(right_indices_builder->Append(i));
+                  for (auto tmp : memo_index_to_arrayid_[index]) {
+                    RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                    RETURN_NOT_OK(right_indices_builder->Append(i));
+                  }
                 }
               }
             }
@@ -1733,16 +1736,18 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
                 if (index == -1) {
                   RETURN_NOT_OK(left_indices_builder->AppendNull());
                 } else {
-                  auto tmp = memo_index_to_arrayid_[index];
-                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  for (auto tmp : memo_index_to_arrayid_[index]) {
+                    RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  }
                 }
               } else {
                 auto index = hash_table_->Get(typed_array->GetView(i));
                 if (index == -1) {
                   RETURN_NOT_OK(left_indices_builder->AppendNull());
                 } else {
-                  auto tmp = memo_index_to_arrayid_[index];
-                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  for (auto tmp : memo_index_to_arrayid_[index]) {
+                    RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  }
                 }
               }
             }
@@ -1753,16 +1758,18 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
                 if (index == -1) {
                   RETURN_NOT_OK(left_indices_builder->AppendNull());
                 } else {
-                  auto tmp = memo_index_to_arrayid_[index];
-                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  for (auto tmp : memo_index_to_arrayid_[index]) {
+                    RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  }
                 }
               } else {
                 auto index = hash_table_->Get(typed_array->GetView(i));
                 if (index == -1) {
                   RETURN_NOT_OK(left_indices_builder->AppendNull());
                 } else {
-                  auto tmp = memo_index_to_arrayid_[index];
-                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  for (auto tmp : memo_index_to_arrayid_[index]) {
+                    RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  }
                 }
               }
             }
@@ -1800,7 +1807,7 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
   std::shared_ptr<arrow::DataType> out_type_;
   arrow::compute::FunctionContext* ctx_;
   std::shared_ptr<MemoTableType> hash_table_;
-  std::vector<ArrayItemIndex> memo_index_to_arrayid_;
+  std::vector<std::vector<ArrayItemIndex>> memo_index_to_arrayid_;
 
   uint64_t cur_array_id_ = 0;
   uint64_t cur_id_ = 0;
