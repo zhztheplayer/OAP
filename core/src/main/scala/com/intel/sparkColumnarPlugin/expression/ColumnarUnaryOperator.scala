@@ -59,6 +59,21 @@ class ColumnarYear(child: Expression, original: Expression)
   }
 }
 
+class ColumnarNot(child: Expression, original: Expression)
+    extends Not(child: Expression)
+    with ColumnarExpression
+    with Logging {
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (child_node, childType): (TreeNode, ArrowType) =
+      child.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val resultType = new ArrowType.Bool()
+    val funcNode =
+      TreeBuilder.makeFunction("not", Lists.newArrayList(child_node), resultType)
+    (funcNode, resultType)
+  }
+}
+
 object ColumnarUnaryOperator {
 
   def create(child: Expression, original: Expression): Expression = original match {
@@ -66,6 +81,8 @@ object ColumnarUnaryOperator {
       new ColumnarIsNotNull(child, i)
     case y: Year =>
       new ColumnarYear(child, y)
+    case n: Not =>
+      new ColumnarNot(child, n)
     case c: Cast =>
       child
     case a: KnownFloatingPointNormalized =>

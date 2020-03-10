@@ -54,6 +54,13 @@ object ColumnarExpressionConverter extends Logging {
         replaceWithColumnarExpression(sp.left),
         replaceWithColumnarExpression(sp.right),
         expr)
+    case sr: StringRegexExpression =>
+      check_if_no_calculation = false
+      logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
+      ColumnarBinaryOperator.create(
+        replaceWithColumnarExpression(sr.left),
+        replaceWithColumnarExpression(sr.right),
+        expr)
     case i: In =>
       check_if_no_calculation = false
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
