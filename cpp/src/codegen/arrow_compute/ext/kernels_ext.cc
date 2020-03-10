@@ -102,6 +102,8 @@ class SplitArrayListWithActionKernel::Impl {
       }
     }
 
+    std::cout << "max group id is " << max_group_id << ", in_dict length is "
+              << in_dict->length() << std::endl;
     std::vector<std::function<arrow::Status(int)>> eval_func_list;
     std::vector<std::function<arrow::Status()>> eval_null_func_list;
     int col_id = 0;
@@ -1501,55 +1503,31 @@ class HashAggrArrayKernel::Impl {
     // create a new result array type here
     std::vector<std::shared_ptr<gandiva::Node>> func_node_list = {};
     std::vector<std::shared_ptr<arrow::Field>> field_list = {};
-    bool allUtf8 = true;
-    for (auto type : type_list) {
-      if (type->id() != arrow::StringType::type_id) {
-        allUtf8 = false;
-        break;
-      }
-    }
 
     gandiva::ExpressionPtr expr;
-    if (allUtf8) {
-      int index = 0;
-      for (auto type : type_list) {
-        auto field = arrow::field(std::to_string(index), type);
-        field_list.push_back(field);
-        auto field_node = gandiva::TreeExprBuilder::MakeField(field);
-        func_node_list.push_back(field_node);
-        if (func_node_list.size() == 2) {
-          auto tmp_func_node = gandiva::TreeExprBuilder::MakeFunction(
-              "concat", func_node_list, arrow::utf8());
-          func_node_list.clear();
-          func_node_list.push_back(tmp_func_node);
-        }
-        index++;
+    int index = 0;
+    for (auto type : type_list) {
+      auto field = arrow::field(std::to_string(index), type);
+      field_list.push_back(field);
+      auto field_node = gandiva::TreeExprBuilder::MakeField(field);
+      auto func_node =
+          gandiva::TreeExprBuilder::MakeFunction("hash64", {field_node}, arrow::int64());
+      func_node_list.push_back(func_node);
+      if (func_node_list.size() == 2) {
+        auto shift_func_node = gandiva::TreeExprBuilder::MakeFunction(
+            "multiply",
+            {func_node_list[0], gandiva::TreeExprBuilder::MakeLiteral((int64_t)10)},
+            arrow::int64());
+        auto tmp_func_node = gandiva::TreeExprBuilder::MakeFunction(
+            "add", {shift_func_node, func_node_list[1]}, arrow::int64());
+        func_node_list.clear();
+        func_node_list.push_back(tmp_func_node);
       }
-      auto func_node = gandiva::TreeExprBuilder::MakeFunction(
-          "hash64", {func_node_list[0]}, arrow::int64());
-      expr = gandiva::TreeExprBuilder::MakeExpression(
-          func_node, arrow::field("res", arrow::int64()));
-    } else {
-      int index = 0;
-      for (auto type : type_list) {
-        auto field = arrow::field(std::to_string(index), type);
-        field_list.push_back(field);
-        auto field_node = gandiva::TreeExprBuilder::MakeField(field);
-        auto func_node = gandiva::TreeExprBuilder::MakeFunction("hash64", {field_node},
-                                                                arrow::int64());
-        func_node_list.push_back(func_node);
-        if (func_node_list.size() == 2) {
-          auto tmp_func_node = gandiva::TreeExprBuilder::MakeFunction(
-              "add", func_node_list, arrow::int64());
-          func_node_list.clear();
-          func_node_list.push_back(tmp_func_node);
-        }
-        index++;
-      }
-      expr = gandiva::TreeExprBuilder::MakeExpression(
-          func_node_list[0], arrow::field("res", arrow::int64()));
+      index++;
     }
-    // std::cout << expr->ToString() << std::endl;
+    expr = gandiva::TreeExprBuilder::MakeExpression(func_node_list[0],
+                                                    arrow::field("res", arrow::int64()));
+    std::cout << expr->ToString() << std::endl;
     schema_ = arrow::schema(field_list);
     auto configuration = gandiva::ConfigurationBuilder().DefaultConfiguration();
     auto status = gandiva::Projector::Make(schema_, {expr}, configuration, &projector);
@@ -1561,6 +1539,8 @@ class HashAggrArrayKernel::Impl {
     auto num_columns = in.size();
 
     auto in_batch = arrow::RecordBatch::Make(schema_, length, in);
+    // arrow::PrettyPrintOptions print_option(2, 500);
+    // arrow::PrettyPrint(*in_batch.get(), print_option, &std::cout);
 
     arrow::ArrayVector outputs;
     RETURN_NOT_OK(projector->Evaluate(*in_batch, pool_, &outputs));
