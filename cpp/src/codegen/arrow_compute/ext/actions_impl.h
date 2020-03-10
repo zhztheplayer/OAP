@@ -61,13 +61,17 @@ class ActionBase {
   virtual arrow::Status Finish(ArrayList* out) {
     return arrow::Status::NotImplemented("ActionBase Finish is abstract.");
   }
+  virtual arrow::Status Finish(uint64_t offset, uint64_t length, ArrayList* out) {
+    return arrow::Status::NotImplemented("ActionBase Finish is abstract.");
+  }
   virtual arrow::Status FinishAndReset(ArrayList* out) {
     return arrow::Status::NotImplemented("ActionBase FinishAndReset is abstract.");
   }
+  virtual uint64_t GetResultLength() { return 0; }
 };
 
 //////////////// UniqueAction ///////////////
-template <typename DataType>
+template <typename DataType, typename CType>
 class UniqueAction : public ActionBase {
  public:
   UniqueAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
@@ -90,27 +94,30 @@ class UniqueAction : public ActionBase {
   arrow::Status Submit(ArrayList in_list, int max_group_id,
                        std::function<arrow::Status(int)>* on_valid,
                        std::function<arrow::Status()>* on_null) override {
+    // resize result data
+    if (cache_validity_.size() <= max_group_id) {
+      cache_validity_.resize(max_group_id + 1, false);
+    }
+
     in_ = std::dynamic_pointer_cast<ArrayType>(in_list[0]);
-    // prepare evaluate lambda
     row_id_ = 0;
+    // prepare evaluate lambda
+    auto type = arrow::TypeTraits<DataType>::type_singleton();
     if (in_->null_count()) {
       *on_valid = [this](int dest_group_id) {
-        if (dest_group_id >= out_size_) {
-          if (in_->IsNull(row_id_)) {
-            builder_->AppendNull();
-          } else {
-            builder_->Append(in_->GetView(row_id_));
-          }
-          out_size_++;
+        const bool is_null = in_->IsNull(row_id_);
+        if (!is_null && cache_validity_[dest_group_id] == false) {
+          cache_validity_[dest_group_id] = true;
+          cache_.emplace(cache_.begin() + dest_group_id, in_->GetView(row_id_));
         }
         row_id_++;
         return arrow::Status::OK();
       };
     } else {
       *on_valid = [this](int dest_group_id) {
-        if (dest_group_id >= out_size_) {
-          builder_->Append(in_->GetView(row_id_));
-          out_size_++;
+        if (cache_validity_[dest_group_id] == false) {
+          cache_validity_[dest_group_id] = true;
+          cache_.emplace(cache_.begin() + dest_group_id, in_->GetView(row_id_));
         }
         row_id_++;
         return arrow::Status::OK();
@@ -126,9 +133,38 @@ class UniqueAction : public ActionBase {
 
   arrow::Status Finish(ArrayList* out) override {
     std::shared_ptr<arrow::Array> arr_out;
+    builder_->Reset();
+    auto length = GetResultLength();
+    for (uint64_t i = 0; i < length; i++) {
+      if (cache_validity_[i]) {
+        std::cout << cache_[i] << std::endl;
+        builder_->Append(cache_[i]);
+      } else {
+        builder_->AppendNull();
+      }
+    }
     RETURN_NOT_OK(builder_->Finish(&arr_out));
     out->push_back(arr_out);
 
+    return arrow::Status::OK();
+  }
+
+  uint64_t GetResultLength() { return cache_.size(); }
+
+  arrow::Status Finish(uint64_t offset, uint64_t length, ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    // appendValues to builder_
+    builder_->Reset();
+    for (uint64_t i = 0; i < length; i++) {
+      if (cache_validity_[offset + i]) {
+        builder_->Append(cache_[offset + i]);
+      } else {
+        builder_->AppendNull();
+      }
+    }
+
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
+    out->push_back(arr_out);
     return arrow::Status::OK();
   }
 
@@ -140,8 +176,9 @@ class UniqueAction : public ActionBase {
   arrow::compute::FunctionContext* ctx_;
   std::shared_ptr<ArrayType> in_;
   // output
-  uint64_t out_size_ = 0;
   std::unique_ptr<BuilderType> builder_;
+  std::vector<CType> cache_;
+  std::vector<bool> cache_validity_;
 };
 
 //////////////// CountAction ///////////////
@@ -152,6 +189,11 @@ class CountAction : public ActionBase {
 #ifdef DEBUG
     std::cout << "Construct CountAction" << std::endl;
 #endif
+    std::unique_ptr<arrow::ArrayBuilder> array_builder;
+    arrow::MakeBuilder(ctx_->memory_pool(), arrow::TypeTraits<DataType>::type_singleton(),
+                       &array_builder);
+    builder_.reset(
+        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
   }
   ~CountAction() {
 #ifdef DEBUG
@@ -180,32 +222,47 @@ class CountAction : public ActionBase {
         if (!is_null) {
           cache_[dest_group_id] += 1;
         }
+        row_id++;
         return arrow::Status::OK();
       };
     } else {
       *on_valid = [this](int dest_group_id) {
         cache_validity_[dest_group_id] = true;
         cache_[dest_group_id] += 1;
+        row_id++;
         return arrow::Status::OK();
       };
     }
-    *on_null = [this]() { return arrow::Status::OK(); };
+    *on_null = [this]() {
+      row_id++;
+      return arrow::Status::OK();
+    };
     return arrow::Status::OK();
   }
 
   arrow::Status Finish(ArrayList* out) override {
     std::shared_ptr<arrow::Array> arr_out;
-    std::unique_ptr<arrow::ArrayBuilder> array_builder;
-    arrow::MakeBuilder(ctx_->memory_pool(), arrow::TypeTraits<DataType>::type_singleton(),
-                       &array_builder);
-
-    std::unique_ptr<ResBuilderType> builder;
-    builder.reset(
-        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
-    RETURN_NOT_OK(builder->AppendValues(cache_, cache_validity_));
-    RETURN_NOT_OK(builder->Finish(&arr_out));
+    RETURN_NOT_OK(builder_->AppendValues(cache_, cache_validity_));
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
     out->push_back(arr_out);
+    return arrow::Status::OK();
+  }
 
+  uint64_t GetResultLength() { return cache_.size(); }
+
+  arrow::Status Finish(uint64_t offset, uint64_t length, ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    builder_->Reset();
+    for (uint64_t i = 0; i < length; i++) {
+      if (cache_validity_[offset + i]) {
+        builder_->Append(cache_[offset + i]);
+      } else {
+        builder_->AppendNull();
+      }
+    }
+
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
+    out->push_back(arr_out);
     return arrow::Status::OK();
   }
 
@@ -220,6 +277,7 @@ class CountAction : public ActionBase {
   using CType = typename arrow::TypeTraits<DataType>::CType;
   std::vector<CType> cache_;
   std::vector<bool> cache_validity_;
+  std::unique_ptr<ResBuilderType> builder_;
 };
 
 //////////////// CountLiteralAction ///////////////
@@ -231,6 +289,11 @@ class CountLiteralAction : public ActionBase {
 #ifdef DEBUG
     std::cout << "Construct CountLiteralAction" << std::endl;
 #endif
+    std::unique_ptr<arrow::ArrayBuilder> array_builder;
+    arrow::MakeBuilder(ctx_->memory_pool(), arrow::TypeTraits<DataType>::type_singleton(),
+                       &array_builder);
+    builder_.reset(
+        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
   }
   ~CountLiteralAction() {
 #ifdef DEBUG
@@ -262,17 +325,28 @@ class CountLiteralAction : public ActionBase {
 
   arrow::Status Finish(ArrayList* out) override {
     std::shared_ptr<arrow::Array> arr_out;
-    std::unique_ptr<arrow::ArrayBuilder> array_builder;
-    arrow::MakeBuilder(ctx_->memory_pool(), arrow::TypeTraits<DataType>::type_singleton(),
-                       &array_builder);
-
-    std::unique_ptr<ResBuilderType> builder;
-    builder.reset(
-        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
-    RETURN_NOT_OK(builder->AppendValues(cache_, cache_validity_));
-    RETURN_NOT_OK(builder->Finish(&arr_out));
+    RETURN_NOT_OK(builder_->AppendValues(cache_, cache_validity_));
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
     out->push_back(arr_out);
 
+    return arrow::Status::OK();
+  }
+
+  uint64_t GetResultLength() { return cache_.size(); }
+
+  arrow::Status Finish(uint64_t offset, uint64_t length, ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    builder_->Reset();
+    for (uint64_t i = 0; i < length; i++) {
+      if (cache_validity_[offset + i]) {
+        builder_->Append(cache_[offset + i]);
+      } else {
+        builder_->AppendNull();
+      }
+    }
+
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
+    out->push_back(arr_out);
     return arrow::Status::OK();
   }
 
@@ -286,6 +360,7 @@ class CountLiteralAction : public ActionBase {
   using CType = typename arrow::TypeTraits<DataType>::CType;
   std::vector<CType> cache_;
   std::vector<bool> cache_validity_;
+  std::unique_ptr<ResBuilderType> builder_;
 };
 
 //////////////// MinAction ///////////////
@@ -296,6 +371,11 @@ class MinAction : public ActionBase {
 #ifdef DEBUG
     std::cout << "Construct MinAction" << std::endl;
 #endif
+    std::unique_ptr<arrow::ArrayBuilder> array_builder;
+    arrow::MakeBuilder(ctx_->memory_pool(),
+                       arrow::TypeTraits<ResDataType>::type_singleton(), &array_builder);
+    builder_.reset(
+        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
   }
   ~MinAction() {
 #ifdef DEBUG
@@ -355,17 +435,28 @@ class MinAction : public ActionBase {
 
   arrow::Status Finish(ArrayList* out) override {
     std::shared_ptr<arrow::Array> arr_out;
-    std::unique_ptr<arrow::ArrayBuilder> array_builder;
-    arrow::MakeBuilder(ctx_->memory_pool(),
-                       arrow::TypeTraits<ResDataType>::type_singleton(), &array_builder);
-
-    std::unique_ptr<ResBuilderType> builder;
-    builder.reset(
-        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
-    RETURN_NOT_OK(builder->AppendValues(cache_, cache_validity_));
-    RETURN_NOT_OK(builder->Finish(&arr_out));
+    RETURN_NOT_OK(builder_->AppendValues(cache_, cache_validity_));
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
     out->push_back(arr_out);
 
+    return arrow::Status::OK();
+  }
+
+  uint64_t GetResultLength() { return cache_.size(); }
+
+  arrow::Status Finish(uint64_t offset, uint64_t length, ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    builder_->Reset();
+    for (uint64_t i = 0; i < length; i++) {
+      if (cache_validity_[offset + i]) {
+        builder_->Append(cache_[offset + i]);
+      } else {
+        builder_->AppendNull();
+      }
+    }
+
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
+    out->push_back(arr_out);
     return arrow::Status::OK();
   }
 
@@ -383,6 +474,7 @@ class MinAction : public ActionBase {
   // result
   std::vector<ResCType> cache_;
   std::vector<bool> cache_validity_;
+  std::unique_ptr<ResBuilderType> builder_;
 };
 
 //////////////// MaxAction ///////////////
@@ -393,6 +485,11 @@ class MaxAction : public ActionBase {
 #ifdef DEBUG
     std::cout << "Construct MaxAction" << std::endl;
 #endif
+    std::unique_ptr<arrow::ArrayBuilder> array_builder;
+    arrow::MakeBuilder(ctx_->memory_pool(),
+                       arrow::TypeTraits<ResDataType>::type_singleton(), &array_builder);
+    builder_.reset(
+        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
   }
   ~MaxAction() {
 #ifdef DEBUG
@@ -452,17 +549,28 @@ class MaxAction : public ActionBase {
 
   arrow::Status Finish(ArrayList* out) override {
     std::shared_ptr<arrow::Array> arr_out;
-    std::unique_ptr<arrow::ArrayBuilder> array_builder;
-    arrow::MakeBuilder(ctx_->memory_pool(),
-                       arrow::TypeTraits<ResDataType>::type_singleton(), &array_builder);
-
-    std::unique_ptr<ResBuilderType> builder;
-    builder.reset(
-        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
-    RETURN_NOT_OK(builder->AppendValues(cache_, cache_validity_));
-    RETURN_NOT_OK(builder->Finish(&arr_out));
+    RETURN_NOT_OK(builder_->AppendValues(cache_, cache_validity_));
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
     out->push_back(arr_out);
 
+    return arrow::Status::OK();
+  }
+
+  uint64_t GetResultLength() { return cache_.size(); }
+
+  arrow::Status Finish(uint64_t offset, uint64_t length, ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    builder_->Reset();
+    for (uint64_t i = 0; i < length; i++) {
+      if (cache_validity_[offset + i]) {
+        builder_->Append(cache_[offset + i]);
+      } else {
+        builder_->AppendNull();
+      }
+    }
+
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
+    out->push_back(arr_out);
     return arrow::Status::OK();
   }
 
@@ -480,6 +588,7 @@ class MaxAction : public ActionBase {
   // result
   std::vector<ResCType> cache_;
   std::vector<bool> cache_validity_;
+  std::unique_ptr<ResBuilderType> builder_;
 };
 
 //////////////// SumAction ///////////////
@@ -490,6 +599,11 @@ class SumAction : public ActionBase {
 #ifdef DEBUG
     std::cout << "Construct SumAction" << std::endl;
 #endif
+    std::unique_ptr<arrow::ArrayBuilder> array_builder;
+    arrow::MakeBuilder(ctx_->memory_pool(),
+                       arrow::TypeTraits<ResDataType>::type_singleton(), &array_builder);
+    builder_.reset(
+        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
   }
   ~SumAction() {
 #ifdef DEBUG
@@ -539,17 +653,28 @@ class SumAction : public ActionBase {
 
   arrow::Status Finish(ArrayList* out) override {
     std::shared_ptr<arrow::Array> arr_out;
-    std::unique_ptr<arrow::ArrayBuilder> array_builder;
-    arrow::MakeBuilder(ctx_->memory_pool(),
-                       arrow::TypeTraits<ResDataType>::type_singleton(), &array_builder);
-
-    std::unique_ptr<ResBuilderType> builder;
-    builder.reset(
-        arrow::internal::checked_cast<ResBuilderType*>(array_builder.release()));
-    RETURN_NOT_OK(builder->AppendValues(cache_, cache_validity_));
-    RETURN_NOT_OK(builder->Finish(&arr_out));
+    RETURN_NOT_OK(builder_->AppendValues(cache_, cache_validity_));
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
     out->push_back(arr_out);
 
+    return arrow::Status::OK();
+  }
+
+  uint64_t GetResultLength() { return cache_.size(); }
+
+  arrow::Status Finish(uint64_t offset, uint64_t length, ArrayList* out) override {
+    std::shared_ptr<arrow::Array> arr_out;
+    builder_->Reset();
+    for (uint64_t i = 0; i < length; i++) {
+      if (cache_validity_[offset + i]) {
+        builder_->Append(cache_[offset + i]);
+      } else {
+        builder_->AppendNull();
+      }
+    }
+
+    RETURN_NOT_OK(builder_->Finish(&arr_out));
+    out->push_back(arr_out);
     return arrow::Status::OK();
   }
 
@@ -567,6 +692,7 @@ class SumAction : public ActionBase {
   // result
   std::vector<ResCType> cache_;
   std::vector<bool> cache_validity_;
+  std::unique_ptr<ResBuilderType> builder_;
 };
 
 //////////////// AvgAction ///////////////
@@ -637,6 +763,27 @@ class AvgAction : public ActionBase {
     RETURN_NOT_OK(builder->Finish(&arr_out));
     out->push_back(arr_out);
 
+    return arrow::Status::OK();
+  }
+
+  uint64_t GetResultLength() { return cache_sum_.size(); }
+
+  arrow::Status Finish(uint64_t offset, uint64_t length, ArrayList* out) override {
+    for (int i = 0; i < cache_sum_.size(); i++) {
+      cache_sum_[i] /= cache_count_[i];
+    }
+    std::shared_ptr<arrow::Array> arr_out;
+    auto builder = new arrow::DoubleBuilder(ctx_->memory_pool());
+    for (uint64_t i = 0; i < length; i++) {
+      if (cache_validity_[offset + i]) {
+        RETURN_NOT_OK(builder->Append(cache_sum_[offset + i]));
+      } else {
+        RETURN_NOT_OK(builder->AppendNull());
+      }
+    }
+
+    RETURN_NOT_OK(builder->Finish(&arr_out));
+    out->push_back(arr_out);
     return arrow::Status::OK();
   }
 
@@ -731,6 +878,30 @@ class SumCountAction : public ActionBase {
     return arrow::Status::OK();
   }
 
+  uint64_t GetResultLength() { return cache_sum_.size(); }
+
+  arrow::Status Finish(uint64_t offset, uint64_t length, ArrayList* out) override {
+    auto sum_builder = new arrow::DoubleBuilder(ctx_->memory_pool());
+    auto count_builder = new arrow::Int64Builder(ctx_->memory_pool());
+    for (uint64_t i = 0; i < length; i++) {
+      if (cache_validity_[offset + i]) {
+        RETURN_NOT_OK(sum_builder->Append(cache_sum_[offset + i]));
+        RETURN_NOT_OK(count_builder->Append(cache_count_[offset + i]));
+      } else {
+        RETURN_NOT_OK(sum_builder->AppendNull());
+        RETURN_NOT_OK(count_builder->AppendNull());
+      }
+    }
+
+    std::shared_ptr<arrow::Array> sum_array;
+    std::shared_ptr<arrow::Array> count_array;
+    RETURN_NOT_OK(sum_builder->Finish(&sum_array));
+    RETURN_NOT_OK(count_builder->Finish(&count_array));
+    out->push_back(sum_array);
+    out->push_back(count_array);
+    return arrow::Status::OK();
+  }
+
  private:
   using CType = typename arrow::TypeTraits<DataType>::CType;
   using ResDataType = typename FindAccumulatorType<DataType>::Type;
@@ -817,6 +988,27 @@ class AvgByCountAction : public ActionBase {
     RETURN_NOT_OK(builder->Finish(&out_arr));
     out->push_back(out_arr);
 
+    return arrow::Status::OK();
+  }
+
+  uint64_t GetResultLength() { return cache_sum_.size(); }
+
+  arrow::Status Finish(uint64_t offset, uint64_t length, ArrayList* out) override {
+    for (int i = 0; i < cache_sum_.size(); i++) {
+      cache_sum_[i] /= cache_count_[i];
+    }
+    auto builder = new arrow::DoubleBuilder(ctx_->memory_pool());
+    for (uint64_t i = 0; i < length; i++) {
+      if (cache_validity_[offset + i]) {
+        RETURN_NOT_OK(builder->Append(cache_sum_[offset + i]));
+      } else {
+        RETURN_NOT_OK(builder->AppendNull());
+      }
+    }
+
+    std::shared_ptr<arrow::Array> out_arr;
+    RETURN_NOT_OK(builder->Finish(&out_arr));
+    out->push_back(out_arr);
     return arrow::Status::OK();
   }
 
@@ -953,15 +1145,17 @@ arrow::Status MakeUniqueAction(arrow::compute::FunctionContext* ctx,
                                std::shared_ptr<arrow::DataType> type,
                                std::shared_ptr<ActionBase>* out) {
   switch (type->id()) {
-#define PROCESS(InType)                                            \
-  case InType::type_id: {                                          \
-    auto action_ptr = std::make_shared<UniqueAction<InType>>(ctx); \
-    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);      \
+#define PROCESS(InType)                                                   \
+  case InType::type_id: {                                                 \
+    using CType = typename arrow::TypeTraits<InType>::CType;              \
+    auto action_ptr = std::make_shared<UniqueAction<InType, CType>>(ctx); \
+    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);             \
   } break;
     PROCESS_SUPPORTED_TYPES(PROCESS)
 #undef PROCESS
     case arrow::StringType::type_id: {
-      auto action_ptr = std::make_shared<UniqueAction<arrow::StringType>>(ctx);
+      auto action_ptr =
+          std::make_shared<UniqueAction<arrow::StringType, std::string>>(ctx);
       *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);
     } break;
     default: {

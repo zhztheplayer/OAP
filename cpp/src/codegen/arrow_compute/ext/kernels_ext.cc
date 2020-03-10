@@ -102,8 +102,6 @@ class SplitArrayListWithActionKernel::Impl {
       }
     }
 
-    std::cout << "max group id is " << max_group_id << ", in_dict length is "
-              << in_dict->length() << std::endl;
     std::vector<std::function<arrow::Status(int)>> eval_func_list;
     std::vector<std::function<arrow::Status()>> eval_null_func_list;
     int col_id = 0;
@@ -146,11 +144,18 @@ class SplitArrayListWithActionKernel::Impl {
   arrow::Status MakeResultIterator(
       std::shared_ptr<arrow::Schema> schema,
       std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) {
-    ArrayList arr_list;
-    for (auto action : action_list_) {
-      RETURN_NOT_OK(action->Finish(&arr_list));
-    }
-    *out = std::make_shared<SplitArrayWithActionResultIterator>(ctx_, schema, arr_list);
+    uint64_t total_length = action_list_[0]->GetResultLength();
+    auto eval_func = [this, schema](uint64_t offset, uint64_t length,
+                                    std::shared_ptr<arrow::RecordBatch>* out) {
+      ArrayList arr_list;
+      for (auto action : action_list_) {
+        RETURN_NOT_OK(action->Finish(offset, length, &arr_list));
+      }
+      *out = arrow::RecordBatch::Make(schema, length, arr_list);
+      return arrow::Status::OK();
+    };
+    *out = std::make_shared<SplitArrayWithActionResultIterator>(ctx_, total_length,
+                                                                eval_func);
     return arrow::Status::OK();
   }
 
@@ -161,44 +166,39 @@ class SplitArrayListWithActionKernel::Impl {
 
   class SplitArrayWithActionResultIterator : public ResultIterator<arrow::RecordBatch> {
    public:
-    SplitArrayWithActionResultIterator(arrow::compute::FunctionContext* ctx,
-                                       std::shared_ptr<arrow::Schema> schema,
-                                       ArrayList cached_array_list)
-        : ctx_(ctx), cached_(cached_array_list), schema_(schema) {
-      total_length_ = cached_[0]->length();
-    }
+    SplitArrayWithActionResultIterator(
+        arrow::compute::FunctionContext* ctx, uint64_t total_length,
+        std::function<arrow::Status(uint64_t offset, uint64_t length,
+                                    std::shared_ptr<arrow::RecordBatch>* out)>
+            eval_func)
+        : ctx_(ctx), total_length_(total_length), eval_func_(eval_func) {}
 
     bool HasNext() override {
       if (offset_ >= total_length_) {
-        // std::cout << "offset is " << offset_ << ", total_length is " << total_length_
-        //          << std::endl;
         return false;
       }
       return true;
     }
 
     arrow::Status Next(std::shared_ptr<arrow::RecordBatch>* out) {
-      ArrayList out_array_list;
       if (offset_ >= total_length_) {
         *out = nullptr;
         return arrow::Status::OK();
       }
       auto length = (total_length_ - offset_) > 4096 ? 4096 : (total_length_ - offset_);
-      for (auto arr : cached_) {
-        out_array_list.push_back(arr->Slice(offset_, length));
-      }
+      RETURN_NOT_OK(eval_func_(offset_, length, out));
       offset_ += length;
-      *out = arrow::RecordBatch::Make(schema_, length, out_array_list);
       // arrow::PrettyPrint(*(*out).get(), 2, &std::cout);
       return arrow::Status::OK();
     }
 
    private:
-    ArrayList cached_;
-    std::shared_ptr<arrow::Schema> schema_;
     arrow::compute::FunctionContext* ctx_;
+    std::function<arrow::Status(uint64_t offset, uint64_t length,
+                                std::shared_ptr<arrow::RecordBatch>* out)>
+        eval_func_;
     uint64_t offset_ = 0;
-    uint64_t total_length_ = 0;
+    const uint64_t total_length_;
   };
 };
 
