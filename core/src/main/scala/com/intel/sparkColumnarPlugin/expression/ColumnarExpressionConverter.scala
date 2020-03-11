@@ -51,8 +51,8 @@ object ColumnarExpressionConverter extends Logging {
       check_if_no_calculation = false
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
       ColumnarBinaryOperator.create(
-        replaceWithColumnarExpression(sp.left),
-        replaceWithColumnarExpression(sp.right),
+        replaceWithColumnarExpression(sp.left, attributeSeq),
+        replaceWithColumnarExpression(sp.right, attributeSeq),
         expr)
     case sr: StringRegexExpression =>
       check_if_no_calculation = false
@@ -60,6 +60,24 @@ object ColumnarExpressionConverter extends Logging {
       ColumnarBinaryOperator.create(
         replaceWithColumnarExpression(sr.left),
         replaceWithColumnarExpression(sr.right),
+        expr)
+    case cw: CaseWhen =>
+      check_if_no_calculation = false
+      logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
+      val colBranches = cw.branches.map{ expr => {
+          (replaceWithColumnarExpression(expr._1, attributeSeq), replaceWithColumnarExpression(expr._2, attributeSeq))
+        }
+      }
+      val colElseValue = cw.elseValue.map { expr => {
+          replaceWithColumnarExpression(expr, attributeSeq)
+        }
+      }
+
+      logInfo(s"col_branches: $colBranches")
+      logInfo(s"col_else: $colElseValue")
+      ColumnarCaseWhenOperator.create(
+        colBranches,
+        colElseValue,
         expr)
     case i: In =>
       check_if_no_calculation = false

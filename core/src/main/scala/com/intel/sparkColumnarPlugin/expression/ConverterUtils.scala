@@ -99,7 +99,7 @@ object ConverterUtils extends Logging {
   def getResultAttrFromExpr(fieldExpr: Expression, name: String = "None"): AttributeReference = {
     fieldExpr match {
       case a: Cast =>
-        getAttrFromExpr(a.child)
+        getResultAttrFromExpr(a.child, name)
       case a: AttributeReference =>
         if (name != "None") {
           new AttributeReference(name, a.dataType, a.nullable)()
