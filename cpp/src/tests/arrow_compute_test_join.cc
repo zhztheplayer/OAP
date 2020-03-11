@@ -589,7 +589,7 @@ TEST(TestArrowCompute, JoinTestUsingRightJoin) {
   auto indices_type = std::make_shared<FixedSizeBinaryType>(4);
   auto f_indices = field("indices", indices_type);
   auto n_probeArrays = TreeExprBuilder::MakeFunction(
-      "probeArraysRight", {TreeExprBuilder::MakeField(table0_f0)}, indices_type);
+      "probeArraysOuter", {TreeExprBuilder::MakeField(table0_f0)}, indices_type);
   auto probeArrays_expr = TreeExprBuilder::MakeExpression(n_probeArrays, f_indices);
 
   auto n_shuffleArrayList = TreeExprBuilder::MakeFunction(

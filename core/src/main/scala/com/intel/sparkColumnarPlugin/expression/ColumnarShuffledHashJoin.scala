@@ -119,11 +119,15 @@ class ColumnarShuffledHashJoin(
 
     }
 
-    val (build_output_field_list, stream_output_field_list) = joinType match {
+    val (probe_func_name, build_output_field_list, stream_output_field_list) = joinType match {
       case _: InnerLike =>
-        (build_input_field_list, stream_input_field_list)
+        ("probeArraysInner", build_input_field_list, stream_input_field_list)
       case LeftSemi =>
-        (List[Field](), stream_input_field_list)
+        ("probeArraysInner", List[Field](), stream_input_field_list)
+      case LeftOuter =>
+        ("probeArraysOuter", build_input_field_list, stream_input_field_list)
+      case RightOuter =>
+        ("probeArraysOuter", build_input_field_list, stream_input_field_list)
       case _ =>
         throw new UnsupportedOperationException(s"Join Type ${joinType} is not supported yet.")
     }
@@ -163,7 +167,7 @@ class ColumnarShuffledHashJoin(
     //
     var prober = new ExpressionEvaluator()
     val probe_node = TreeBuilder.makeFunction(
-      "probeArraysInner", 
+      probe_func_name, 
       build_key_field_list.map(field => {
         TreeBuilder.makeField(field)
       }).asJava, 
@@ -213,7 +217,6 @@ class ColumnarShuffledHashJoin(
           field.getType),
         field)
     }).asJava
-
     stream_shuffler.build(stream_input_arrow_schema, stream_action_expr_list, false)
 
     var probe_iterator: BatchIterator = _
@@ -294,23 +297,29 @@ class ColumnarShuffledHashJoin(
       val process_input_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb.numRows, stream_key_cols)
       probe_iterator.processAndCacheOne(stream_key_arrow_schema, process_input_rb, selectionVector)
 
-      val stream_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb)
-      val stream_output_rb: ArrowRecordBatch = stream_shuffler.evaluate(stream_rb, selectionVector)(0)
-      if (stream_output_rb == null) {
+      val (stream_output, outputNumRows) : (Array[ArrowWritableColumnVector], Int) = {
+        val stream_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb)
+        val stream_output_rb = stream_shuffler.evaluate(stream_rb, selectionVector)(0)
+        if (stream_output_rb == null) {
+          ConverterUtils.releaseArrowRecordBatch(stream_rb)
+          (null, 0)
+        } else {
+          val res = ConverterUtils.fromArrowRecordBatch(stream_output_arrow_schema, stream_output_rb)
+          val len = stream_output_rb.getLength()
+          ConverterUtils.releaseArrowRecordBatch(stream_rb)
+          ConverterUtils.releaseArrowRecordBatch(stream_output_rb)
+          (res, len)
+        }
+      }
+  
+      if (outputNumRows == 0) {
+        stream_key_cols.map(v => v.close())
         ConverterUtils.releaseArrowRecordBatch(process_input_rb)
-        ConverterUtils.releaseArrowRecordBatch(stream_rb)
         joinTime += NANOSECONDS.toMillis(System.nanoTime() - beforeJoin)
         val resultColumnVectors =
           ArrowWritableColumnVector.allocateColumns(0, resultSchema).toArray
         new ColumnarBatch(resultColumnVectors.map(v => v.asInstanceOf[ColumnVector]).toArray, 0)
       } else {
-        val stream_output = ConverterUtils.fromArrowRecordBatch(stream_output_arrow_schema, stream_output_rb)
-        stream_key_cols.map(v => v.close())
-        ConverterUtils.releaseArrowRecordBatch(process_input_rb)
-        ConverterUtils.releaseArrowRecordBatch(stream_rb)
-        ConverterUtils.releaseArrowRecordBatch(stream_output_rb)
-        val outputNumRows = stream_output_rb.getLength()
-  
         val build_output = if (build_output_field_list.length > 0) {
           val build_output_rb: ArrowRecordBatch = build_shuffle_iterator.next()
           val build_output = ConverterUtils.fromArrowRecordBatch(build_output_arrow_schema, build_output_rb)
@@ -328,6 +337,8 @@ class ColumnarShuffledHashJoin(
         }
         totalOutputNumRows += outputNumRows
         joinTime += NANOSECONDS.toMillis(System.nanoTime() - beforeJoin)
+        stream_key_cols.map(v => v.close())
+        ConverterUtils.releaseArrowRecordBatch(process_input_rb)
         new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]).toArray, outputNumRows)
       }
     })

@@ -1705,7 +1705,7 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
             }
           }
         } break;
-        case 2: { /*Right Join*/
+        case 2: { /*Outer Join*/
           if (selection) {
             auto selection_typed_array =
                 std::dynamic_pointer_cast<arrow::UInt16Array>(selection);
@@ -1715,18 +1715,22 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
                 auto index = hash_table_->GetNull();
                 if (index == -1) {
                   RETURN_NOT_OK(left_indices_builder->AppendNull());
+                  RETURN_NOT_OK(right_indices_builder->Append(i));
                 } else {
                   for (auto tmp : memo_index_to_arrayid_[index]) {
                     RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                    RETURN_NOT_OK(right_indices_builder->Append(i));
                   }
                 }
               } else {
                 auto index = hash_table_->Get(typed_array->GetView(i));
                 if (index == -1) {
                   RETURN_NOT_OK(left_indices_builder->AppendNull());
+                  RETURN_NOT_OK(right_indices_builder->Append(i));
                 } else {
                   for (auto tmp : memo_index_to_arrayid_[index]) {
                     RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                    RETURN_NOT_OK(right_indices_builder->Append(i));
                   }
                 }
               }
@@ -1737,18 +1741,22 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
                 auto index = hash_table_->GetNull();
                 if (index == -1) {
                   RETURN_NOT_OK(left_indices_builder->AppendNull());
+                  RETURN_NOT_OK(right_indices_builder->Append(i));
                 } else {
                   for (auto tmp : memo_index_to_arrayid_[index]) {
                     RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                    RETURN_NOT_OK(right_indices_builder->Append(i));
                   }
                 }
               } else {
                 auto index = hash_table_->Get(typed_array->GetView(i));
                 if (index == -1) {
                   RETURN_NOT_OK(left_indices_builder->AppendNull());
+                  RETURN_NOT_OK(right_indices_builder->Append(i));
                 } else {
                   for (auto tmp : memo_index_to_arrayid_[index]) {
                     RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                    RETURN_NOT_OK(right_indices_builder->Append(i));
                   }
                 }
               }
