@@ -144,11 +144,18 @@ class SplitArrayListWithActionKernel::Impl {
   arrow::Status MakeResultIterator(
       std::shared_ptr<arrow::Schema> schema,
       std::shared_ptr<ResultIterator<arrow::RecordBatch>>* out) {
-    ArrayList arr_list;
-    for (auto action : action_list_) {
-      RETURN_NOT_OK(action->Finish(&arr_list));
-    }
-    *out = std::make_shared<SplitArrayWithActionResultIterator>(ctx_, schema, arr_list);
+    uint64_t total_length = action_list_[0]->GetResultLength();
+    auto eval_func = [this, schema](uint64_t offset, uint64_t length,
+                                    std::shared_ptr<arrow::RecordBatch>* out) {
+      ArrayList arr_list;
+      for (auto action : action_list_) {
+        RETURN_NOT_OK(action->Finish(offset, length, &arr_list));
+      }
+      *out = arrow::RecordBatch::Make(schema, length, arr_list);
+      return arrow::Status::OK();
+    };
+    *out = std::make_shared<SplitArrayWithActionResultIterator>(ctx_, total_length,
+                                                                eval_func);
     return arrow::Status::OK();
   }
 
@@ -159,44 +166,39 @@ class SplitArrayListWithActionKernel::Impl {
 
   class SplitArrayWithActionResultIterator : public ResultIterator<arrow::RecordBatch> {
    public:
-    SplitArrayWithActionResultIterator(arrow::compute::FunctionContext* ctx,
-                                       std::shared_ptr<arrow::Schema> schema,
-                                       ArrayList cached_array_list)
-        : ctx_(ctx), cached_(cached_array_list), schema_(schema) {
-      total_length_ = cached_[0]->length();
-    }
+    SplitArrayWithActionResultIterator(
+        arrow::compute::FunctionContext* ctx, uint64_t total_length,
+        std::function<arrow::Status(uint64_t offset, uint64_t length,
+                                    std::shared_ptr<arrow::RecordBatch>* out)>
+            eval_func)
+        : ctx_(ctx), total_length_(total_length), eval_func_(eval_func) {}
 
     bool HasNext() override {
       if (offset_ >= total_length_) {
-        // std::cout << "offset is " << offset_ << ", total_length is " << total_length_
-        //          << std::endl;
         return false;
       }
       return true;
     }
 
     arrow::Status Next(std::shared_ptr<arrow::RecordBatch>* out) {
-      ArrayList out_array_list;
       if (offset_ >= total_length_) {
         *out = nullptr;
         return arrow::Status::OK();
       }
       auto length = (total_length_ - offset_) > 4096 ? 4096 : (total_length_ - offset_);
-      for (auto arr : cached_) {
-        out_array_list.push_back(arr->Slice(offset_, length));
-      }
+      RETURN_NOT_OK(eval_func_(offset_, length, out));
       offset_ += length;
-      *out = arrow::RecordBatch::Make(schema_, length, out_array_list);
       // arrow::PrettyPrint(*(*out).get(), 2, &std::cout);
       return arrow::Status::OK();
     }
 
    private:
-    ArrayList cached_;
-    std::shared_ptr<arrow::Schema> schema_;
     arrow::compute::FunctionContext* ctx_;
+    std::function<arrow::Status(uint64_t offset, uint64_t length,
+                                std::shared_ptr<arrow::RecordBatch>* out)>
+        eval_func_;
     uint64_t offset_ = 0;
-    uint64_t total_length_ = 0;
+    const uint64_t total_length_;
   };
 };
 
@@ -279,7 +281,7 @@ class ShuffleArrayListKernel::Impl {
       auto action = action_list_[i];
       std::function<arrow::Status(uint32_t)> func;
       std::function<arrow::Status()> null_func;
-      action->Submit(col, in_indices_->length(), &func, &null_func);
+      action->Submit(col, &func, &null_func);
       eval_func_list.push_back(func);
       eval_null_func_list.push_back(null_func);
     }
@@ -337,7 +339,7 @@ class ShuffleArrayListKernel::Impl {
       auto action = action_list_[i];
       std::function<arrow::Status(uint64_t, uint64_t)> func;
       std::function<arrow::Status()> null_func;
-      action->Submit(col_list, in_indices_->length(), &func, &null_func);
+      action->Submit(col_list, &func, &null_func);
       eval_func_list.push_back(func);
       eval_null_func_list.push_back(null_func);
     }
@@ -396,7 +398,7 @@ class ShuffleArrayListKernel::Impl {
       auto action = action_list_[i];
       std::function<arrow::Status(uint64_t, uint64_t)> func;
       std::function<arrow::Status()> null_func;
-      action->Submit(col_list, MAXBATCHNUMROWS, &func, &null_func);
+      action->Submit(col_list, &func, &null_func);
       eval_func_list.push_back(func);
       eval_null_func_list.push_back(null_func);
     }
@@ -493,6 +495,7 @@ class ShuffleArrayListKernel::Impl {
         }
         total_length_ = in_indices_->length();
         row_id_ = 0;
+        max_batch_num_ = total_length_;
       }
 
       int output_num_rows = 0;
@@ -1500,55 +1503,31 @@ class HashAggrArrayKernel::Impl {
     // create a new result array type here
     std::vector<std::shared_ptr<gandiva::Node>> func_node_list = {};
     std::vector<std::shared_ptr<arrow::Field>> field_list = {};
-    bool allUtf8 = true;
-    for (auto type : type_list) {
-      if (type->id() != arrow::StringType::type_id) {
-        allUtf8 = false;
-        break;
-      }
-    }
 
     gandiva::ExpressionPtr expr;
-    if (allUtf8) {
-      int index = 0;
-      for (auto type : type_list) {
-        auto field = arrow::field(std::to_string(index), type);
-        field_list.push_back(field);
-        auto field_node = gandiva::TreeExprBuilder::MakeField(field);
-        func_node_list.push_back(field_node);
-        if (func_node_list.size() == 2) {
-          auto tmp_func_node = gandiva::TreeExprBuilder::MakeFunction(
-              "concat", func_node_list, arrow::utf8());
-          func_node_list.clear();
-          func_node_list.push_back(tmp_func_node);
-        }
-        index++;
+    int index = 0;
+    for (auto type : type_list) {
+      auto field = arrow::field(std::to_string(index), type);
+      field_list.push_back(field);
+      auto field_node = gandiva::TreeExprBuilder::MakeField(field);
+      auto func_node =
+          gandiva::TreeExprBuilder::MakeFunction("hash64", {field_node}, arrow::int64());
+      func_node_list.push_back(func_node);
+      if (func_node_list.size() == 2) {
+        auto shift_func_node = gandiva::TreeExprBuilder::MakeFunction(
+            "multiply",
+            {func_node_list[0], gandiva::TreeExprBuilder::MakeLiteral((int64_t)10)},
+            arrow::int64());
+        auto tmp_func_node = gandiva::TreeExprBuilder::MakeFunction(
+            "add", {shift_func_node, func_node_list[1]}, arrow::int64());
+        func_node_list.clear();
+        func_node_list.push_back(tmp_func_node);
       }
-      auto func_node = gandiva::TreeExprBuilder::MakeFunction(
-          "hash64", {func_node_list[0]}, arrow::int64());
-      expr = gandiva::TreeExprBuilder::MakeExpression(
-          func_node, arrow::field("res", arrow::int64()));
-    } else {
-      int index = 0;
-      for (auto type : type_list) {
-        auto field = arrow::field(std::to_string(index), type);
-        field_list.push_back(field);
-        auto field_node = gandiva::TreeExprBuilder::MakeField(field);
-        auto func_node = gandiva::TreeExprBuilder::MakeFunction("hash64", {field_node},
-                                                                arrow::int64());
-        func_node_list.push_back(func_node);
-        if (func_node_list.size() == 2) {
-          auto tmp_func_node = gandiva::TreeExprBuilder::MakeFunction(
-              "add", func_node_list, arrow::int64());
-          func_node_list.clear();
-          func_node_list.push_back(tmp_func_node);
-        }
-        index++;
-      }
-      expr = gandiva::TreeExprBuilder::MakeExpression(
-          func_node_list[0], arrow::field("res", arrow::int64()));
+      index++;
     }
-    // std::cout << expr->ToString() << std::endl;
+    expr = gandiva::TreeExprBuilder::MakeExpression(func_node_list[0],
+                                                    arrow::field("res", arrow::int64()));
+    std::cout << expr->ToString() << std::endl;
     schema_ = arrow::schema(field_list);
     auto configuration = gandiva::ConfigurationBuilder().DefaultConfiguration();
     auto status = gandiva::Projector::Make(schema_, {expr}, configuration, &projector);
@@ -1560,6 +1539,8 @@ class HashAggrArrayKernel::Impl {
     auto num_columns = in.size();
 
     auto in_batch = arrow::RecordBatch::Make(schema_, length, in);
+    // arrow::PrettyPrintOptions print_option(2, 500);
+    // arrow::PrettyPrint(*in_batch.get(), print_option, &std::cout);
 
     arrow::ArrayVector outputs;
     RETURN_NOT_OK(projector->Evaluate(*in_batch, pool_, &outputs));
@@ -1625,10 +1606,10 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
     // we should put items into hashmap
     auto typed_array = std::dynamic_pointer_cast<ArrayType>(in);
     auto insert_on_found = [this](int32_t i) {
-      // TODO: need to be handled when key is duplicated
+      memo_index_to_arrayid_[i].emplace_back(cur_array_id_, cur_id_);
     };
     auto insert_on_not_found = [this](int32_t i) {
-      memo_index_to_arrayid_.emplace_back(cur_array_id_, cur_id_);
+      memo_index_to_arrayid_.push_back({ArrayItemIndex(cur_array_id_, cur_id_)});
     };
 
     cur_id_ = 0;
@@ -1703,9 +1684,10 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
               if (!typed_array->IsNull(i)) {
                 auto index = hash_table_->Get(typed_array->GetView(i));
                 if (index != -1) {
-                  auto tmp = memo_index_to_arrayid_[index];
-                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
-                  RETURN_NOT_OK(right_indices_builder->Append(i));
+                  for (auto tmp : memo_index_to_arrayid_[index]) {
+                    RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                    RETURN_NOT_OK(right_indices_builder->Append(i));
+                  }
                 }
               }
             }
@@ -1714,9 +1696,10 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
               if (!typed_array->IsNull(i)) {
                 auto index = hash_table_->Get(typed_array->GetView(i));
                 if (index != -1) {
-                  auto tmp = memo_index_to_arrayid_[index];
-                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
-                  RETURN_NOT_OK(right_indices_builder->Append(i));
+                  for (auto tmp : memo_index_to_arrayid_[index]) {
+                    RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                    RETURN_NOT_OK(right_indices_builder->Append(i));
+                  }
                 }
               }
             }
@@ -1733,16 +1716,18 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
                 if (index == -1) {
                   RETURN_NOT_OK(left_indices_builder->AppendNull());
                 } else {
-                  auto tmp = memo_index_to_arrayid_[index];
-                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  for (auto tmp : memo_index_to_arrayid_[index]) {
+                    RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  }
                 }
               } else {
                 auto index = hash_table_->Get(typed_array->GetView(i));
                 if (index == -1) {
                   RETURN_NOT_OK(left_indices_builder->AppendNull());
                 } else {
-                  auto tmp = memo_index_to_arrayid_[index];
-                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  for (auto tmp : memo_index_to_arrayid_[index]) {
+                    RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  }
                 }
               }
             }
@@ -1753,16 +1738,18 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
                 if (index == -1) {
                   RETURN_NOT_OK(left_indices_builder->AppendNull());
                 } else {
-                  auto tmp = memo_index_to_arrayid_[index];
-                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  for (auto tmp : memo_index_to_arrayid_[index]) {
+                    RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  }
                 }
               } else {
                 auto index = hash_table_->Get(typed_array->GetView(i));
                 if (index == -1) {
                   RETURN_NOT_OK(left_indices_builder->AppendNull());
                 } else {
-                  auto tmp = memo_index_to_arrayid_[index];
-                  RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  for (auto tmp : memo_index_to_arrayid_[index]) {
+                    RETURN_NOT_OK(left_indices_builder->Append((uint8_t*)&tmp));
+                  }
                 }
               }
             }
@@ -1800,7 +1787,7 @@ class ProbeArraysTypedImpl : public ProbeArraysKernel::Impl {
   std::shared_ptr<arrow::DataType> out_type_;
   arrow::compute::FunctionContext* ctx_;
   std::shared_ptr<MemoTableType> hash_table_;
-  std::vector<ArrayItemIndex> memo_index_to_arrayid_;
+  std::vector<std::vector<ArrayItemIndex>> memo_index_to_arrayid_;
 
   uint64_t cur_array_id_ = 0;
   uint64_t cur_id_ = 0;

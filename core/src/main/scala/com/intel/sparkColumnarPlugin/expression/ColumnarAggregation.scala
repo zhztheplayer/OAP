@@ -210,6 +210,7 @@ class ColumnarAggregation(
       } else {
         aggregator.finish()(0)
       }
+
       if (finalResultRecordBatch == null) {
         val resultColumnVectors =
           ArrowWritableColumnVector.allocateColumns(0, resultStructType).toArray
@@ -224,12 +225,12 @@ class ColumnarAggregation(
       })
       val resultColumnVectorList = if (aggregateToResultProjector.needEvaluate) {
         val res = aggregateToResultProjector.evaluate(resultLength, resultInputCols.map(_.getValueVector()))
-        logInfo(s"aggregateToResultProjector, input is ${resultInputCols.map(v => v.getUTF8String(0))}, output is ${res.map(v => v.getUTF8String(0))}")
+        //logInfo(s"aggregateToResultProjector, input is ${resultInputCols.map(v => v.getUTF8String(0))}, output is ${res.map(v => v.getUTF8String(0))}")
         res
       } else {
         resultInputCols
       }
-
+      //logInfo(s"AggregationResult first row is ${resultColumnVectorList.map(v => v.getUTF8String(0))}")
       new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]).toArray, resultLength)
     }
   }
@@ -283,8 +284,10 @@ class ColumnarAggregation(
         resultColumnarBatch = getAggregationResult(result_iterator)
         val eval_elapse = System.nanoTime() - beforeEval
         aggrTime += NANOSECONDS.toMillis(eval_elapse)
-        if (resultColumnarBatch.numRows == 0)
+        if (resultColumnarBatch.numRows == 0) {
+          logInfo(s"Aggregation completed, total output ${numOutputRows} rows, ${numOutputBatches} batches")
           return false
+        }
         numOutputBatches += 1
         numOutputRows += resultColumnarBatch.numRows
         if (result_iterator == null) {
