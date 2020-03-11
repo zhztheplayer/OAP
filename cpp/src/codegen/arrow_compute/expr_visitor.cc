@@ -193,7 +193,7 @@ arrow::Status ExprVisitor::MakeExprVisitorImpl(const std::string& func_name,
     RETURN_NOT_OK(ProbeArraysVisitorImpl::Make(p, &impl_, 0));
     goto finish;
   }
-  if (func_name.compare("probeArraysRight") == 0) {
+  if (func_name.compare("probeArraysOuter") == 0) {
     RETURN_NOT_OK(ProbeArraysVisitorImpl::Make(p, &impl_, 2));
     goto finish;
   }
