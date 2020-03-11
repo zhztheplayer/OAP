@@ -150,10 +150,22 @@ class ColumnarEqualTo(left: Expression, right: Expression, original: Expression)
         TreeBuilder.makeLiteral(true);
       return (funcNode, new ArrowType.Bool())
     }
-    val (left_node, left_type): (TreeNode, ArrowType) =
+    var (left_node, left_type): (TreeNode, ArrowType) =
       left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
-    val (right_node, right_type): (TreeNode, ArrowType) =
+    var (right_node, right_type): (TreeNode, ArrowType) =
       right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val unifiedType = CodeGeneration.getResultType(left_type, right_type)
+    if (!left_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      left_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), unifiedType),
+    }
+    if (!right_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      right_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), unifiedType),
+    }
 
     val resultType = new ArrowType.Bool()
     val funcNode =
@@ -172,10 +184,22 @@ class ColumnarEqualNull(left: Expression, right: Expression, original: Expressio
         TreeBuilder.makeLiteral(true);
       return (funcNode, new ArrowType.Bool())
     }
-    val (left_node, left_type): (TreeNode, ArrowType) =
+    var (left_node, left_type): (TreeNode, ArrowType) =
       left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
-    val (right_node, right_type): (TreeNode, ArrowType) =
+    var (right_node, right_type): (TreeNode, ArrowType) =
       right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val unifiedType = CodeGeneration.getResultType(left_type, right_type)
+    if (!left_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      left_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), unifiedType),
+    }
+    if (!right_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      right_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), unifiedType),
+    }
 
     val resultType = new ArrowType.Bool()
     val funcNode =
@@ -194,10 +218,22 @@ class ColumnarLessThan(left: Expression, right: Expression, original: Expression
         TreeBuilder.makeLiteral(true);
       return (funcNode, new ArrowType.Bool())
     }
-    val (left_node, left_type): (TreeNode, ArrowType) =
+    var (left_node, left_type): (TreeNode, ArrowType) =
       left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
-    val (right_node, right_type): (TreeNode, ArrowType) =
+    var (right_node, right_type): (TreeNode, ArrowType) =
       right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val unifiedType = CodeGeneration.getResultType(left_type, right_type)
+    if (!left_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      left_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), unifiedType),
+    }
+    if (!right_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      right_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), unifiedType),
+    }
 
     val resultType = new ArrowType.Bool()
     val funcNode =
@@ -216,10 +252,22 @@ class ColumnarLessThanOrEqual(left: Expression, right: Expression, original: Exp
         TreeBuilder.makeLiteral(true);
       return (funcNode, new ArrowType.Bool())
     }
-    val (left_node, left_type): (TreeNode, ArrowType) =
+    var (left_node, left_type): (TreeNode, ArrowType) =
       left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
-    val (right_node, right_type): (TreeNode, ArrowType) =
+    var (right_node, right_type): (TreeNode, ArrowType) =
       right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val unifiedType = CodeGeneration.getResultType(left_type, right_type)
+    if (!left_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      left_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), unifiedType),
+    }
+    if (!right_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      right_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), unifiedType),
+    }
 
     val resultType = new ArrowType.Bool()
     val funcNode = TreeBuilder.makeFunction(
@@ -240,10 +288,22 @@ class ColumnarGreaterThan(left: Expression, right: Expression, original: Express
         TreeBuilder.makeLiteral(true);
       return (funcNode, new ArrowType.Bool())
     }
-    val (left_node, left_type): (TreeNode, ArrowType) =
+    var (left_node, left_type): (TreeNode, ArrowType) =
       left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
-    val (right_node, right_type): (TreeNode, ArrowType) =
+    var (right_node, right_type): (TreeNode, ArrowType) =
       right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val unifiedType = CodeGeneration.getResultType(left_type, right_type)
+    if (!left_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      left_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), unifiedType),
+    }
+    if (!right_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      right_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), unifiedType),
+    }
 
     val resultType = new ArrowType.Bool()
     val funcNode = TreeBuilder.makeFunction(
@@ -264,10 +324,22 @@ class ColumnarGreaterThanOrEqual(left: Expression, right: Expression, original: 
         TreeBuilder.makeLiteral(true);
       return (funcNode, new ArrowType.Bool())
     }
-    val (left_node, left_type): (TreeNode, ArrowType) =
+    var (left_node, left_type): (TreeNode, ArrowType) =
       left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
-    val (right_node, right_type): (TreeNode, ArrowType) =
+    var (right_node, right_type): (TreeNode, ArrowType) =
       right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val unifiedType = CodeGeneration.getResultType(left_type, right_type)
+    if (!left_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      left_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), unifiedType),
+    }
+    if (!right_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      right_node =
+        TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), unifiedType),
+    }
 
     val resultType = new ArrowType.Bool()
     val funcNode = TreeBuilder.makeFunction(

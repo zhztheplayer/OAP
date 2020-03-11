@@ -23,14 +23,14 @@ class ColumnarIn(value: Expression, list: Seq[Expression], original: Expression)
     with ColumnarExpression
     with Logging {
   override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
-    val (value_node, valueType): (TreeNode, ArrowType) =
-      value.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
-
     if (value.isInstanceOf[AttributeReference]) {
       val funcNode =
         TreeBuilder.makeLiteral(true);
       return (funcNode, new ArrowType.Bool())
     }
+    val (value_node, valueType): (TreeNode, ArrowType) =
+      value.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
     val ordinal = value.asInstanceOf[BoundReference].ordinal
     val infield = Field.nullable(s"c_$ordinal", CodeGeneration.getResultType(value.dataType))
     val resultType = new ArrowType.Bool()
