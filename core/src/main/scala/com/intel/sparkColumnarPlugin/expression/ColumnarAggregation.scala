@@ -45,6 +45,7 @@ class ColumnarAggregation(
     aggregateExpressions: Seq[AggregateExpression],
     aggregateAttributes: Seq[Attribute],
     resultExpressions: Seq[NamedExpression],
+    output: Seq[Attribute],
     numInputBatches: SQLMetric,
     numOutputBatches: SQLMetric,
     numOutputRows: SQLMetric,
@@ -57,10 +58,14 @@ class ColumnarAggregation(
   var processedNumRows: Int = 0
 
   logInfo(
-    s"\ngroupingExpressions: $groupingExpressions,\noriginalInputAttributes: $originalInputAttributes,\naggregateExpressions: $aggregateExpressions,\naggregateAttributes: $aggregateAttributes,\nresultExpressions: $resultExpressions")
+    s"\ngroupingExpressions: $groupingExpressions,\noriginalInputAttributes: $originalInputAttributes,\naggregateExpressions: $aggregateExpressions,\naggregateAttributes: $aggregateAttributes,\nresultExpressions: $resultExpressions, \noutput: $output")
 
   var resultTotalRows: Int = 0
-  val mode = aggregateExpressions(0).mode
+  val mode = if (aggregateExpressions.size > 0) {
+    aggregateExpressions(0).mode
+  } else {
+    null
+  }
 
   //////////////// Project original input to aggregateExpression input //////////////////
   // 1. map original input to grouping input
@@ -82,26 +87,31 @@ class ColumnarAggregation(
   var projectOrdinalList : List[Int] = _
   var aggregateInputAttributes : List[AttributeReference] = _
 
-  mode match {
-    case Partial => { 
-      beforeAggregateProjector =
-        ColumnarProjection.create(
-          originalInputAttributes,
-          aggregateExpressions.flatMap(_.aggregateFunction.children), skipLiteral = true, renameResult = true)
-      projectOrdinalList = beforeAggregateProjector.getOrdinalList
-      aggregateInputAttributes = beforeAggregateProjector.output
+  if (mode == null) {
+    projectOrdinalList = List[Int]()
+    aggregateInputAttributes =  List[AttributeReference]()
+  } else {
+    mode match {
+      case Partial => { 
+        beforeAggregateProjector =
+          ColumnarProjection.create(
+            originalInputAttributes,
+            aggregateExpressions.flatMap(_.aggregateFunction.children), skipLiteral = true, renameResult = true)
+        projectOrdinalList = beforeAggregateProjector.getOrdinalList
+        aggregateInputAttributes = beforeAggregateProjector.output
+      }
+      case Final => {
+        val ordinal_attr_list = originalInputAttributes.toList.zipWithIndex
+          .filter{case(expr, i) => !groupingOrdinalList.contains(i)}
+          .map{case(expr, i) => {
+            (i, ConverterUtils.getAttrFromExpr(expr))
+          }}
+        projectOrdinalList = ordinal_attr_list.map(_._1)
+        aggregateInputAttributes = ordinal_attr_list.map(_._2)
+      }
+      case _ =>
+        throw new UnsupportedOperationException("doesn't support this mode")
     }
-    case Final => {
-      val ordinal_attr_list = originalInputAttributes.toList.zipWithIndex
-        .filter{case(expr, i) => !groupingOrdinalList.contains(i)}
-        .map{case(expr, i) => {
-          (i, ConverterUtils.getAttrFromExpr(expr))
-        }}
-      projectOrdinalList = ordinal_attr_list.map(_._1)
-      aggregateInputAttributes = ordinal_attr_list.map(_._2)
-    }
-    case _ =>
-      throw new UnsupportedOperationException("doesn't support this mode")
   }
   logInfo(s"aggregateProjectorOutputAttributes is ${aggregateInputAttributes},\nprojectOrdinalList is ${projectOrdinalList}")
 
@@ -319,6 +329,7 @@ object ColumnarAggregation {
       aggregateExpressions: Seq[AggregateExpression],
       aggregateAttributes: Seq[Attribute],
       resultExpressions: Seq[NamedExpression],
+      output: Seq[Attribute],
       numInputBatches: SQLMetric,
       numOutputBatches: SQLMetric,
       numOutputRows: SQLMetric,
@@ -331,6 +342,7 @@ object ColumnarAggregation {
       aggregateExpressions,
       aggregateAttributes,
       resultExpressions,
+      output,
       numInputBatches,
       numOutputBatches,
       numOutputRows,
