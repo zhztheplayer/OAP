@@ -86,6 +86,7 @@ class ColumnarHashAggregateExec(
           aggregateExpressions,
           aggregateAttributes,
           resultExpressions,
+          output,
           numInputBatches,
           numOutputBatches,
           numOutputRows,
