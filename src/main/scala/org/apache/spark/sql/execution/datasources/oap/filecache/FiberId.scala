@@ -51,6 +51,10 @@ case class BinaryDataFiberId(file: DataFile, columnIndex: Int, rowGroupId: Int) 
 
   override def hashCode(): Int = (file.path + columnIndex + rowGroupId).hashCode
 
+  val fiberKey = s"${file.path}_${rowGroupId}_${columnIndex})"
+
+  override def toFiberKey(): String = fiberKey
+
   override def equals(obj: Any): Boolean = obj match {
     case another: BinaryDataFiberId =>
       another.columnIndex == columnIndex &&
@@ -96,6 +100,10 @@ case class OrcBinaryFiberId(file: DataFile, columnIndex: Int, rowGroupId: Int) e
   }
 
   override def hashCode(): Int = (file.path + columnIndex + rowGroupId).hashCode
+
+  val fiberKey = s"${file.path}_${rowGroupId}_${columnIndex})"
+
+  override def toFiberKey(): String = fiberKey
 
   override def equals(obj: Any): Boolean = obj match {
     case another: OrcBinaryFiberId =>
@@ -157,6 +165,10 @@ private[oap] case class BTreeFiberId(
 
   override def hashCode(): Int = (file + section + idx).hashCode
 
+  val fiberKey = s"${file}_${section}_${idx})"
+
+  override def toFiberKey(): String = fiberKey
+
   override def equals(obj: Any): Boolean = obj match {
     case another: BTreeFiberId =>
       another.section == section &&
@@ -179,6 +191,10 @@ private[oap] case class BitmapFiberId(
     loadUnitIdxOfSection: Int) extends FiberId {
 
   override def hashCode(): Int = (file + sectionIdxOfFile + loadUnitIdxOfSection).hashCode
+
+  val fiberKey = s"${file}_${sectionIdxOfFile}_${loadUnitIdxOfSection})"
+
+  override def toFiberKey(): String = fiberKey
 
   override def equals(obj: Any): Boolean = obj match {
     case another: BitmapFiberId =>
