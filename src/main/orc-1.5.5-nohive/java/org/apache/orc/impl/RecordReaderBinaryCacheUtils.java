@@ -87,13 +87,21 @@ public class RecordReaderBinaryCacheUtils extends RecordReaderUtils {
       FiberCacheManager cacheManager = OapRuntime$.MODULE$.getOrCreate().fiberCacheManager();
       FiberCache fiberCache = null;
       OrcBinaryFiberId fiberId = null;
-      ColumnDiskRangeList columnRange = (ColumnDiskRangeList)range;
-      fiberId = new OrcBinaryFiberId(dataFile, columnRange.columnId, columnRange.currentStripe);
-      fiberId.withLoadCacheParameters(file, base + off, len);
-      fiberCache = cacheManager.get(fiberId);
-      long fiberOffset = fiberCache.getBaseOffset();
-      Platform.copyMemory(null, fiberOffset, buffer, Platform.BYTE_ARRAY_OFFSET, len);
-
+      try {
+        ColumnDiskRangeList columnRange = (ColumnDiskRangeList)range;
+        fiberId = new OrcBinaryFiberId(dataFile, columnRange.columnId, columnRange.currentStripe);
+        fiberId.withLoadCacheParameters(file, base + off, len);
+        fiberCache = cacheManager.get(fiberId);
+        long fiberOffset = fiberCache.getBaseOffset();
+        Platform.copyMemory(null, fiberOffset, buffer, Platform.BYTE_ARRAY_OFFSET, len);
+      } finally {
+        if (fiberCache != null) {
+          fiberCache.release();
+        }
+        if (fiberId != null) {
+          fiberId.cleanLoadCacheParameters();
+        }
+      }
       ByteBuffer bb = null;
       if (doForceDirect) {
         bb = ByteBuffer.allocateDirect(len);
