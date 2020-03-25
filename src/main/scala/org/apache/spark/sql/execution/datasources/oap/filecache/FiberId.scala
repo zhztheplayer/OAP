@@ -119,7 +119,7 @@ case class OrcBinaryFiberId(file: DataFile, columnIndex: Int, rowGroupId: Int) e
 
   def doCache(): FiberCache = {
     assert(input != null && offset >= 0 && length > 0,
-      "Illegal condition when load Parquet Chunk Fiber to cache.")
+      "Illegal condition when load ORCColumn Fiber to cache.")
     val data = new Array[Byte](length)
     input.readFully((offset), data, 0, data.length);
     val fiber = OapRuntime.getOrCreate.fiberCacheManager.getEmptyDataFiberCache(length)
