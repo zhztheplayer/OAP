@@ -37,7 +37,7 @@ class ColumnarConditionProjector(
   numOutputRows: SQLMetric,
   procTime: SQLMetric)
   extends Logging {
-  logInfo(s"\nCondition is ${condExpr}, \nProjection is ${projectList}")
+  logInfo(s"originalInputAttributes is ${originalInputAttributes}, \nCondition is ${condExpr}, \nProjection is ${projectList}")
   var elapseTime_make: Long = 0
   val start_make: Long = System.nanoTime()
   var skip = false

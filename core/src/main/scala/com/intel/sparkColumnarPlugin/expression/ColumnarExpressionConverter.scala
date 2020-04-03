@@ -58,8 +58,8 @@ object ColumnarExpressionConverter extends Logging {
       check_if_no_calculation = false
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
       ColumnarBinaryOperator.create(
-        replaceWithColumnarExpression(sr.left),
-        replaceWithColumnarExpression(sr.right),
+        replaceWithColumnarExpression(sr.left, attributeSeq),
+        replaceWithColumnarExpression(sr.right, attributeSeq),
         expr)
     case cw: CaseWhen =>
       check_if_no_calculation = false
