@@ -1,4 +1,5 @@
 #include "codegen/arrow_compute/ext/kernels_ext.h"
+
 #include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_primitive.h>
 #include <arrow/compute/context.h>
@@ -24,11 +25,13 @@
 #include <gandiva/node.h>
 #include <gandiva/projector.h>
 #include <gandiva/tree_expr_builder.h>
+
 #include <chrono>
 #include <cstring>
 #include <fstream>
 #include <iostream>
 #include <unordered_map>
+
 #include "codegen/arrow_compute/ext/actions_impl.h"
 #include "codegen/arrow_compute/ext/array_item_index.h"
 #include "codegen/arrow_compute/ext/codegen_node_visitor.h"
@@ -602,11 +605,13 @@ class AvgByCountArrayKernel::Impl {
   arrow::Status FinishInternal(ArrayList* out) {
     using CType = typename arrow::TypeTraits<DataType>::CType;
     using ScalarType = typename arrow::TypeTraits<DataType>::ScalarType;
+    using CntScalarType = typename arrow::TypeTraits<arrow::Int64Type>::ScalarType;
     CType sum_res = 0;
     CType cnt_res = 0;
     for (size_t i = 0; i < sum_scalar_list_.size(); i++) {
       auto sum_typed_scalar = std::dynamic_pointer_cast<ScalarType>(sum_scalar_list_[i]);
-      auto cnt_typed_scalar = std::dynamic_pointer_cast<ScalarType>(cnt_scalar_list_[i]);
+      auto cnt_typed_scalar =
+          std::dynamic_pointer_cast<CntScalarType>(cnt_scalar_list_[i]);
       sum_res += sum_typed_scalar->value;
       cnt_res += cnt_typed_scalar->value;
     }
