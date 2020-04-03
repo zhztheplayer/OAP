@@ -35,8 +35,7 @@ arrow::Status CodeGenNodeVisitorV2::Visit(const gandiva::FunctionNode& node) {
     }
     ss << "(" << child_visitor_list[0]->GetResult() << " < "
        << child_visitor_list[1]->GetResult() << ")";
-  }
-  if (func_name.compare("greater_than") == 0) {
+  } else if (func_name.compare("greater_than") == 0) {
     auto check_str = child_visitor_list[0]->GetPreCheck();
     if (!check_str.empty()) {
       check_ss << check_str << " && ";
@@ -47,8 +46,7 @@ arrow::Status CodeGenNodeVisitorV2::Visit(const gandiva::FunctionNode& node) {
     }
     ss << "(" << child_visitor_list[0]->GetResult() << " > "
        << child_visitor_list[1]->GetResult() << ")";
-  }
-  if (func_name.compare("less_than_or_equal_to") == 0) {
+  } else if (func_name.compare("less_than_or_equal_to") == 0) {
     auto check_str = child_visitor_list[0]->GetPreCheck();
     if (!check_str.empty()) {
       check_ss << check_str << " && ";
@@ -59,8 +57,7 @@ arrow::Status CodeGenNodeVisitorV2::Visit(const gandiva::FunctionNode& node) {
     }
     ss << "(" << child_visitor_list[0]->GetResult()
        << " <= " << child_visitor_list[1]->GetResult() << ")";
-  }
-  if (func_name.compare("greater_than_or_equal_to") == 0) {
+  } else if (func_name.compare("greater_than_or_equal_to") == 0) {
     auto check_str = child_visitor_list[0]->GetPreCheck();
     if (!check_str.empty()) {
       check_ss << check_str << " && ";
@@ -71,8 +68,7 @@ arrow::Status CodeGenNodeVisitorV2::Visit(const gandiva::FunctionNode& node) {
     }
     ss << "(" << child_visitor_list[0]->GetResult()
        << " >= " << child_visitor_list[1]->GetResult() << ")";
-  }
-  if (func_name.compare("equal") == 0) {
+  } else if (func_name.compare("equal") == 0) {
     auto check_str = child_visitor_list[0]->GetPreCheck();
     if (!check_str.empty()) {
       check_ss << check_str << " && ";
@@ -83,10 +79,12 @@ arrow::Status CodeGenNodeVisitorV2::Visit(const gandiva::FunctionNode& node) {
     }
     ss << "(" << child_visitor_list[0]->GetResult()
        << " == " << child_visitor_list[1]->GetResult() << ")";
-  }
-  if (func_name.compare("not") == 0) {
+  } else if (func_name.compare("not") == 0) {
     check_ss << child_visitor_list[0]->GetPreCheck();
     ss << "!(" << child_visitor_list[0]->GetResult() << ")";
+  } else {
+    check_ss << child_visitor_list[0]->GetPreCheck();
+    ss << child_visitor_list[0]->GetResult();
   }
   if (cur_func_id == 0) {
     out_ss << check_ss.str() << ss.str();
@@ -97,6 +95,7 @@ arrow::Status CodeGenNodeVisitorV2::Visit(const gandiva::FunctionNode& node) {
   }
   return arrow::Status::OK();
 }
+
 arrow::Status CodeGenNodeVisitorV2::Visit(const gandiva::FieldNode& node) {
   auto cur_func_id = *func_count_;
   auto this_field = node.field();
@@ -189,15 +188,87 @@ arrow::Status CodeGenNodeVisitorV2::Visit(const gandiva::BooleanNode& node) {
   codes_str_ = ss.str();
   return arrow::Status::OK();
 }
+
 arrow::Status CodeGenNodeVisitorV2::Visit(const gandiva::InExpressionNode<int>& node) {
+  auto cur_func_id = *func_count_;
+  std::shared_ptr<CodeGenNodeVisitorV2> child_visitor;
+  *func_count_ = *func_count_ + 1;
+  RETURN_NOT_OK(MakeCodeGenNodeVisitorV2(node.eval_expr(), field_list_v_, func_count_,
+                                         codes_ss_, &child_visitor));
+  *codes_ss_ << "std::vector<int> input_field_" << cur_func_id << " = {";
+  bool add_comma = false;
+  for (auto& value : node.values()) {
+    if (add_comma) {
+      *codes_ss_ << ", ";
+    }
+    // add type in the front to differentiate
+    *codes_ss_ << value;
+    add_comma = true;
+  }
+  *codes_ss_ << "};" << std::endl;
+
+  std::stringstream ss;
+  ss << "std::find(input_field_" << cur_func_id << ".begin(), input_field_" << cur_func_id
+     << ".end(), " << child_visitor->GetResult() << ") != "
+     << "input_field_" << cur_func_id << ".end()";
+  codes_str_ = ss.str();
+  check_str_ = child_visitor->GetPreCheck();
   return arrow::Status::OK();
 }
+
 arrow::Status CodeGenNodeVisitorV2::Visit(
     const gandiva::InExpressionNode<long int>& node) {
+  auto cur_func_id = *func_count_;
+  std::shared_ptr<CodeGenNodeVisitorV2> child_visitor;
+  *func_count_ = *func_count_ + 1;
+  RETURN_NOT_OK(MakeCodeGenNodeVisitorV2(node.eval_expr(), field_list_v_, func_count_,
+                                         codes_ss_, &child_visitor));
+  *codes_ss_ << "std::vector<long int> input_field_" << cur_func_id << " = {";
+  bool add_comma = false;
+  for (auto& value : node.values()) {
+    if (add_comma) {
+      *codes_ss_ << ", ";
+    }
+    // add type in the front to differentiate
+    *codes_ss_ << value;
+    add_comma = true;
+  }
+  *codes_ss_ << "};" << std::endl;
+
+  std::stringstream ss;
+  ss << "std::find(input_field_" << cur_func_id << ".begin(), input_field_" << cur_func_id
+     << ".end(), " << child_visitor->GetResult() << ") != "
+     << "input_field_" << cur_func_id << ".end()";
+  codes_str_ = ss.str();
+  check_str_ = child_visitor->GetPreCheck();
   return arrow::Status::OK();
 }
+
 arrow::Status CodeGenNodeVisitorV2::Visit(
     const gandiva::InExpressionNode<std::string>& node) {
+  auto cur_func_id = *func_count_;
+  std::shared_ptr<CodeGenNodeVisitorV2> child_visitor;
+  *func_count_ = *func_count_ + 1;
+  RETURN_NOT_OK(MakeCodeGenNodeVisitorV2(node.eval_expr(), field_list_v_, func_count_,
+                                         codes_ss_, &child_visitor));
+  *codes_ss_ << "std::vector<std::string> input_field_" << cur_func_id << " = {";
+  bool add_comma = false;
+  for (auto& value : node.values()) {
+    if (add_comma) {
+      *codes_ss_ << ", ";
+    }
+    // add type in the front to differentiate
+    *codes_ss_ << R"(")" << value << R"(")";
+    add_comma = true;
+  }
+  *codes_ss_ << "};" << std::endl;
+
+  std::stringstream ss;
+  ss << "std::find(input_field_" << cur_func_id << ".begin(), input_field_" << cur_func_id
+     << ".end(), " << child_visitor->GetResult() << ") != "
+     << "input_field_" << cur_func_id << ".end()";
+  codes_str_ = ss.str();
+  check_str_ = child_visitor->GetPreCheck();
   return arrow::Status::OK();
 }
 
