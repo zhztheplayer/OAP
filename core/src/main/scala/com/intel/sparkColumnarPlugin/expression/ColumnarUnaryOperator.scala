@@ -24,11 +24,6 @@ class ColumnarIsNotNull(child: Expression, original: Expression)
     with ColumnarExpression
     with Logging {
   override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
-    if (child.isInstanceOf[AttributeReference]) {
-      val funcNode =
-        TreeBuilder.makeLiteral(true);
-      return (funcNode, new ArrowType.Bool())
-    }
     val (child_node, childType): (TreeNode, ArrowType) =
       child.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 

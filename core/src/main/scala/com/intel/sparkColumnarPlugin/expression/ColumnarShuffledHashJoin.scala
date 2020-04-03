@@ -62,7 +62,7 @@ class ColumnarShuffledHashJoin(
     resultSchema: StructType,
     joinType: JoinType,
     buildSide: BuildSide,
-    condition: Option[Expression],
+    conditionOption: Option[Expression],
     left: SparkPlan,
     right: SparkPlan,
     buildTime: SQLMetric,
@@ -77,7 +77,7 @@ class ColumnarShuffledHashJoin(
     // TODO
     val l_input_schema: List[Attribute] = left.output.toList
     val r_input_schema: List[Attribute] = right.output.toList
-    logInfo(s"\nleft_schema is ${l_input_schema}, right_schema is ${r_input_schema}, \nleftKeys is ${leftKeys}, rightKeys is ${rightKeys}, \nresultSchema is ${resultSchema}, \njoinType is ${joinType}, buildSide is ${buildSide}, condition is ${condition}")
+    logInfo(s"\nleft_schema is ${l_input_schema}, right_schema is ${r_input_schema}, \nleftKeys is ${leftKeys}, rightKeys is ${rightKeys}, \nresultSchema is ${resultSchema}, \njoinType is ${joinType}, buildSide is ${buildSide}, condition is ${conditionOption}")
 
     val l_input_field_list: List[Field] = l_input_schema.toList.map(attr => {
       Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
@@ -121,34 +121,20 @@ class ColumnarShuffledHashJoin(
 
     val (probe_func_name, build_output_field_list, stream_output_field_list) = joinType match {
       case _: InnerLike =>
-        ("probeArraysInner", build_input_field_list, stream_input_field_list)
+        ("conditionedProbeArraysInner", build_input_field_list, stream_input_field_list)
       case LeftSemi =>
-        ("probeArraysInner", List[Field](), stream_input_field_list)
+        ("conditionedProbeArraysSemi", List[Field](), stream_input_field_list)
       case LeftOuter =>
-        ("probeArraysOuter", build_input_field_list, stream_input_field_list)
+        ("conditionedProbeArraysOuter", build_input_field_list, stream_input_field_list)
       case RightOuter =>
-        ("probeArraysOuter", build_input_field_list, stream_input_field_list)
+        ("conditionedProbeArraysOuter", build_input_field_list, stream_input_field_list)
+      case LeftAnti =>
+        ("conditionedProbeArraysAnti", List[Field](), stream_input_field_list)
       case _ =>
         throw new UnsupportedOperationException(s"Join Type ${joinType} is not supported yet.")
     }
 
     val build_input_arrow_schema: Schema = new Schema(build_input_field_list.asJava)
-    val (buildConditioner, streamConditioner) = condition match { 
-      case Some(c) =>  
-        buildSide match {
-          case BuildLeft => {
-            val buildConditioner = new ColumnarFilter(l_input_schema, c)
-            val streamConditioner = new ColumnarFilter(r_input_schema, c)
-            (buildConditioner, streamConditioner)
-          }
-          case BuildRight => {
-            val buildConditioner = new ColumnarFilter(r_input_schema, c)
-            val streamConditioner = new ColumnarFilter(l_input_schema, c)
-            (buildConditioner, streamConditioner)
-          }
-        }
-      case None => (null, null)
-    } 
 
     val stream_input_arrow_schema: Schema = new Schema(stream_input_field_list.asJava)
 
@@ -156,6 +142,7 @@ class ColumnarShuffledHashJoin(
     val stream_output_arrow_schema: Schema = new Schema(stream_output_field_list.asJava)
 
     val stream_key_arrow_schema: Schema = new Schema(stream_key_field_list.asJava)
+    var output_arrow_schema: Schema = _
 
 
     logInfo(s"\nbuild_key_field_list is ${build_key_field_list}, stream_key_field_list is ${stream_key_field_list}, stream_key_ordinal_list is ${stream_key_ordinal_list}, \nbuild_input_field_list is ${build_input_field_list}, stream_input_field_list is ${stream_input_field_list}, \nbuild_output_field_list is ${build_output_field_list}, stream_output_field_list is ${stream_output_field_list}")
@@ -165,62 +152,95 @@ class ColumnarShuffledHashJoin(
     // Then use iterator to probe right table primary key from hashmap
     // to get corresponding indices of left table
     //
-    var prober = new ExpressionEvaluator()
-    val probe_node = TreeBuilder.makeFunction(
-      probe_func_name, 
-      build_key_field_list.map(field => {
-        TreeBuilder.makeField(field)
-      }).asJava, 
-      new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
-    val retType = Field.nullable("res", new ArrowType.Int(32, true))
-    val probe_expr = TreeBuilder.makeExpression(probe_node, retType)
-
-    prober.build(build_input_arrow_schema, Lists.newArrayList(probe_expr), true)
-
-    /////////////////////////////// Create Shuffler /////////////////////////////
-    // Shuffler will use input indices array to shuffle current table
-    // output a new table with new sequence.
-    var build_shuffler = new ExpressionEvaluator()
-    val build_shuffle_node = TreeBuilder.makeFunction(
-      "shuffleArrayList", 
+    val condition = conditionOption match {
+      case Some(c) =>
+        c
+      case None =>
+        null
+    }
+    val (conditionInputFieldList, conditionOutputFieldList) = buildSide match {
+      case BuildLeft =>
+        (build_input_field_list, build_output_field_list ::: stream_output_field_list)
+      case BuildRight =>
+        (build_input_field_list, stream_output_field_list ::: build_output_field_list)
+    }
+    val conditionArrowSchema = new Schema(conditionInputFieldList.asJava) 
+    output_arrow_schema = new Schema(conditionOutputFieldList.asJava)
+    var conditionInputList : java.util.List[Field] = Lists.newArrayList()
+    val build_args_node = TreeBuilder.makeFunction(
+      "codegen_left_schema",
       build_input_field_list.map(field => {
         TreeBuilder.makeField(field)
       }).asJava, 
       new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
-    val build_action_expr_list = build_input_field_list.map(field => {
-      TreeBuilder.makeExpression(
-        TreeBuilder.makeFunction(
-          "action_dono",
-          Lists.newArrayList(
-            build_shuffle_node,
-            TreeBuilder.makeField(field)),
-          field.getType),
-        field)
-    }).asJava
-
-    build_shuffler.build(build_input_arrow_schema, build_action_expr_list, true)
-
-    var stream_shuffler = new ExpressionEvaluator()
-    val stream_shuffle_node = TreeBuilder.makeFunction(
-      "shuffleArrayList", 
+    val stream_args_node = TreeBuilder.makeFunction(
+      "codegen_right_schema",
       stream_input_field_list.map(field => {
         TreeBuilder.makeField(field)
       }).asJava, 
       new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
-    val stream_action_expr_list = stream_input_field_list.map(field => {
-      TreeBuilder.makeExpression(
-        TreeBuilder.makeFunction(
-          "action_dono",
-          Lists.newArrayList(
-            stream_shuffle_node,
-            TreeBuilder.makeField(field)),
-          field.getType),
-        field)
-    }).asJava
-    stream_shuffler.build(stream_input_arrow_schema, stream_action_expr_list, false)
+    val build_keys_node = TreeBuilder.makeFunction(
+      "codegen_left_key_schema",
+      build_key_field_list.map(field => {
+        TreeBuilder.makeField(field)
+      }).asJava, 
+      new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
+    val stream_keys_node = TreeBuilder.makeFunction(
+      "codegen_right_key_schema",
+      stream_key_field_list.map(field => {
+        TreeBuilder.makeField(field)
+      }).asJava, 
+      new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
+    val condition_expression_node_list : java.util.List[org.apache.arrow.gandiva.expression.TreeNode] =
+      if (condition != null) {
+        val columnarExpression: Expression =
+          ColumnarExpressionConverter.replaceWithColumnarExpression(condition)
+        val (condition_expression_node, resultType) =
+          columnarExpression.asInstanceOf[ColumnarExpression].doColumnarCodeGen(conditionInputList)
+        Lists.newArrayList(build_keys_node, stream_keys_node, condition_expression_node)
+      } else {
+        Lists.newArrayList(build_keys_node, stream_keys_node)
+      }
+    val retType = Field.nullable("res", new ArrowType.Int(32, true))
 
+    // Make Expresion for conditionedProbe
+    var prober = new ExpressionEvaluator()
+    val condition_probe_node = TreeBuilder.makeFunction(
+      probe_func_name, 
+      condition_expression_node_list,
+      new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
+    val codegen_probe_node = TreeBuilder.makeFunction(
+      "codegen_withTwoInputs",
+      Lists.newArrayList(condition_probe_node, build_args_node, stream_args_node),
+      new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
+    val condition_probe_expr = TreeBuilder.makeExpression(
+      codegen_probe_node, 
+      retType) 
+
+    prober.build(build_input_arrow_schema, Lists.newArrayList(condition_probe_expr), true)
+
+    /////////////////////////////// Create Shuffler /////////////////////////////
+    // Shuffler will use input indices array to shuffle current table
+    // output a new table with new sequence.
+    //
+    var build_shuffler = new ExpressionEvaluator()
     var probe_iterator: BatchIterator = _
     var build_shuffle_iterator: BatchIterator = _
+
+    // Make Expresion for conditionedShuffle
+    val condition_shuffle_node = TreeBuilder.makeFunction(
+      "conditionedShuffleArrayList", 
+      Lists.newArrayList(),
+      new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
+    val codegen_shuffle_node = TreeBuilder.makeFunction(
+      "codegen_withTwoInputs",
+      Lists.newArrayList(condition_shuffle_node, build_args_node, stream_args_node),
+      new ArrowType.Int(32, true)/*dummy ret type, won't be used*/)
+    val condition_shuffle_expr = TreeBuilder.makeExpression(
+      codegen_shuffle_node, 
+      retType) 
+    build_shuffler.build(conditionArrowSchema, Lists.newArrayList(condition_shuffle_expr), output_arrow_schema, true)
+
 
   def columnarInnerJoin(
     streamIter: Iterator[ColumnarBatch],
@@ -234,19 +254,9 @@ class ColumnarShuffledHashJoin(
         build_cb = null
       }
       build_cb = buildIter.next()
-      ///////////////////////// Condition? ////////////////////////
-      val selectionVector = if (buildConditioner != null) {
-        val conditionCols = buildConditioner.getOrdinalList.map(i => {
-          build_cb.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector
-        })
-        buildConditioner.evaluate(build_cb.numRows, conditionCols)
-      } else {
-        null
-      }
-      /////////////////////////////////////////////////////////////
       val build_rb = ConverterUtils.createArrowRecordBatch(build_cb)
       inputBatchHolder += build_rb
-      prober.evaluate(build_rb, selectionVector)
+      prober.evaluate(build_rb)
       build_shuffler.evaluate(build_rb)
     }
     if (build_cb != null) {
@@ -268,10 +278,10 @@ class ColumnarShuffledHashJoin(
       return res
     }
 
-    probe_iterator = prober.finishByIterator();
-    build_shuffler.setDependency(probe_iterator, 0)
-    stream_shuffler.setDependency(probe_iterator, 1)
-    build_shuffle_iterator = build_shuffler.finishByIterator();
+    // there will be different when condition is null or not null
+    probe_iterator = prober.finishByIterator()
+    build_shuffler.setDependency(probe_iterator)
+    build_shuffle_iterator = build_shuffler.finishByIterator()
     buildTime += NANOSECONDS.toMillis(System.nanoTime() - beforeBuild)
     
     streamIter.map(cb => {
@@ -281,66 +291,26 @@ class ColumnarShuffledHashJoin(
       }
       val beforeJoin = System.nanoTime()
       last_cb = cb
-      ///////////////////////// Condition? ////////////////////////
-      val selectionVector = if (streamConditioner != null) {
-        val conditionCols = streamConditioner.getOrdinalList.map(i => {
-          cb.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector
-        })
-        streamConditioner.evaluate(cb.numRows, conditionCols)
-      } else {
-        null
-      }
-      /////////////////////////////////////////////////////////////
-      val stream_key_cols = stream_key_ordinal_list.map(i => {
-        cb.column(i).asInstanceOf[ArrowWritableColumnVector].getValueVector()
-      })
-      val process_input_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb.numRows, stream_key_cols)
-      probe_iterator.processAndCacheOne(stream_key_arrow_schema, process_input_rb, selectionVector)
+      val stream_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb)
 
-      val (stream_output, outputNumRows) : (Array[ArrowWritableColumnVector], Int) = {
-        val stream_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb)
-        val stream_output_rb = stream_shuffler.evaluate(stream_rb, selectionVector)(0)
-        if (stream_output_rb == null) {
-          ConverterUtils.releaseArrowRecordBatch(stream_rb)
-          (null, 0)
-        } else {
-          val res = ConverterUtils.fromArrowRecordBatch(stream_output_arrow_schema, stream_output_rb)
-          val len = stream_output_rb.getLength()
-          ConverterUtils.releaseArrowRecordBatch(stream_rb)
-          ConverterUtils.releaseArrowRecordBatch(stream_output_rb)
-          (res, len)
-        }
-      }
-  
-      if (outputNumRows == 0) {
-        stream_key_cols.map(v => v.close())
-        ConverterUtils.releaseArrowRecordBatch(process_input_rb)
-        joinTime += NANOSECONDS.toMillis(System.nanoTime() - beforeJoin)
+      probe_iterator.processAndCacheOne(stream_input_arrow_schema, stream_rb)
+      val output_rb = build_shuffle_iterator.process(stream_input_arrow_schema, stream_rb) 
+
+      ConverterUtils.releaseArrowRecordBatch(stream_rb)
+      joinTime += NANOSECONDS.toMillis(System.nanoTime() - beforeJoin)
+
+      if (output_rb == null) {
         val resultColumnVectors =
           ArrowWritableColumnVector.allocateColumns(0, resultSchema).toArray
         new ColumnarBatch(resultColumnVectors.map(v => v.asInstanceOf[ColumnVector]).toArray, 0)
       } else {
-        val build_output = if (build_output_field_list.length > 0) {
-          val build_output_rb: ArrowRecordBatch = build_shuffle_iterator.next()
-          val build_output = ConverterUtils.fromArrowRecordBatch(build_output_arrow_schema, build_output_rb)
-          ConverterUtils.releaseArrowRecordBatch(build_output_rb)
-          build_output
-        } else {
-          Array[ArrowWritableColumnVector]()
-        }
-        // TODO
-        val resultColumnVectorList = buildSide match {
-          case BuildLeft =>
-            build_output.toList ::: stream_output.toList
-          case BuildRight =>
-            stream_output.toList ::: build_output.toList
-        }
-        totalOutputNumRows += outputNumRows
-        joinTime += NANOSECONDS.toMillis(System.nanoTime() - beforeJoin)
-        stream_key_cols.map(v => v.close())
-        ConverterUtils.releaseArrowRecordBatch(process_input_rb)
-        new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]).toArray, outputNumRows)
+        val outputNumRows = output_rb.getLength
+        val output = ConverterUtils.fromArrowRecordBatch(output_arrow_schema, output_rb)
+        ConverterUtils.releaseArrowRecordBatch(output_rb)
+        totalOutputNumRows += outputNumRows 
+        new ColumnarBatch(output.map(v => v.asInstanceOf[ColumnVector]).toArray, outputNumRows)
       }
+  
     })
   }
 
@@ -359,10 +329,6 @@ class ColumnarShuffledHashJoin(
       build_shuffler.close()
       build_shuffler = null
     }
-    if (stream_shuffler != null) {
-      stream_shuffler.close()
-      stream_shuffler = null
-    }
     if (probe_iterator != null) {
       probe_iterator.close()
       probe_iterator = null
@@ -370,12 +336,6 @@ class ColumnarShuffledHashJoin(
     if (build_shuffle_iterator != null) {
       build_shuffle_iterator.close()
       build_shuffle_iterator = null
-    }
-    if (buildConditioner != null) {
-      buildConditioner.close()
-    }
-    if (streamConditioner != null) {
-      streamConditioner.close()
     }
   }
 

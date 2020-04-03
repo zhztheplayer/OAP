@@ -1,20 +1,22 @@
 #pragma once
 
+#include <arrow/builder.h>
 #include <arrow/compute/context.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
 #include <arrow/type_fwd.h>
 #include <arrow/type_traits.h>
 #include <arrow/util/checked_cast.h>
+#include <iostream>
 #include <memory>
 #include <sstream>
-#include "codegen/arrow_compute/ext/array_builder_impl.h"
 
 namespace sparkcolumnarplugin {
 namespace codegen {
 namespace arrowcompute {
 namespace extra {
 
+using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
 // Find the largest compatible primitive type for a primitive type.
 template <typename I, typename Enable = void>
 struct FindAccumulatorType {};
@@ -1031,103 +1033,6 @@ class AvgByCountAction : public ActionBase {
   std::vector<bool> cache_validity_;
 };
 
-//////////////// ShuffleAction ///////////////
-template <typename DataType>
-class ShuffleAction : public ActionBase {
- public:
-  ShuffleAction(arrow::compute::FunctionContext* ctx) : ctx_(ctx) {
-#ifdef DEBUG
-    std::cout << "Construct ShuffleAction" << std::endl;
-#endif
-    std::unique_ptr<arrow::ArrayBuilder> builder;
-    arrow::MakeBuilder(ctx_->memory_pool(),
-                       arrow::TypeTraits<ResDataType>::type_singleton(), &builder);
-    builder_.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
-  }
-  ~ShuffleAction() {
-#ifdef DEBUG
-    std::cout << "Destruct ShuffleAction" << std::endl;
-#endif
-  }
-
-  arrow::Status Submit(std::vector<std::shared_ptr<arrow::Array>> in,
-                       std::function<arrow::Status(uint64_t, uint64_t)>* on_valid,
-                       std::function<arrow::Status()>* on_null) override {
-    for (auto array : in) {
-      typed_arrays_.push_back(std::dynamic_pointer_cast<ResArrayType>(array));
-    }
-    // prepare evaluate lambda
-    *on_valid = [this](uint64_t array_id, uint64_t id) {
-      if (typed_arrays_[array_id]->IsNull(id)) {
-        // builder_->UnsafeAppendNull();
-        RETURN_NOT_OK(builder_->AppendNull());
-      } else {
-        // builder_->UnsafeAppend(typed_arrays_[array_id]->GetView(id));
-        RETURN_NOT_OK(builder_->Append(typed_arrays_[array_id]->GetView(id)));
-      }
-      return arrow::Status::OK();
-    };
-    *on_null = [this]() {
-      RETURN_NOT_OK(builder_->AppendNull());
-      return arrow::Status::OK();
-    };
-    return arrow::Status::OK();
-  }
-
-  arrow::Status Submit(const std::shared_ptr<arrow::Array>& in,
-                       std::function<arrow::Status(uint32_t)>* on_valid,
-                       std::function<arrow::Status()>* on_null) override {
-    if (typed_arrays_.size() == 0) {
-      typed_arrays_.push_back(std::dynamic_pointer_cast<ResArrayType>(in));
-    } else {
-      typed_arrays_[0] = std::dynamic_pointer_cast<ResArrayType>(in);
-    }
-    // prepare evaluate lambda
-    *on_valid = [this](uint64_t id) {
-      if (typed_arrays_[0]->IsNull(id)) {
-        // builder_->UnsafeAppendNull();
-        RETURN_NOT_OK(builder_->AppendNull());
-      } else {
-        // builder_->UnsafeAppend(typed_arrays_[0]->GetView(id));
-        RETURN_NOT_OK(builder_->Append(typed_arrays_[0]->GetView(id)));
-      }
-      return arrow::Status::OK();
-    };
-    *on_null = [this]() {
-      // builder_->UnsafeAppendNull();
-      RETURN_NOT_OK(builder_->AppendNull());
-      return arrow::Status::OK();
-    };
-    return arrow::Status::OK();
-  }
-
-  arrow::Status Finish(ArrayList* out) override {
-    std::shared_ptr<arrow::Array> arr_out;
-    RETURN_NOT_OK(builder_->Finish(&arr_out));
-    out->push_back(arr_out);
-    return arrow::Status::OK();
-  }
-
-  arrow::Status FinishAndReset(ArrayList* out) override {
-    std::shared_ptr<arrow::Array> arr_out;
-    RETURN_NOT_OK(builder_->Finish(&arr_out));
-    out->push_back(arr_out);
-
-    builder_->Reset();
-    return arrow::Status::OK();
-  }
-
- private:
-  using ResDataType = DataType;
-  using ResArrayType = typename arrow::TypeTraits<ResDataType>::ArrayType;
-  using BuilderType = typename arrow::TypeTraits<ResDataType>::BuilderType;
-  // input
-  arrow::compute::FunctionContext* ctx_;
-  std::vector<std::shared_ptr<ResArrayType>> typed_arrays_;
-  // result
-  std::shared_ptr<BuilderType> builder_;
-};
-
 ///////////////////// Public Functions //////////////////
 #define PROCESS_SUPPORTED_TYPES(PROCESS) \
   PROCESS(arrow::UInt8Type)              \
@@ -1242,27 +1147,6 @@ arrow::Status MakeAvgByCountAction(arrow::compute::FunctionContext* ctx,
   } break;
     PROCESS_SUPPORTED_TYPES(PROCESS)
 #undef PROCESS
-    default:
-      break;
-  }
-  return arrow::Status::OK();
-}
-
-arrow::Status MakeShuffleAction(arrow::compute::FunctionContext* ctx,
-                                std::shared_ptr<arrow::DataType> type,
-                                std::shared_ptr<ActionBase>* out) {
-  switch (type->id()) {
-#define PROCESS(InType)                                             \
-  case InType::type_id: {                                           \
-    auto action_ptr = std::make_shared<ShuffleAction<InType>>(ctx); \
-    *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);       \
-  } break;
-    PROCESS_SUPPORTED_TYPES(PROCESS)
-#undef PROCESS
-    case arrow::StringType::type_id: {
-      auto action_ptr = std::make_shared<ShuffleAction<arrow::StringType>>(ctx);
-      *out = std::dynamic_pointer_cast<ActionBase>(action_ptr);
-    } break;
     default:
       break;
   }

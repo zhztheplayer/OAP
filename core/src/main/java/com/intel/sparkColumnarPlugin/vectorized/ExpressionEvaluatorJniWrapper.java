@@ -21,10 +21,12 @@ public class ExpressionEvaluatorJniWrapper {
    *     specification
    * @param exprListBuf The serialized protobuf of the expression vector. Each expression is created
    *     using TreeBuilder::MakeExpression.
+   * @param resSchemaBuf The schema serialized as a protobuf. See Types.proto to see the protobuf
+   *     specification
    * @param finishReturn This parameter is used to indicate that this expression should return when calling finish
    * @return A nativeHandler that is passed to the evaluateProjector() and closeProjector() methods
    */
-  native long nativeBuild(byte[] schemaBuf, byte[] exprListBuf, boolean finishReturn) throws RuntimeException;
+  native long nativeBuild(byte[] schemaBuf, byte[] exprListBuf, byte[] resSchemaBuf, boolean finishReturn) throws RuntimeException;
 
   /**
    * Generates the projector module to evaluate the expressions with custom configuration.

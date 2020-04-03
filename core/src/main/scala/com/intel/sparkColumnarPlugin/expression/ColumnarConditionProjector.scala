@@ -45,7 +45,7 @@ class ColumnarConditionProjector(
 
   val conditionInputList : java.util.List[Field] = Lists.newArrayList()
   val condPrepareList: (TreeNode, ArrowType) = if (condExpr != null) {
-    val columnarCondExpr: Expression = ColumnarExpressionConverter.replaceWithColumnarExpression(condExpr)
+    val columnarCondExpr: Expression = ColumnarExpressionConverter.replaceWithColumnarExpression(condExpr, originalInputAttributes)
     val (cond, resultType) =
       columnarCondExpr.asInstanceOf[ColumnarExpression].doColumnarCodeGen(conditionInputList)
     (cond, resultType)
@@ -283,13 +283,8 @@ object ColumnarConditionProjector {
     numOutputBatches: SQLMetric,
     numOutputRows: SQLMetric,
     procTime: SQLMetric): ColumnarConditionProjector = synchronized {
-    val conditionExpr = if (condition != null) {
-      BindReferences.bindReference(condition, inputSchema)
-    } else {
-      null
-    }
     new ColumnarConditionProjector(
-      conditionExpr,
+      condition,
       projectList,
       inputSchema,
       numInputBatches,

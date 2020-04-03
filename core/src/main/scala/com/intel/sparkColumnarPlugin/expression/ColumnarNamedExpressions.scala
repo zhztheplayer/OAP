@@ -23,3 +23,21 @@ class ColumnarAlias(child: Expression, name: String)(
   }
 
 }
+
+class ColumnarAttributeReference(
+    name: String,
+    dataType: DataType,
+    nullable: Boolean = true,
+    override val metadata: Metadata = Metadata.empty)(
+    override val exprId: ExprId,
+    override val qualifier: Seq[String])
+    extends AttributeReference(name, dataType, nullable, metadata)(exprId, qualifier)
+    with ColumnarExpression {
+
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val resultType = CodeGeneration.getResultType(dataType)
+    val field = Field.nullable(s"${name}#${exprId.id}", resultType)
+    (TreeBuilder.makeField(field), resultType)
+  }
+
+}

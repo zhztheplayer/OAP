@@ -69,11 +69,7 @@ case class ColumnarOverrides() extends Rule[SparkPlan] {
         plan.condition,
         left,
         right)
-      if (!plan.condition.isEmpty) {
-        new ColumnarConditionProjectExec(plan.condition.get, null, res)
-      } else {
-        res
-      }
+      res
     case p =>
       val children = p.children.map(replaceWithColumnarPlan)
       logWarning(s"Columnar Processing for ${p.getClass} is not currently supported.")

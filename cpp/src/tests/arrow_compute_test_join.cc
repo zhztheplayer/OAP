@@ -1,5 +1,6 @@
 #include <arrow/array.h>
 #include <arrow/ipc/json_simple.h>
+#include <arrow/record_batch.h>
 #include <gtest/gtest.h>
 #include <memory>
 #include "codegen/code_generator.h"
@@ -19,195 +20,49 @@ TEST(TestArrowCompute, JoinTestUsingInnerJoin) {
 
   auto indices_type = std::make_shared<FixedSizeBinaryType>(4);
   auto f_indices = field("indices", indices_type);
-  auto n_probeArrays = TreeExprBuilder::MakeFunction(
-      "probeArraysInner", {TreeExprBuilder::MakeField(table0_f0)}, indices_type);
-  auto probeArrays_expr = TreeExprBuilder::MakeExpression(n_probeArrays, f_indices);
 
-  auto n_shuffleArrayList = TreeExprBuilder::MakeFunction(
-      "shuffleArrayList",
+  auto n_left = TreeExprBuilder::MakeFunction(
+      "codegen_left_schema",
       {TreeExprBuilder::MakeField(table0_f0), TreeExprBuilder::MakeField(table0_f1),
        TreeExprBuilder::MakeField(table0_f2)},
       uint32());
-  auto n_action_0 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f0)},
-      uint32());
-  auto n_action_1 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f1)},
-      uint32());
-  auto n_action_2 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f2)},
-      uint32());
-
-  auto n_shuffleArrayList_right = TreeExprBuilder::MakeFunction(
-      "shuffleArrayList",
+  auto n_right = TreeExprBuilder::MakeFunction(
+      "codegen_right_schema",
       {TreeExprBuilder::MakeField(table1_f0), TreeExprBuilder::MakeField(table1_f1)},
-      uint32());
-  auto n_action_3 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList_right, TreeExprBuilder::MakeField(table1_f0)},
-      uint32());
-  auto n_action_4 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList_right, TreeExprBuilder::MakeField(table1_f1)},
       uint32());
   auto f_res = field("res", uint32());
 
-  auto action_0_expr = TreeExprBuilder::MakeExpression(n_action_0, f_res);
-  auto action_1_expr = TreeExprBuilder::MakeExpression(n_action_1, f_res);
-  auto action_2_expr = TreeExprBuilder::MakeExpression(n_action_2, f_res);
+  auto n_left_key = TreeExprBuilder::MakeFunction(
+      "codegen_left_key_schema", {TreeExprBuilder::MakeField(table0_f0)}, uint32());
+  auto n_right_key = TreeExprBuilder::MakeFunction(
+      "codegen_right_key_schema", {TreeExprBuilder::MakeField(table1_f0)}, uint32());
+  auto n_probeArrays = TreeExprBuilder::MakeFunction(
+      "conditionedProbeArraysInner", {n_left_key, n_right_key}, indices_type);
+  auto n_codegen_probe = TreeExprBuilder::MakeFunction(
+      "codegen_withTwoInputs", {n_probeArrays, n_left, n_right}, uint32());
+  auto probeArrays_expr = TreeExprBuilder::MakeExpression(n_codegen_probe, f_res);
 
-  auto action_3_expr = TreeExprBuilder::MakeExpression(n_action_3, f_res);
-  auto action_4_expr = TreeExprBuilder::MakeExpression(n_action_4, f_res);
+  auto n_conditionedShuffleArrayList =
+      TreeExprBuilder::MakeFunction("conditionedShuffleArrayList", {}, uint32());
+  auto n_codegen_shuffle = TreeExprBuilder::MakeFunction(
+      "codegen_withTwoInputs", {n_conditionedShuffleArrayList, n_left, n_right},
+      uint32());
+
+  auto conditionShuffleExpr = TreeExprBuilder::MakeExpression(n_codegen_shuffle, f_res);
 
   auto schema_table_0 = arrow::schema({table0_f0, table0_f1, table0_f2});
   auto schema_table_1 = arrow::schema({table1_f0, table1_f1});
+  auto schema_table =
+      arrow::schema({table0_f0, table0_f1, table0_f2, table1_f0, table1_f1});
   ///////////////////// Calculation //////////////////
   std::shared_ptr<CodeGenerator> expr_probe;
   ASSERT_NOT_OK(CreateCodeGenerator(schema_table_0, {probeArrays_expr}, {f_indices},
                                     &expr_probe, true));
-  std::shared_ptr<CodeGenerator> expr_shuffle_left;
-  ASSERT_NOT_OK(CreateCodeGenerator(schema_table_0,
-                                    {action_0_expr, action_1_expr, action_2_expr},
-                                    {f_res, f_res, f_res}, &expr_shuffle_left, true));
-  std::shared_ptr<CodeGenerator> expr_shuffle_right;
-  ASSERT_NOT_OK(CreateCodeGenerator(schema_table_1, {action_3_expr, action_4_expr},
-                                    {f_res, f_res}, &expr_shuffle_right, false));
-  std::shared_ptr<arrow::RecordBatch> input_batch;
-
-  std::vector<std::shared_ptr<arrow::RecordBatch>> dummy_result_batches;
-  std::shared_ptr<ResultIterator<arrow::RecordBatch>> probe_result_iterator;
-  std::shared_ptr<ResultIterator<arrow::RecordBatch>> shuffle_result_iterator;
-
-  std::vector<std::shared_ptr<arrow::RecordBatch>> table_0;
-  std::vector<std::shared_ptr<arrow::RecordBatch>> table_1;
-
-  std::vector<std::string> input_data_string = {"[10, 3, 1, 2]", "[10, 3, 1, 2]",
-                                                "[10, 3, 1, 2]"};
-  MakeInputBatch(input_data_string, schema_table_0, &input_batch);
-  table_0.push_back(input_batch);
-
-  input_data_string = {"[6, 12, 5, 8]", "[6, 12, 5, 8]", "[6, 12, 5, 8]"};
-  MakeInputBatch(input_data_string, schema_table_0, &input_batch);
-  table_0.push_back(input_batch);
-
-  std::vector<std::string> input_data_2_string = {"[1, 2, 3, 4, 5, 6]",
-                                                  "[1, 2, 3, 4, 5, 6]"};
-  MakeInputBatch(input_data_2_string, schema_table_1, &input_batch);
-  table_1.push_back(input_batch);
-
-  input_data_2_string = {"[7, 8, 9, 10, 11, 12]", "[7, 8, 9, 10, 11, 12]"};
-  MakeInputBatch(input_data_2_string, schema_table_1, &input_batch);
-  table_1.push_back(input_batch);
-
-  //////////////////////// data prepared /////////////////////////
-
-  std::vector<std::shared_ptr<RecordBatch>> expected_table_left;
-  std::vector<std::shared_ptr<RecordBatch>> expected_table_right;
-  std::shared_ptr<arrow::RecordBatch> expected_result;
-  std::vector<std::string> expected_result_string = {"[1, 2, 3, 5, 6]", "[1, 2, 3, 5, 6]",
-                                                     "[1, 2, 3, 5, 6]"};
-  auto res_sch = arrow::schema({f_res, f_res, f_res});
-  MakeInputBatch(expected_result_string, res_sch, &expected_result);
-  expected_table_left.push_back(expected_result);
-
-  expected_result_string = {"[8, 10, 12]", "[8, 10, 12]", "[8, 10, 12]"};
-  MakeInputBatch(expected_result_string, res_sch, &expected_result);
-  expected_table_left.push_back(expected_result);
-
-  auto res_sch_right = arrow::schema({f_res, f_res});
-  expected_result_string = {"[1, 2, 3, 5, 6]", "[1, 2, 3, 5, 6]"};
-  MakeInputBatch(expected_result_string, res_sch_right, &expected_result);
-  expected_table_right.push_back(expected_result);
-
-  expected_result_string = {"[8, 10, 12]", "[8, 10, 12]"};
-  MakeInputBatch(expected_result_string, res_sch_right, &expected_result);
-  expected_table_right.push_back(expected_result);
-
-  ////////////////////// evaluate //////////////////////
-  for (auto batch : table_0) {
-    ASSERT_NOT_OK(expr_probe->evaluate(batch, &dummy_result_batches));
-    ASSERT_NOT_OK(expr_shuffle_left->evaluate(batch, &dummy_result_batches));
-  }
-  ASSERT_NOT_OK(expr_probe->finish(&probe_result_iterator));
-  ASSERT_NOT_OK(expr_shuffle_left->SetDependency(probe_result_iterator, 0));
-  ASSERT_NOT_OK(expr_shuffle_right->SetDependency(probe_result_iterator, 1));
-  ASSERT_NOT_OK(expr_shuffle_left->finish(&shuffle_result_iterator));
-
-  for (int i = 0; i < 2; i++) {
-    auto left_batch = table_0[i];
-    auto right_batch = table_1[i];
-
-    std::shared_ptr<arrow::RecordBatch> result_batch_left;
-    std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch_right;
-
-    ASSERT_NOT_OK(probe_result_iterator->ProcessAndCacheOne({right_batch->column(0)}));
-    ASSERT_NOT_OK(shuffle_result_iterator->Next(&result_batch_left));
-    ASSERT_NOT_OK(expr_shuffle_right->evaluate(right_batch, &result_batch_right));
-    ASSERT_NOT_OK(Equals(*(expected_table_left[i]).get(), *result_batch_left.get()));
-    ASSERT_NOT_OK(
-        Equals(*(expected_table_right[i]).get(), *(result_batch_right[0]).get()));
-  }
-}
-
-TEST(TestArrowCompute, JoinTestWithMultipleSamePrimaryKeyUsingInnerJoin) {
-  ////////////////////// prepare expr_vector ///////////////////////
-  auto table0_f0 = field("table0_f0", uint32());
-  auto table0_f1 = field("table0_f1", uint32());
-  auto table0_f2 = field("table0_f2", uint32());
-  auto table1_f0 = field("table1_f0", uint32());
-  auto table1_f1 = field("table1_f1", uint32());
-
-  auto indices_type = std::make_shared<FixedSizeBinaryType>(4);
-  auto f_indices = field("indices", indices_type);
-  auto n_probeArrays = TreeExprBuilder::MakeFunction(
-      "probeArraysInner", {TreeExprBuilder::MakeField(table0_f0)}, indices_type);
-  auto probeArrays_expr = TreeExprBuilder::MakeExpression(n_probeArrays, f_indices);
-
-  auto n_shuffleArrayList = TreeExprBuilder::MakeFunction(
-      "shuffleArrayList",
-      {TreeExprBuilder::MakeField(table0_f0), TreeExprBuilder::MakeField(table0_f1),
-       TreeExprBuilder::MakeField(table0_f2)},
-      uint32());
-  auto n_action_0 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f0)},
-      uint32());
-  auto n_action_1 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f1)},
-      uint32());
-  auto n_action_2 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f2)},
-      uint32());
-
-  auto n_shuffleArrayList_right = TreeExprBuilder::MakeFunction(
-      "shuffleArrayList",
-      {TreeExprBuilder::MakeField(table1_f0), TreeExprBuilder::MakeField(table1_f1)},
-      uint32());
-  auto n_action_3 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList_right, TreeExprBuilder::MakeField(table1_f0)},
-      uint32());
-  auto n_action_4 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList_right, TreeExprBuilder::MakeField(table1_f1)},
-      uint32());
-  auto f_res = field("res", uint32());
-
-  auto action_0_expr = TreeExprBuilder::MakeExpression(n_action_0, f_res);
-  auto action_1_expr = TreeExprBuilder::MakeExpression(n_action_1, f_res);
-  auto action_2_expr = TreeExprBuilder::MakeExpression(n_action_2, f_res);
-
-  auto action_3_expr = TreeExprBuilder::MakeExpression(n_action_3, f_res);
-  auto action_4_expr = TreeExprBuilder::MakeExpression(n_action_4, f_res);
-
-  auto schema_table_0 = arrow::schema({table0_f0, table0_f1, table0_f2});
-  auto schema_table_1 = arrow::schema({table1_f0, table1_f1});
-  ///////////////////// Calculation //////////////////
-  std::shared_ptr<CodeGenerator> expr_probe;
-  ASSERT_NOT_OK(CreateCodeGenerator(schema_table_0, {probeArrays_expr}, {f_indices},
-                                    &expr_probe, true));
-  std::shared_ptr<CodeGenerator> expr_shuffle_left;
-  ASSERT_NOT_OK(CreateCodeGenerator(schema_table_0,
-                                    {action_0_expr, action_1_expr, action_2_expr},
-                                    {f_res, f_res, f_res}, &expr_shuffle_left, true));
-  std::shared_ptr<CodeGenerator> expr_shuffle_right;
-  ASSERT_NOT_OK(CreateCodeGenerator(schema_table_1, {action_3_expr, action_4_expr},
-                                    {f_res, f_res}, &expr_shuffle_right, false));
+  std::shared_ptr<CodeGenerator> expr_conditioned_shuffle;
+  ASSERT_NOT_OK(
+      CreateCodeGenerator(schema_table, {conditionShuffleExpr},
+                          {table0_f0, table0_f1, table0_f2, table1_f0, table1_f1},
+                          &expr_conditioned_shuffle, true));
   std::shared_ptr<arrow::RecordBatch> input_batch;
 
   std::vector<std::shared_ptr<arrow::RecordBatch>> dummy_result_batches;
@@ -238,52 +93,43 @@ TEST(TestArrowCompute, JoinTestWithMultipleSamePrimaryKeyUsingInnerJoin) {
 
   //////////////////////// data prepared /////////////////////////
 
-  std::vector<std::shared_ptr<RecordBatch>> expected_table_left;
-  std::vector<std::shared_ptr<RecordBatch>> expected_table_right;
+  std::vector<std::shared_ptr<RecordBatch>> expected_table;
   std::shared_ptr<arrow::RecordBatch> expected_result;
-  std::vector<std::string> expected_result_string = {"[1, 1, 2, 3, 3, 5, 6, 6]",
-                                                     "[1, 11, 2, 3, 13, 5, 6, 16]",
-                                                     "[1, 11, 2, 3, 13, 5, 6, 16]"};
-  auto res_sch = arrow::schema({f_res, f_res, f_res});
+  std::vector<std::string> expected_result_string = {
+      "[1, 1, 2, 3, 3, 5, 6, 6]", "[1, 11, 2, 3, 13, 5, 6, 16]",
+      "[1, 11, 2, 3, 13, 5, 6, 16]", "[1, 1, 2, 3, 3, 5, 6, 6]",
+      "[1, 1, 2, 3, 3, 5, 6, 6]"};
+  auto res_sch = arrow::schema({f_res, f_res, f_res, f_res, f_res});
   MakeInputBatch(expected_result_string, res_sch, &expected_result);
-  expected_table_left.push_back(expected_result);
+  expected_table.push_back(expected_result);
 
-  expected_result_string = {"[8, 10, 10, 12]", "[8, 10, 110, 12]", "[8, 10, 110, 12]"};
+  expected_result_string = {"[8, 10, 10, 12]", "[8, 10, 110, 12]", "[8, 10, 110, 12]",
+                            "[8, 10, 10, 12]", "[8, 10, 10, 12]"};
   MakeInputBatch(expected_result_string, res_sch, &expected_result);
-  expected_table_left.push_back(expected_result);
-
-  auto res_sch_right = arrow::schema({f_res, f_res});
-  expected_result_string = {"[1, 1, 2, 3, 3, 5, 6, 6]", "[1, 1, 2, 3, 3, 5, 6, 6]"};
-  MakeInputBatch(expected_result_string, res_sch_right, &expected_result);
-  expected_table_right.push_back(expected_result);
-
-  expected_result_string = {"[8, 10, 10, 12]", "[8, 10, 10, 12]"};
-  MakeInputBatch(expected_result_string, res_sch_right, &expected_result);
-  expected_table_right.push_back(expected_result);
+  expected_table.push_back(expected_result);
 
   ////////////////////// evaluate //////////////////////
   for (auto batch : table_0) {
     ASSERT_NOT_OK(expr_probe->evaluate(batch, &dummy_result_batches));
-    ASSERT_NOT_OK(expr_shuffle_left->evaluate(batch, &dummy_result_batches));
+    ASSERT_NOT_OK(expr_conditioned_shuffle->evaluate(batch, &dummy_result_batches));
   }
   ASSERT_NOT_OK(expr_probe->finish(&probe_result_iterator));
-  ASSERT_NOT_OK(expr_shuffle_left->SetDependency(probe_result_iterator, 0));
-  ASSERT_NOT_OK(expr_shuffle_right->SetDependency(probe_result_iterator, 1));
-  ASSERT_NOT_OK(expr_shuffle_left->finish(&shuffle_result_iterator));
+  ASSERT_NOT_OK(expr_conditioned_shuffle->SetDependency(probe_result_iterator));
+  ASSERT_NOT_OK(expr_conditioned_shuffle->finish(&shuffle_result_iterator));
 
   for (int i = 0; i < 2; i++) {
     auto left_batch = table_0[i];
     auto right_batch = table_1[i];
 
-    std::shared_ptr<arrow::RecordBatch> result_batch_left;
-    std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch_right;
+    std::shared_ptr<arrow::RecordBatch> result_batch;
+    std::vector<std::shared_ptr<arrow::Array>> input;
+    for (int i = 0; i < right_batch->num_columns(); i++) {
+      input.push_back(right_batch->column(i));
+    }
 
-    ASSERT_NOT_OK(probe_result_iterator->ProcessAndCacheOne({right_batch->column(0)}));
-    ASSERT_NOT_OK(shuffle_result_iterator->Next(&result_batch_left));
-    ASSERT_NOT_OK(expr_shuffle_right->evaluate(right_batch, &result_batch_right));
-    ASSERT_NOT_OK(Equals(*(expected_table_left[i]).get(), *result_batch_left.get()));
-    ASSERT_NOT_OK(
-        Equals(*(expected_table_right[i]).get(), *(result_batch_right[0]).get()));
+    ASSERT_NOT_OK(probe_result_iterator->ProcessAndCacheOne(input));
+    ASSERT_NOT_OK(shuffle_result_iterator->Process(input, &result_batch));
+    ASSERT_NOT_OK(Equals(*(expected_table[i]).get(), *result_batch.get()));
   }
 }
 
@@ -297,60 +143,52 @@ TEST(TestArrowCompute, JoinTestWithTwoKeysUsingInnerJoin) {
 
   auto indices_type = std::make_shared<FixedSizeBinaryType>(4);
   auto f_indices = field("indices", indices_type);
-  auto n_probeArrays = TreeExprBuilder::MakeFunction(
-      "probeArraysInner",
-      {TreeExprBuilder::MakeField(table0_f0), TreeExprBuilder::MakeField(table0_f1)},
-      indices_type);
-  auto probeArrays_expr = TreeExprBuilder::MakeExpression(n_probeArrays, f_indices);
 
-  auto n_shuffleArrayList = TreeExprBuilder::MakeFunction(
-      "shuffleArrayList",
+  auto n_left = TreeExprBuilder::MakeFunction(
+      "codegen_left_schema",
       {TreeExprBuilder::MakeField(table0_f0), TreeExprBuilder::MakeField(table0_f1),
        TreeExprBuilder::MakeField(table0_f2)},
       uint32());
-  auto n_action_0 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f0)},
-      uint32());
-  auto n_action_1 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f1)},
-      uint32());
-  auto n_action_2 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f2)},
-      uint32());
-
-  auto n_shuffleArrayList_right = TreeExprBuilder::MakeFunction(
-      "shuffleArrayList",
+  auto n_right = TreeExprBuilder::MakeFunction(
+      "codegen_right_schema",
       {TreeExprBuilder::MakeField(table1_f0), TreeExprBuilder::MakeField(table1_f1)},
       uint32());
-  auto n_action_3 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList_right, TreeExprBuilder::MakeField(table1_f0)},
-      uint32());
-  auto n_action_4 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList_right, TreeExprBuilder::MakeField(table1_f1)},
-      uint32());
   auto f_res = field("res", uint32());
-  auto f_res_utf = field("res", utf8());
 
-  auto action_0_expr = TreeExprBuilder::MakeExpression(n_action_0, f_res);
-  auto action_1_expr = TreeExprBuilder::MakeExpression(n_action_1, f_res);
-  auto action_2_expr = TreeExprBuilder::MakeExpression(n_action_2, f_res);
+  auto n_left_key = TreeExprBuilder::MakeFunction(
+      "codegen_left_key_schema", {TreeExprBuilder::MakeField(table0_f0), TreeExprBuilder::MakeField(table0_f1)}, uint32());
+  auto n_right_key = TreeExprBuilder::MakeFunction(
+      "codegen_right_key_schema", {TreeExprBuilder::MakeField(table1_f0), TreeExprBuilder::MakeField(table1_f1)}, uint32());
+  auto n_probeArrays = TreeExprBuilder::MakeFunction(
+      "conditionedProbeArraysInner", {n_left_key, n_right_key}, indices_type);
+  auto n_codegen_probe = TreeExprBuilder::MakeFunction(
+      "codegen_withTwoInputs", {n_probeArrays, n_left, n_right}, uint32());
+  auto probeArrays_expr = TreeExprBuilder::MakeExpression(n_codegen_probe, f_res);
 
-  auto action_3_expr = TreeExprBuilder::MakeExpression(n_action_3, f_res);
-  auto action_4_expr = TreeExprBuilder::MakeExpression(n_action_4, f_res);
+  auto n_conditionedShuffleArrayList =
+      TreeExprBuilder::MakeFunction("conditionedShuffleArrayList", {}, uint32());
+  auto n_codegen_shuffle = TreeExprBuilder::MakeFunction(
+      "codegen_withTwoInputs", {n_conditionedShuffleArrayList, n_left, n_right},
+      uint32());
+
+  auto conditionShuffleExpr = TreeExprBuilder::MakeExpression(n_codegen_shuffle, f_res);
 
   auto schema_table_0 = arrow::schema({table0_f0, table0_f1, table0_f2});
   auto schema_table_1 = arrow::schema({table1_f0, table1_f1});
+  auto schema_table =
+      arrow::schema({table0_f0, table0_f1, table0_f2, table1_f0, table1_f1});
+
+  auto f_res_utf = field("res", utf8());
+
   ///////////////////// Calculation //////////////////
   std::shared_ptr<CodeGenerator> expr_probe;
   ASSERT_NOT_OK(CreateCodeGenerator(schema_table_0, {probeArrays_expr}, {f_indices},
                                     &expr_probe, true));
-  std::shared_ptr<CodeGenerator> expr_shuffle_left;
-  ASSERT_NOT_OK(CreateCodeGenerator(schema_table_0,
-                                    {action_0_expr, action_1_expr, action_2_expr},
-                                    {f_res, f_res, f_res}, &expr_shuffle_left, true));
-  std::shared_ptr<CodeGenerator> expr_shuffle_right;
-  ASSERT_NOT_OK(CreateCodeGenerator(schema_table_1, {action_3_expr, action_4_expr},
-                                    {f_res, f_res}, &expr_shuffle_right, false));
+  std::shared_ptr<CodeGenerator> expr_conditioned_shuffle;
+  ASSERT_NOT_OK(
+      CreateCodeGenerator(schema_table, {conditionShuffleExpr},
+                          {table0_f0, table0_f1, table0_f2, table1_f0, table1_f1},
+                          &expr_conditioned_shuffle, true));
   std::shared_ptr<arrow::RecordBatch> input_batch;
 
   std::vector<std::shared_ptr<arrow::RecordBatch>> dummy_result_batches;
@@ -382,61 +220,45 @@ TEST(TestArrowCompute, JoinTestWithTwoKeysUsingInnerJoin) {
 
   //////////////////////// data prepared /////////////////////////
 
-  std::vector<std::shared_ptr<RecordBatch>> expected_table_left;
-  std::vector<std::shared_ptr<RecordBatch>> expected_table_right;
+  std::vector<std::shared_ptr<RecordBatch>> expected_table;
   std::shared_ptr<arrow::RecordBatch> expected_result;
-  std::cout << "0" << std::endl;
   std::vector<std::string> expected_result_string = {
-      R"(["a", "b", "c", "e", "f"])", R"(["A", "B", "C", "E", "F"])", "[1, 2, 3, 5, 6]"};
-  auto res_sch = arrow::schema({f_res_utf, f_res_utf, f_res});
-  MakeInputBatch(expected_result_string, res_sch, &expected_result);
-  expected_table_left.push_back(expected_result);
+      R"(["a", "b", "c", "e", "f"])", R"(["A", "B", "C", "E", "F"])", "[1, 2, 3, 5, 6]",
+      R"(["a", "b", "c", "e", "f"])", R"(["A", "B", "C", "E", "F"])"};
+  MakeInputBatch(expected_result_string, schema_table, &expected_result);
+  expected_table.push_back(expected_result);
 
-  expected_result_string = {R"(["j", "l", "n"])", R"(["J", "L", "N"])", "[8, 10, 12]"};
-  MakeInputBatch(expected_result_string, res_sch, &expected_result);
-  expected_table_left.push_back(expected_result);
-
-  auto res_sch_right = arrow::schema({f_res_utf, f_res_utf});
-  expected_result_string = {R"(["a", "b", "c", "e", "f"])",
-                            R"(["A", "B", "C", "E", "F"])"};
-  MakeInputBatch(expected_result_string, res_sch_right, &expected_result);
-  expected_table_right.push_back(expected_result);
-
-  expected_result_string = {R"(["j", "l", "n"])", R"(["J", "L", "N"])"};
-  MakeInputBatch(expected_result_string, res_sch_right, &expected_result);
-  expected_table_right.push_back(expected_result);
+  expected_result_string = {R"(["j", "l", "n"])", R"(["J", "L", "N"])", "[8, 10, 12]",
+                            R"(["j", "l", "n"])", R"(["J", "L", "N"])"};
+  MakeInputBatch(expected_result_string, schema_table, &expected_result);
+  expected_table.push_back(expected_result);
 
   ////////////////////// evaluate //////////////////////
   for (auto batch : table_0) {
     ASSERT_NOT_OK(expr_probe->evaluate(batch, &dummy_result_batches));
-    ASSERT_NOT_OK(expr_shuffle_left->evaluate(batch, &dummy_result_batches));
+    ASSERT_NOT_OK(expr_conditioned_shuffle->evaluate(batch, &dummy_result_batches));
   }
   ASSERT_NOT_OK(expr_probe->finish(&probe_result_iterator));
-  ASSERT_NOT_OK(expr_shuffle_left->SetDependency(probe_result_iterator, 0));
-  ASSERT_NOT_OK(expr_shuffle_right->SetDependency(probe_result_iterator, 1));
-  ASSERT_NOT_OK(expr_shuffle_left->finish(&shuffle_result_iterator));
+  ASSERT_NOT_OK(expr_conditioned_shuffle->SetDependency(probe_result_iterator));
+  ASSERT_NOT_OK(expr_conditioned_shuffle->finish(&shuffle_result_iterator));
 
   for (int i = 0; i < 2; i++) {
     auto left_batch = table_0[i];
     auto right_batch = table_1[i];
 
-    std::shared_ptr<arrow::RecordBatch> result_batch_left;
-    std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch_right;
-
-    std::vector<std::shared_ptr<arrow::Array>> right_batch_cols;
-    for (int j = 0; j < 2; j++) {
-      right_batch_cols.push_back(right_batch->column(j));
+    std::shared_ptr<arrow::RecordBatch> result_batch;
+    std::vector<std::shared_ptr<arrow::Array>> input;
+    for (int i = 0; i < right_batch->num_columns(); i++) {
+      input.push_back(right_batch->column(i));
     }
-    ASSERT_NOT_OK(probe_result_iterator->ProcessAndCacheOne(right_batch_cols));
-    ASSERT_NOT_OK(shuffle_result_iterator->Next(&result_batch_left));
-    ASSERT_NOT_OK(expr_shuffle_right->evaluate(right_batch, &result_batch_right));
-    ASSERT_NOT_OK(Equals(*(expected_table_left[i]).get(), *result_batch_left.get()));
-    ASSERT_NOT_OK(
-        Equals(*(expected_table_right[i]).get(), *(result_batch_right[0]).get()));
+
+    ASSERT_NOT_OK(probe_result_iterator->ProcessAndCacheOne(input));
+    ASSERT_NOT_OK(shuffle_result_iterator->Process(input, &result_batch));
+    ASSERT_NOT_OK(Equals(*(expected_table[i]).get(), *result_batch.get()));
   }
 }
 
-TEST(TestArrowCompute, JoinTestWithSelectionUsingInnerJoin) {
+TEST(TestArrowCompute, JoinTestUsingOuterJoin) {
   ////////////////////// prepare expr_vector ///////////////////////
   auto table0_f0 = field("table0_f0", uint32());
   auto table0_f1 = field("table0_f1", uint32());
@@ -446,182 +268,49 @@ TEST(TestArrowCompute, JoinTestWithSelectionUsingInnerJoin) {
 
   auto indices_type = std::make_shared<FixedSizeBinaryType>(4);
   auto f_indices = field("indices", indices_type);
-  auto n_probeArrays = TreeExprBuilder::MakeFunction(
-      "probeArraysInner", {TreeExprBuilder::MakeField(table0_f0)}, indices_type);
-  auto probeArrays_expr = TreeExprBuilder::MakeExpression(n_probeArrays, f_indices);
 
-  auto n_shuffleArrayList = TreeExprBuilder::MakeFunction(
-      "shuffleArrayList",
+  auto n_left = TreeExprBuilder::MakeFunction(
+      "codegen_left_schema",
       {TreeExprBuilder::MakeField(table0_f0), TreeExprBuilder::MakeField(table0_f1),
        TreeExprBuilder::MakeField(table0_f2)},
       uint32());
-  auto n_action_0 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f0)},
-      uint32());
-  auto n_action_1 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f1)},
-      uint32());
-  auto n_action_2 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f2)},
-      uint32());
-
-  auto n_shuffleArrayList_right = TreeExprBuilder::MakeFunction(
-      "shuffleArrayList",
+  auto n_right = TreeExprBuilder::MakeFunction(
+      "codegen_right_schema",
       {TreeExprBuilder::MakeField(table1_f0), TreeExprBuilder::MakeField(table1_f1)},
       uint32());
-  auto n_action_3 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList_right, TreeExprBuilder::MakeField(table1_f0)},
-      uint32());
-  auto n_action_4 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList_right, TreeExprBuilder::MakeField(table1_f1)},
-      uint32());
   auto f_res = field("res", uint32());
 
-  auto action_0_expr = TreeExprBuilder::MakeExpression(n_action_0, f_res);
-  auto action_1_expr = TreeExprBuilder::MakeExpression(n_action_1, f_res);
-  auto action_2_expr = TreeExprBuilder::MakeExpression(n_action_2, f_res);
-
-  auto action_3_expr = TreeExprBuilder::MakeExpression(n_action_3, f_res);
-  auto action_4_expr = TreeExprBuilder::MakeExpression(n_action_4, f_res);
-
-  auto schema_table_0 = arrow::schema({table0_f0, table0_f1, table0_f2});
-  auto schema_table_1 = arrow::schema({table1_f0, table1_f1});
-  ///////////////////// Calculation //////////////////
-  std::shared_ptr<CodeGenerator> expr_probe;
-  ASSERT_NOT_OK(CreateCodeGenerator(schema_table_0, {probeArrays_expr}, {f_indices},
-                                    &expr_probe, true));
-  std::shared_ptr<CodeGenerator> expr_shuffle_left;
-  ASSERT_NOT_OK(CreateCodeGenerator(schema_table_0,
-                                    {action_0_expr, action_1_expr, action_2_expr},
-                                    {f_res, f_res, f_res}, &expr_shuffle_left, true));
-  std::shared_ptr<CodeGenerator> expr_shuffle_right;
-  ASSERT_NOT_OK(CreateCodeGenerator(schema_table_1, {action_3_expr, action_4_expr},
-                                    {f_res, f_res}, &expr_shuffle_right, false));
-  std::shared_ptr<arrow::RecordBatch> input_batch;
-
-  std::vector<std::shared_ptr<arrow::RecordBatch>> dummy_result_batches;
-  std::shared_ptr<ResultIterator<arrow::RecordBatch>> probe_result_iterator;
-  std::shared_ptr<ResultIterator<arrow::RecordBatch>> shuffle_result_iterator;
-
-  std::vector<std::shared_ptr<arrow::RecordBatch>> table_0;
-  std::vector<std::shared_ptr<arrow::RecordBatch>> table_1;
-
-  std::vector<std::string> input_data_string = {"[10, 3, 1, 2]", "[10, 3, 1, 2]",
-                                                "[10, 3, 1, 2]"};
-  MakeInputBatch(input_data_string, schema_table_0, &input_batch);
-  table_0.push_back(input_batch);
-
-  input_data_string = {"[6, 12, 5, 8]", "[6, 12, 5, 8]", "[6, 12, 5, 8]"};
-  MakeInputBatch(input_data_string, schema_table_0, &input_batch);
-  table_0.push_back(input_batch);
-
-  std::vector<std::string> input_data_2_string = {"[1, 2, 3, 4, 5, 6]",
-                                                  "[1, 2, 3, 4, 5, 6]"};
-  MakeInputBatch(input_data_2_string, schema_table_1, &input_batch);
-  table_1.push_back(input_batch);
-
-  input_data_2_string = {"[7, 8, 9, 10, 11, 12]", "[7, 8, 9, 10, 11, 12]"};
-  MakeInputBatch(input_data_2_string, schema_table_1, &input_batch);
-  table_1.push_back(input_batch);
-
-  //////////////////////// data prepared /////////////////////////
-
-  std::vector<std::shared_ptr<RecordBatch>> expected_table_left;
-  std::vector<std::shared_ptr<RecordBatch>> expected_table_right;
-  std::shared_ptr<arrow::RecordBatch> expected_result;
-  std::vector<std::string> expected_result_string = {"[2]", "[2]", "[2]"};
-  auto res_sch = arrow::schema({f_res, f_res, f_res});
-  MakeInputBatch(expected_result_string, res_sch, &expected_result);
-  expected_table_left.push_back(expected_result);
-
-  expected_result_string = {"[8]", "[8]", "[8]"};
-  MakeInputBatch(expected_result_string, res_sch, &expected_result);
-  expected_table_left.push_back(expected_result);
-
-  auto res_sch_right = arrow::schema({f_res, f_res});
-  expected_result_string = {"[2]", "[2]"};
-  MakeInputBatch(expected_result_string, res_sch_right, &expected_result);
-  expected_table_right.push_back(expected_result);
-
-  expected_result_string = {"[8]", "[8]"};
-  MakeInputBatch(expected_result_string, res_sch_right, &expected_result);
-  expected_table_right.push_back(expected_result);
-
-  std::string selection_string = "[1, 3]";
-  std::shared_ptr<arrow::Array> selection_in;
-  ASSERT_NOT_OK(arrow::ipc::internal::json::ArrayFromJSON(uint16(), selection_string,
-                                                          &selection_in));
-
-  ////////////////////// evaluate //////////////////////
-  for (auto batch : table_0) {
-    ASSERT_NOT_OK(expr_probe->evaluate(selection_in, batch, &dummy_result_batches));
-    ASSERT_NOT_OK(expr_shuffle_left->evaluate(batch, &dummy_result_batches));
-  }
-  ASSERT_NOT_OK(expr_probe->finish(&probe_result_iterator));
-  ASSERT_NOT_OK(expr_shuffle_left->SetDependency(probe_result_iterator, 0));
-  ASSERT_NOT_OK(expr_shuffle_right->SetDependency(probe_result_iterator, 1));
-  ASSERT_NOT_OK(expr_shuffle_left->finish(&shuffle_result_iterator));
-
-  for (int i = 0; i < 2; i++) {
-    auto left_batch = table_0[i];
-    auto right_batch = table_1[i];
-
-    std::shared_ptr<arrow::RecordBatch> result_batch_left;
-    std::vector<std::shared_ptr<arrow::RecordBatch>> result_batch_right;
-
-    ASSERT_NOT_OK(probe_result_iterator->ProcessAndCacheOne({right_batch->column(0)},
-                                                            selection_in));
-    ASSERT_NOT_OK(shuffle_result_iterator->Next(&result_batch_left));
-    ASSERT_NOT_OK(expr_shuffle_right->evaluate(right_batch, &result_batch_right));
-    ASSERT_NOT_OK(Equals(*(expected_table_left[i]).get(), *result_batch_left.get()));
-    ASSERT_NOT_OK(
-        Equals(*(expected_table_right[i]).get(), *(result_batch_right[0]).get()));
-  }
-}
-TEST(TestArrowCompute, JoinTestUsingRightJoin) {
-  ////////////////////// prepare expr_vector ///////////////////////
-  auto table0_f0 = field("table0_f0", uint32());
-  auto table0_f1 = field("table0_f1", uint32());
-  auto table0_f2 = field("table0_f2", uint32());
-  auto table1_f0 = field("table1_f0", uint32());
-  auto table1_f1 = field("table1_f1", uint32());
-
-  auto indices_type = std::make_shared<FixedSizeBinaryType>(4);
-  auto f_indices = field("indices", indices_type);
+  auto n_left_key = TreeExprBuilder::MakeFunction(
+      "codegen_left_key_schema", {TreeExprBuilder::MakeField(table0_f0)}, uint32());
+  auto n_right_key = TreeExprBuilder::MakeFunction(
+      "codegen_right_key_schema", {TreeExprBuilder::MakeField(table1_f0)}, uint32());
   auto n_probeArrays = TreeExprBuilder::MakeFunction(
-      "probeArraysOuter", {TreeExprBuilder::MakeField(table0_f0)}, indices_type);
-  auto probeArrays_expr = TreeExprBuilder::MakeExpression(n_probeArrays, f_indices);
+      "conditionedProbeArraysOuter", {n_left_key, n_right_key}, indices_type);
+  auto n_codegen_probe = TreeExprBuilder::MakeFunction(
+      "codegen_withTwoInputs", {n_probeArrays, n_left, n_right}, uint32());
+  auto probeArrays_expr = TreeExprBuilder::MakeExpression(n_codegen_probe, f_res);
 
-  auto n_shuffleArrayList = TreeExprBuilder::MakeFunction(
-      "shuffleArrayList",
-      {TreeExprBuilder::MakeField(table0_f0), TreeExprBuilder::MakeField(table0_f1),
-       TreeExprBuilder::MakeField(table0_f2)},
+  auto n_conditionedShuffleArrayList =
+      TreeExprBuilder::MakeFunction("conditionedShuffleArrayList", {}, uint32());
+  auto n_codegen_shuffle = TreeExprBuilder::MakeFunction(
+      "codegen_withTwoInputs", {n_conditionedShuffleArrayList, n_left, n_right},
       uint32());
-  auto n_action_0 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f0)},
-      uint32());
-  auto n_action_1 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f1)},
-      uint32());
-  auto n_action_2 = TreeExprBuilder::MakeFunction(
-      "action_dono", {n_shuffleArrayList, TreeExprBuilder::MakeField(table0_f2)},
-      uint32());
-  auto f_res = field("res", uint32());
 
-  auto action_0_expr = TreeExprBuilder::MakeExpression(n_action_0, f_res);
-  auto action_1_expr = TreeExprBuilder::MakeExpression(n_action_1, f_res);
-  auto action_2_expr = TreeExprBuilder::MakeExpression(n_action_2, f_res);
+  auto conditionShuffleExpr = TreeExprBuilder::MakeExpression(n_codegen_shuffle, f_res);
 
   auto schema_table_0 = arrow::schema({table0_f0, table0_f1, table0_f2});
   auto schema_table_1 = arrow::schema({table1_f0, table1_f1});
+  auto schema_table =
+      arrow::schema({table0_f0, table0_f1, table0_f2, table1_f0, table1_f1});
   ///////////////////// Calculation //////////////////
   std::shared_ptr<CodeGenerator> expr_probe;
   ASSERT_NOT_OK(CreateCodeGenerator(schema_table_0, {probeArrays_expr}, {f_indices},
                                     &expr_probe, true));
-  std::shared_ptr<CodeGenerator> expr_shuffle;
-  ASSERT_NOT_OK(CreateCodeGenerator(schema_table_0,
-                                    {action_0_expr, action_1_expr, action_2_expr},
-                                    {f_res, f_res, f_res}, &expr_shuffle, true));
+  std::shared_ptr<CodeGenerator> expr_conditioned_shuffle;
+  ASSERT_NOT_OK(
+      CreateCodeGenerator(schema_table, {conditionShuffleExpr},
+                          {table0_f0, table0_f1, table0_f2, table1_f0, table1_f1},
+                          &expr_conditioned_shuffle, true));
   std::shared_ptr<arrow::RecordBatch> input_batch;
 
   std::vector<std::shared_ptr<arrow::RecordBatch>> dummy_result_batches;
@@ -631,12 +320,13 @@ TEST(TestArrowCompute, JoinTestUsingRightJoin) {
   std::vector<std::shared_ptr<arrow::RecordBatch>> table_0;
   std::vector<std::shared_ptr<arrow::RecordBatch>> table_1;
 
-  std::vector<std::string> input_data_string = {"[10, 3, 1, 2]", "[10, 3, 1, 2]",
-                                                "[10, 3, 1, 2]"};
+  std::vector<std::string> input_data_string = {
+      "[10, 3, 1, 2, 3, 1]", "[10, 3, 1, 2, 13, 11]", "[10, 3, 1, 2, 13, 11]"};
   MakeInputBatch(input_data_string, schema_table_0, &input_batch);
   table_0.push_back(input_batch);
 
-  input_data_string = {"[6, 12, 5, 8]", "[6, 12, 5, 8]", "[6, 12, 5, 8]"};
+  input_data_string = {"[6, 12, 5, 8, 6, 10]", "[6, 12, 5, 8, 16, 110]",
+                       "[6, 12, 5, 8, 16, 110]"};
   MakeInputBatch(input_data_string, schema_table_0, &input_batch);
   table_0.push_back(input_batch);
 
@@ -654,31 +344,283 @@ TEST(TestArrowCompute, JoinTestUsingRightJoin) {
   std::vector<std::shared_ptr<RecordBatch>> expected_table;
   std::shared_ptr<arrow::RecordBatch> expected_result;
   std::vector<std::string> expected_result_string = {
-      "[1, 2, 3, null, 5, 6]", "[1, 2, 3, null, 5, 6]", "[1, 2, 3, null, 5, 6]"};
-  auto res_sch = arrow::schema({f_res, f_res, f_res});
+      "[1, 1, 2, 3, 3, null, 5, 6, 6]", "[1, 11, 2, 3, 13, null, 5, 6, 16]",
+      "[1, 11, 2, 3, 13, null, 5, 6, 16]", "[1, 1, 2, 3, 3, 4, 5, 6, 6]",
+      "[1, 1, 2, 3, 3, 4, 5, 6, 6]"};
+  auto res_sch = arrow::schema({f_res, f_res, f_res, f_res, f_res});
   MakeInputBatch(expected_result_string, res_sch, &expected_result);
   expected_table.push_back(expected_result);
 
-  expected_result_string = {"[null, 8, null, 10, null, 12]",
-                            "[null, 8, null, 10, null, 12]",
-                            "[null, 8, null, 10, null, 12]"};
+  expected_result_string = {"[null, 8, null, 10, 10, null, 12]",
+                            "[null, 8, null, 10, 110, null, 12]",
+                            "[null, 8, null, 10, 110, null, 12]",
+                            "[7, 8, 9, 10, 10, 11, 12]", "[7, 8, 9, 10, 10, 11, 12]"};
   MakeInputBatch(expected_result_string, res_sch, &expected_result);
   expected_table.push_back(expected_result);
 
   ////////////////////// evaluate //////////////////////
   for (auto batch : table_0) {
     ASSERT_NOT_OK(expr_probe->evaluate(batch, &dummy_result_batches));
-    ASSERT_NOT_OK(expr_shuffle->evaluate(batch, &dummy_result_batches));
+    ASSERT_NOT_OK(expr_conditioned_shuffle->evaluate(batch, &dummy_result_batches));
   }
   ASSERT_NOT_OK(expr_probe->finish(&probe_result_iterator));
-  ASSERT_NOT_OK(expr_shuffle->SetDependency(probe_result_iterator, 0));
-  ASSERT_NOT_OK(expr_shuffle->finish(&shuffle_result_iterator));
+  ASSERT_NOT_OK(expr_conditioned_shuffle->SetDependency(probe_result_iterator));
+  ASSERT_NOT_OK(expr_conditioned_shuffle->finish(&shuffle_result_iterator));
 
   for (int i = 0; i < 2; i++) {
-    auto batch = table_1[i];
+    auto left_batch = table_0[i];
+    auto right_batch = table_1[i];
+
     std::shared_ptr<arrow::RecordBatch> result_batch;
-    ASSERT_NOT_OK(probe_result_iterator->ProcessAndCacheOne({batch->column(0)}));
-    ASSERT_NOT_OK(shuffle_result_iterator->Next(&result_batch));
+    std::vector<std::shared_ptr<arrow::Array>> input;
+    for (int i = 0; i < right_batch->num_columns(); i++) {
+      input.push_back(right_batch->column(i));
+    }
+
+    ASSERT_NOT_OK(probe_result_iterator->ProcessAndCacheOne(input));
+    ASSERT_NOT_OK(shuffle_result_iterator->Process(input, &result_batch));
+    ASSERT_NOT_OK(Equals(*(expected_table[i]).get(), *result_batch.get()));
+  }
+}
+
+TEST(TestArrowCompute, JoinTestUsingAntiJoin) {
+  ////////////////////// prepare expr_vector ///////////////////////
+  auto table0_f0 = field("table0_f0", uint32());
+  auto table0_f1 = field("table0_f1", uint32());
+  auto table0_f2 = field("table0_f2", uint32());
+  auto table1_f0 = field("table1_f0", uint32());
+  auto table1_f1 = field("table1_f1", uint32());
+
+  auto indices_type = std::make_shared<FixedSizeBinaryType>(4);
+  auto f_indices = field("indices", indices_type);
+
+  auto n_left = TreeExprBuilder::MakeFunction(
+      "codegen_left_schema",
+      {TreeExprBuilder::MakeField(table0_f0), TreeExprBuilder::MakeField(table0_f1),
+       TreeExprBuilder::MakeField(table0_f2)},
+      uint32());
+  auto n_right = TreeExprBuilder::MakeFunction(
+      "codegen_right_schema",
+      {TreeExprBuilder::MakeField(table1_f0), TreeExprBuilder::MakeField(table1_f1)},
+      uint32());
+  auto f_res = field("res", uint32());
+
+  auto n_left_key = TreeExprBuilder::MakeFunction(
+      "codegen_left_key_schema", {TreeExprBuilder::MakeField(table0_f0)}, uint32());
+  auto n_right_key = TreeExprBuilder::MakeFunction(
+      "codegen_right_key_schema", {TreeExprBuilder::MakeField(table1_f0)}, uint32());
+  auto n_probeArrays = TreeExprBuilder::MakeFunction(
+      "conditionedProbeArraysAnti", {n_left_key, n_right_key}, indices_type);
+  auto n_codegen_probe = TreeExprBuilder::MakeFunction(
+      "codegen_withTwoInputs", {n_probeArrays, n_left, n_right}, uint32());
+  auto probeArrays_expr = TreeExprBuilder::MakeExpression(n_codegen_probe, f_res);
+
+  auto n_conditionedShuffleArrayList =
+      TreeExprBuilder::MakeFunction("conditionedShuffleArrayList", {}, uint32());
+  auto n_codegen_shuffle = TreeExprBuilder::MakeFunction(
+      "codegen_withTwoInputs", {n_conditionedShuffleArrayList, n_left, n_right},
+      uint32());
+
+  auto conditionShuffleExpr = TreeExprBuilder::MakeExpression(n_codegen_shuffle, f_res);
+
+  auto schema_table_0 = arrow::schema({table0_f0, table0_f1, table0_f2});
+  auto schema_table_1 = arrow::schema({table1_f0, table1_f1});
+  auto schema_table =
+      arrow::schema({table0_f0, table0_f1, table0_f2, table1_f0, table1_f1});
+  ///////////////////// Calculation //////////////////
+  std::shared_ptr<CodeGenerator> expr_probe;
+  ASSERT_NOT_OK(CreateCodeGenerator(schema_table_0, {probeArrays_expr}, {f_indices},
+                                    &expr_probe, true));
+  std::shared_ptr<CodeGenerator> expr_conditioned_shuffle;
+  ASSERT_NOT_OK(CreateCodeGenerator(schema_table, {conditionShuffleExpr},
+                                    {table1_f0, table1_f1}, &expr_conditioned_shuffle,
+                                    true));
+  std::shared_ptr<arrow::RecordBatch> input_batch;
+
+  std::vector<std::shared_ptr<arrow::RecordBatch>> dummy_result_batches;
+  std::shared_ptr<ResultIterator<arrow::RecordBatch>> probe_result_iterator;
+  std::shared_ptr<ResultIterator<arrow::RecordBatch>> shuffle_result_iterator;
+
+  std::vector<std::shared_ptr<arrow::RecordBatch>> table_0;
+  std::vector<std::shared_ptr<arrow::RecordBatch>> table_1;
+
+  std::vector<std::string> input_data_string = {
+      "[10, 3, 1, 2, 3, 1]", "[10, 3, 1, 2, 13, 11]", "[10, 3, 1, 2, 13, 11]"};
+  MakeInputBatch(input_data_string, schema_table_0, &input_batch);
+  table_0.push_back(input_batch);
+
+  input_data_string = {"[6, 12, 5, 8, 6, 10]", "[6, 12, 5, 8, 16, 110]",
+                       "[6, 12, 5, 8, 16, 110]"};
+  MakeInputBatch(input_data_string, schema_table_0, &input_batch);
+  table_0.push_back(input_batch);
+
+  std::vector<std::string> input_data_2_string = {"[1, 2, 3, 4, 5, 6]",
+                                                  "[1, 2, 3, 4, 5, 6]"};
+  MakeInputBatch(input_data_2_string, schema_table_1, &input_batch);
+  table_1.push_back(input_batch);
+
+  input_data_2_string = {"[7, 8, 9, 10, 11, 12]", "[7, 8, 9, 10, 11, 12]"};
+  MakeInputBatch(input_data_2_string, schema_table_1, &input_batch);
+  table_1.push_back(input_batch);
+
+  //////////////////////// data prepared /////////////////////////
+
+  std::vector<std::shared_ptr<RecordBatch>> expected_table;
+  std::shared_ptr<arrow::RecordBatch> expected_result;
+  auto res_sch = arrow::schema({f_res, f_res});
+  std::vector<std::string> expected_result_string = {"[4]", "[4]"};
+  MakeInputBatch(expected_result_string, res_sch, &expected_result);
+  expected_table.push_back(expected_result);
+
+  expected_result_string = {"[7, 9, 11]", "[7, 9, 11]"};
+  MakeInputBatch(expected_result_string, res_sch, &expected_result);
+  expected_table.push_back(expected_result);
+
+  ////////////////////// evaluate //////////////////////
+  for (auto batch : table_0) {
+    ASSERT_NOT_OK(expr_probe->evaluate(batch, &dummy_result_batches));
+    ASSERT_NOT_OK(expr_conditioned_shuffle->evaluate(batch, &dummy_result_batches));
+  }
+  ASSERT_NOT_OK(expr_probe->finish(&probe_result_iterator));
+  ASSERT_NOT_OK(expr_conditioned_shuffle->SetDependency(probe_result_iterator));
+  ASSERT_NOT_OK(expr_conditioned_shuffle->finish(&shuffle_result_iterator));
+
+  for (int i = 0; i < 2; i++) {
+    auto left_batch = table_0[i];
+    auto right_batch = table_1[i];
+
+    std::shared_ptr<arrow::RecordBatch> result_batch;
+    std::vector<std::shared_ptr<arrow::Array>> input;
+    for (int i = 0; i < right_batch->num_columns(); i++) {
+      input.push_back(right_batch->column(i));
+    }
+
+    ASSERT_NOT_OK(probe_result_iterator->ProcessAndCacheOne(input));
+    ASSERT_NOT_OK(shuffle_result_iterator->Process(input, &result_batch));
+    ASSERT_NOT_OK(Equals(*(expected_table[i]).get(), *result_batch.get()));
+  }
+}
+
+TEST(TestArrowCompute, JoinTestUsingInnerJoinWithCondition) {
+  ////////////////////// prepare expr_vector ///////////////////////
+  auto table0_f0 = field("table0_f0", uint32());
+  auto table0_f1 = field("table0_f1", uint32());
+  auto table0_f2 = field("table0_f2", uint32());
+  auto table1_f0 = field("table1_f0", uint32());
+  auto table1_f1 = field("table1_f1", uint32());
+
+  auto indices_type = std::make_shared<FixedSizeBinaryType>(4);
+  auto f_indices = field("indices", indices_type);
+  auto greater_than_function = TreeExprBuilder::MakeFunction(
+      "greater_than",
+      {TreeExprBuilder::MakeField(table0_f1), TreeExprBuilder::MakeField(table1_f1)},
+      arrow::boolean());
+  auto n_left = TreeExprBuilder::MakeFunction(
+      "codegen_left_schema",
+      {TreeExprBuilder::MakeField(table0_f0), TreeExprBuilder::MakeField(table0_f1),
+       TreeExprBuilder::MakeField(table0_f2)},
+      uint32());
+  auto n_right = TreeExprBuilder::MakeFunction(
+      "codegen_right_schema",
+      {TreeExprBuilder::MakeField(table1_f0), TreeExprBuilder::MakeField(table1_f1)},
+      uint32());
+  auto f_res = field("res", uint32());
+
+  auto n_left_key = TreeExprBuilder::MakeFunction(
+      "codegen_left_schema", {TreeExprBuilder::MakeField(table0_f0)}, uint32());
+  auto n_right_key = TreeExprBuilder::MakeFunction(
+      "codegen_right_schema", {TreeExprBuilder::MakeField(table1_f0)}, uint32());
+  auto n_probeArrays = TreeExprBuilder::MakeFunction(
+      "conditionedProbeArraysInner", {n_left_key, n_right_key, greater_than_function},
+      indices_type);
+  auto n_codegen_probe = TreeExprBuilder::MakeFunction(
+      "codegen_withTwoInputs", {n_probeArrays, n_left, n_right}, uint32());
+  auto probeArrays_expr = TreeExprBuilder::MakeExpression(n_codegen_probe, f_res);
+
+  auto n_conditionedShuffleArrayList =
+      TreeExprBuilder::MakeFunction("conditionedShuffleArrayList", {}, uint32());
+  auto n_codegen_shuffle = TreeExprBuilder::MakeFunction(
+      "codegen_withTwoInputs", {n_conditionedShuffleArrayList, n_left, n_right},
+      uint32());
+
+  auto conditionShuffleExpr = TreeExprBuilder::MakeExpression(n_codegen_shuffle, f_res);
+
+  auto schema_table_0 = arrow::schema({table0_f0, table0_f1, table0_f2});
+  auto schema_table_1 = arrow::schema({table1_f0, table1_f1});
+  auto schema_table =
+      arrow::schema({table0_f0, table0_f1, table0_f2, table1_f0, table1_f1});
+  ///////////////////// Calculation //////////////////
+  std::shared_ptr<CodeGenerator> expr_probe;
+  ASSERT_NOT_OK(CreateCodeGenerator(schema_table_0, {probeArrays_expr}, {f_indices},
+                                    &expr_probe, true));
+  std::shared_ptr<CodeGenerator> expr_conditioned_shuffle;
+  ASSERT_NOT_OK(
+      CreateCodeGenerator(schema_table, {conditionShuffleExpr},
+                          {table0_f0, table0_f1, table0_f2, table1_f0, table1_f1},
+                          &expr_conditioned_shuffle, true));
+  std::shared_ptr<arrow::RecordBatch> input_batch;
+
+  std::vector<std::shared_ptr<arrow::RecordBatch>> dummy_result_batches;
+  std::shared_ptr<ResultIterator<arrow::RecordBatch>> probe_result_iterator;
+  std::shared_ptr<ResultIterator<arrow::RecordBatch>> shuffle_result_iterator;
+
+  std::vector<std::shared_ptr<arrow::RecordBatch>> table_0;
+  std::vector<std::shared_ptr<arrow::RecordBatch>> table_1;
+
+  std::vector<std::string> input_data_string = {
+      "[10, 3, 1, 2, 3, 1]", "[10, 3, 1, 2, 13, 11]", "[10, 3, 1, 2, 13, 11]"};
+  MakeInputBatch(input_data_string, schema_table_0, &input_batch);
+  table_0.push_back(input_batch);
+
+  input_data_string = {"[6, 12, 5, 8, 6, 10]", "[6, 12, 5, 8, 16, 110]",
+                       "[6, 12, 5, 8, 16, 110]"};
+  MakeInputBatch(input_data_string, schema_table_0, &input_batch);
+  table_0.push_back(input_batch);
+
+  std::vector<std::string> input_data_2_string = {"[1, 2, 3, 4, 5, 6]",
+                                                  "[1, 2, 3, 4, 5, 6]"};
+  MakeInputBatch(input_data_2_string, schema_table_1, &input_batch);
+  table_1.push_back(input_batch);
+
+  input_data_2_string = {"[7, 8, 9, 10, 11, 12]", "[7, 8, 9, 10, 11, 12]"};
+  MakeInputBatch(input_data_2_string, schema_table_1, &input_batch);
+  table_1.push_back(input_batch);
+
+  //////////////////////// data prepared /////////////////////////
+
+  std::vector<std::shared_ptr<RecordBatch>> expected_table;
+  std::shared_ptr<arrow::RecordBatch> expected_result;
+  std::vector<std::string> expected_result_string = {
+      "[1, 3, 6]", "[11, 13, 16]", "[11, 13, 16]", "[1, 3, 6]", "[1, 3, 6]"};
+  auto res_sch = arrow::schema({f_res, f_res, f_res, f_res, f_res});
+  MakeInputBatch(expected_result_string, res_sch, &expected_result);
+  expected_table.push_back(expected_result);
+
+  expected_result_string = {"[10]", "[110]", "[110]", "[10]", "[10]"};
+  MakeInputBatch(expected_result_string, res_sch, &expected_result);
+  expected_table.push_back(expected_result);
+
+  ////////////////////// evaluate //////////////////////
+  for (auto batch : table_0) {
+    ASSERT_NOT_OK(expr_probe->evaluate(batch, &dummy_result_batches));
+    ASSERT_NOT_OK(expr_conditioned_shuffle->evaluate(batch, &dummy_result_batches));
+  }
+  ASSERT_NOT_OK(expr_probe->finish(&probe_result_iterator));
+  ASSERT_NOT_OK(expr_conditioned_shuffle->SetDependency(probe_result_iterator));
+  ASSERT_NOT_OK(expr_conditioned_shuffle->finish(&shuffle_result_iterator));
+
+  for (int i = 0; i < 2; i++) {
+    auto left_batch = table_0[i];
+    auto right_batch = table_1[i];
+
+    std::shared_ptr<arrow::RecordBatch> result_batch;
+    std::vector<std::shared_ptr<arrow::Array>> input;
+    for (int i = 0; i < right_batch->num_columns(); i++) {
+      input.push_back(right_batch->column(i));
+    }
+
+    ASSERT_NOT_OK(probe_result_iterator->ProcessAndCacheOne(input));
+    ASSERT_NOT_OK(shuffle_result_iterator->Process(input, &result_batch));
     ASSERT_NOT_OK(Equals(*(expected_table[i]).get(), *result_batch.get()));
   }
 }

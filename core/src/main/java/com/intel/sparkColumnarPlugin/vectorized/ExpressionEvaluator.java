@@ -28,13 +28,25 @@ public class ExpressionEvaluator implements AutoCloseable {
   /** Convert ExpressionTree into native function. */
   public void build(Schema schema, List<ExpressionTree> exprs)
       throws RuntimeException, IOException, GandivaException {
-    nativeHandler = jniWrapper.nativeBuild(getSchemaBytesBuf(schema), getExprListBytesBuf(exprs), false);
+    nativeHandler = jniWrapper.nativeBuild(getSchemaBytesBuf(schema), getExprListBytesBuf(exprs), null, false);
   }
 
   /** Convert ExpressionTree into native function. */
   public void build(Schema schema, List<ExpressionTree> exprs, boolean finishReturn)
       throws RuntimeException, IOException, GandivaException {
-    nativeHandler = jniWrapper.nativeBuild(getSchemaBytesBuf(schema), getExprListBytesBuf(exprs), finishReturn);
+    nativeHandler = jniWrapper.nativeBuild(getSchemaBytesBuf(schema), getExprListBytesBuf(exprs), null, finishReturn);
+  }
+
+  /** Convert ExpressionTree into native function. */
+  public void build(Schema schema, List<ExpressionTree> exprs, Schema resSchema)
+      throws RuntimeException, IOException, GandivaException {
+    nativeHandler = jniWrapper.nativeBuild(getSchemaBytesBuf(schema), getExprListBytesBuf(exprs), getSchemaBytesBuf(resSchema), false);
+  }
+
+  /** Convert ExpressionTree into native function. */
+  public void build(Schema schema, List<ExpressionTree> exprs, Schema resSchema, boolean finishReturn)
+      throws RuntimeException, IOException, GandivaException {
+    nativeHandler = jniWrapper.nativeBuild(getSchemaBytesBuf(schema), getExprListBytesBuf(exprs), getSchemaBytesBuf(resSchema), finishReturn);
   }
 
   /** Convert ExpressionTree into native function. */
@@ -134,6 +146,10 @@ public class ExpressionEvaluator implements AutoCloseable {
   public BatchIterator finishByIterator() throws RuntimeException, IOException {
     long batchIteratorInstance = jniWrapper.nativeFinishByIterator(nativeHandler);
     return new BatchIterator(batchIteratorInstance);
+  }
+
+  public void setDependency(BatchIterator child) throws RuntimeException, IOException {
+    jniWrapper.nativeSetDependency(nativeHandler, child.getInstanceId(), -1);
   }
 
   public void setDependency(BatchIterator child, int index) throws RuntimeException, IOException {

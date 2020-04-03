@@ -159,7 +159,7 @@ void JNI_OnUnload(JavaVM* vm, void* reserved) {
 JNIEXPORT jlong JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeBuild(
     JNIEnv* env, jobject obj, jbyteArray schema_arr, jbyteArray exprs_arr,
-    jboolean return_when_finish = false) {
+    jbyteArray res_schema_arr, jboolean return_when_finish = false) {
   arrow::Status status;
 
   std::shared_ptr<arrow::Schema> schema;
@@ -176,6 +176,16 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
     std::string error_message =
         "failed to parse expressions protobuf, err msg is " + msg.message();
     env->ThrowNew(io_exception_class, error_message.c_str());
+  }
+
+  if (res_schema_arr != nullptr) {
+    std::shared_ptr<arrow::Schema> resSchema;
+    msg = MakeSchema(env, res_schema_arr, &resSchema);
+    if (!msg.ok()) {
+      std::string error_message = "failed to readSchema, err msg is " + msg.message();
+      env->ThrowNew(io_exception_class, error_message.c_str());
+    }
+    ret_types = resSchema->fields();
   }
 
   for (auto expr : expr_vector) {

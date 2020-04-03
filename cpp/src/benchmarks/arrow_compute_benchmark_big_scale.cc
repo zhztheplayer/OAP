@@ -202,7 +202,7 @@ TEST_F(BenchmarkArrowComputeBigScale, GroupByWithTwoAggregateBenchmark) {
   Start();
 }
 
-TEST_F(BenchmarkArrowComputeBigScale, SortBenchmark) {
+/*TEST_F(BenchmarkArrowComputeBigScale, SortBenchmark) {
   // prepare expression
   std::vector<std::shared_ptr<::gandiva::Node>> field_node_list;
   for (auto field : field_list) {
@@ -227,7 +227,7 @@ TEST_F(BenchmarkArrowComputeBigScale, SortBenchmark) {
 
   ///////////////////// Calculation //////////////////
   StartWithIterator();
-}
+}*/
 
 }  // namespace codegen
 }  // namespace sparkcolumnarplugin

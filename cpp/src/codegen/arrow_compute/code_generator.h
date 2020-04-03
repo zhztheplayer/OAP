@@ -27,12 +27,13 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     for (auto expr : expr_vector) {
       std::shared_ptr<ExprVisitor> root_visitor;
       if (finish_exprs_vector.empty()) {
-        auto visitor =
-            MakeExprVisitor(schema_ptr, expr, &expr_visitor_cache_, &root_visitor);
+        auto visitor = MakeExprVisitor(schema_ptr, expr, ret_types_, &expr_visitor_cache_,
+                                       &root_visitor);
         auto status = DistinctInsert(root_visitor, &visitor_list_);
       } else {
-        auto visitor = MakeExprVisitor(schema_ptr, expr, finish_exprs_vector[i++],
-                                       &expr_visitor_cache_, &root_visitor);
+        auto visitor =
+            MakeExprVisitor(schema_ptr, expr, ret_types_, finish_exprs_vector[i++],
+                            &expr_visitor_cache_, &root_visitor);
         auto status = DistinctInsert(root_visitor, &visitor_list_);
       }
     }

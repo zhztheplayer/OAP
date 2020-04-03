@@ -28,14 +28,21 @@ enum class BuilderVisitorNodeType { FunctionNode, FieldNode };
 class BuilderVisitor : public VisitorBase {
  public:
   BuilderVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
-                 std::shared_ptr<gandiva::Node> func, ExprVisitorMap* expr_visitor_cache)
-      : schema_(schema_ptr), func_(func), expr_visitor_cache_(expr_visitor_cache) {}
+                 std::shared_ptr<gandiva::Node> func,
+                 std::vector<std::shared_ptr<arrow::Field>> ret_fields,
+                 ExprVisitorMap* expr_visitor_cache)
+      : schema_(schema_ptr),
+        func_(func),
+        ret_fields_(ret_fields),
+        expr_visitor_cache_(expr_visitor_cache) {}
   BuilderVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
                  std::shared_ptr<gandiva::Node> func,
+                 std::vector<std::shared_ptr<arrow::Field>> ret_fields,
                  std::shared_ptr<gandiva::Node> finish_func,
                  ExprVisitorMap* expr_visitor_cache)
       : schema_(schema_ptr),
         func_(func),
+        ret_fields_(ret_fields),
         finish_func_(finish_func),
         expr_visitor_cache_(expr_visitor_cache) {}
   ~BuilderVisitor() {}
@@ -54,6 +61,7 @@ class BuilderVisitor : public VisitorBase {
   std::shared_ptr<arrow::Schema> schema_;
   std::shared_ptr<gandiva::Node> func_;
   std::shared_ptr<gandiva::Node> finish_func_;
+  std::vector<std::shared_ptr<arrow::Field>> ret_fields_;
   // output
   std::shared_ptr<ExprVisitor> expr_visitor_;
   BuilderVisitorNodeType node_type_;
@@ -70,12 +78,16 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
                             std::shared_ptr<ExprVisitor> dependency,
                             std::shared_ptr<gandiva::Node> finish_func,
                             std::shared_ptr<ExprVisitor>* out);
+  static arrow::Status Make(const gandiva::FunctionNode& node,
+                            std::vector<std::shared_ptr<arrow::Field>> ret_fields,
+                            std::shared_ptr<ExprVisitor>* out);
 
   ExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr, std::string func_name,
               std::vector<std::string> param_field_names,
               std::shared_ptr<ExprVisitor> dependency,
               std::shared_ptr<gandiva::Node> finish_func);
 
+  ExprVisitor(std::string func_name);
   ~ExprVisitor() {
 #ifdef DEBUG
     std::cout << "Destruct " << func_name_ << " ExprVisitor, ptr is " << this
@@ -83,6 +95,11 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
 #endif
   }
   arrow::Status MakeExprVisitorImpl(const std::string& func_name, ExprVisitor* p);
+  arrow::Status MakeExprVisitorImpl(
+      const std::string& func_name, std::shared_ptr<gandiva::FunctionNode> func_node,
+      std::vector<std::shared_ptr<arrow::Field>> left_field_list,
+      std::vector<std::shared_ptr<arrow::Field>> right_field_list,
+      std::vector<std::shared_ptr<arrow::Field>> ret_fields, ExprVisitor* p);
   arrow::Status AppendAction(const std::string& func_name,
                              std::vector<std::string> param_name);
   arrow::Status Init();
@@ -124,6 +141,7 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
   std::shared_ptr<ExprVisitor> dependency_;
   std::shared_ptr<arrow::Array> in_selection_array_;
   std::shared_ptr<arrow::RecordBatch> in_record_batch_;
+  std::vector<std::shared_ptr<arrow::Field>> ret_fields_;
 
   // For dual input kernels like probe
   std::shared_ptr<arrow::RecordBatch> member_record_batch_;
@@ -180,11 +198,13 @@ class ExprVisitor : public std::enable_shared_from_this<ExprVisitor> {
 
 arrow::Status MakeExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
                               std::shared_ptr<gandiva::Expression> expr,
+                              std::vector<std::shared_ptr<arrow::Field>> ret_fields_,
                               ExprVisitorMap* expr_visitor_cache,
                               std::shared_ptr<ExprVisitor>* out);
 
 arrow::Status MakeExprVisitor(std::shared_ptr<arrow::Schema> schema_ptr,
                               std::shared_ptr<gandiva::Expression> expr,
+                              std::vector<std::shared_ptr<arrow::Field>> ret_fields_,
                               std::shared_ptr<gandiva::Expression> finish_expr,
                               ExprVisitorMap* expr_visitor_cache,
                               std::shared_ptr<ExprVisitor>* out);

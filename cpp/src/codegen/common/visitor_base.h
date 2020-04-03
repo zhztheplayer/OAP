@@ -10,7 +10,6 @@ class VisitorBase : public gandiva::NodeVisitor {
   arrow::Status Visit(const gandiva::FunctionNode& node) override {
     return arrow::Status::OK();
   }
-
   arrow::Status Visit(const gandiva::FieldNode& node) override {
     return arrow::Status::OK();
   }
