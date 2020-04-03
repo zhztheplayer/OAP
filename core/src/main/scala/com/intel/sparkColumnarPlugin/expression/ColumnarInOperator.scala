@@ -26,8 +26,6 @@ class ColumnarIn(value: Expression, list: Seq[Expression], original: Expression)
     val (value_node, valueType): (TreeNode, ArrowType) =
       value.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
-    val ordinal = value.asInstanceOf[BoundReference].ordinal
-    val infield = Field.nullable(s"c_$ordinal", CodeGeneration.getResultType(value.dataType))
     val resultType = new ArrowType.Bool()
 
     if (value.dataType == StringType) {
@@ -37,7 +35,7 @@ class ColumnarIn(value: Expression, list: Seq[Expression], original: Expression)
       });
       val tlist = Lists.newArrayList(newlist:_*);
 
-      val funcNode = TreeBuilder.makeInExpressionString(infield, Sets.newHashSet(tlist))
+      val funcNode = TreeBuilder.makeInExpressionString(value_node, Sets.newHashSet(tlist))
       (funcNode, resultType)
     } else if (value.dataType == IntegerType) {
       val newlist :List[Integer]= list.toList.map (expr => {
@@ -45,7 +43,7 @@ class ColumnarIn(value: Expression, list: Seq[Expression], original: Expression)
       });
       val tlist = Lists.newArrayList(newlist:_*);
 
-      val funcNode = TreeBuilder.makeInExpressionInt32(infield, Sets.newHashSet(tlist))
+      val funcNode = TreeBuilder.makeInExpressionInt32(value_node, Sets.newHashSet(tlist))
       (funcNode, resultType)
     } else if (value.dataType == LongType) {
       val newlist :List[java.lang.Long]= list.toList.map (expr => {
@@ -53,7 +51,7 @@ class ColumnarIn(value: Expression, list: Seq[Expression], original: Expression)
       });
       val tlist = Lists.newArrayList(newlist:_*);
 
-      val funcNode = TreeBuilder.makeInExpressionBigInt(infield, Sets.newHashSet(tlist))
+      val funcNode = TreeBuilder.makeInExpressionBigInt(value_node, Sets.newHashSet(tlist))
       (funcNode, resultType)
     } else {
       throw new UnsupportedOperationException(s"not currently supported: ${value.dataType}.")

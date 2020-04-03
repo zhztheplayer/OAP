@@ -83,14 +83,14 @@ object ColumnarExpressionConverter extends Logging {
       check_if_no_calculation = false
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
       ColumnarInOperator.create(
-        replaceWithColumnarExpression(i.value),
+        replaceWithColumnarExpression(i.value, attributeSeq),
         i.list,
         expr)
     case ss: Substring =>
       check_if_no_calculation = false
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
       ColumnarTernaryOperator.create(
-        replaceWithColumnarExpression(ss.str),
+        replaceWithColumnarExpression(ss.str, attributeSeq),
         replaceWithColumnarExpression(ss.pos),
         replaceWithColumnarExpression(ss.len),
         expr)
