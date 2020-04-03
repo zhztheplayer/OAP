@@ -1,5 +1,8 @@
 #include "codegen/arrow_compute/ext/shuffle_v2_action.h"
+
 #include <memory>
+
+#include "codegen/arrow_compute/ext/array_item_index.h"
 
 namespace sparkcolumnarplugin {
 namespace codegen {
@@ -25,19 +28,21 @@ class ShuffleV2Action::Impl {
   PROCESS(DoubleType)
   static arrow::Status MakeShuffleV2ActionImpl(arrow::compute::FunctionContext* ctx,
                                                std::shared_ptr<arrow::DataType> type,
-                                               int arg_id, std::shared_ptr<Impl>* out) {
+                                               bool is_arr_list,
+                                               std::shared_ptr<Impl>* out) {
     switch (type->id()) {
-#define PROCESS(InType)                                                                \
-  case InType::type_id: {                                                              \
-    using CType = typename TypeTraits<InType>::CType;                                  \
-    auto res = std::make_shared<ShuffleV2ActionTypedImpl<InType, CType>>(ctx, arg_id); \
-    *out = std::dynamic_pointer_cast<Impl>(res);                                       \
+#define PROCESS(InType)                                                              \
+  case InType::type_id: {                                                            \
+    using CType = typename TypeTraits<InType>::CType;                                \
+    auto res =                                                                       \
+        std::make_shared<ShuffleV2ActionTypedImpl<InType, CType>>(ctx, is_arr_list); \
+    *out = std::dynamic_pointer_cast<Impl>(res);                                     \
   } break;
       PROCESS_SUPPORTED_TYPES(PROCESS)
 #undef PROCESS
       case arrow::StringType::type_id: {
         auto res = std::make_shared<ShuffleV2ActionTypedImpl<StringType, std::string>>(
-            ctx, arg_id);
+            ctx, is_arr_list);
         *out = std::dynamic_pointer_cast<Impl>(res);
       } break;
       default: {
@@ -48,18 +53,20 @@ class ShuffleV2Action::Impl {
     return arrow::Status::OK();
   }
 #undef PROCESS_SUPPORTED_TYPES
-  virtual arrow::Status Submit(std::vector<std::function<bool()>> is_null_func_list,
-                               std::vector<std::function<void*()>> get_func_list,
+  virtual arrow::Status Submit(std::shared_ptr<arrow::Array> in_arr,
+                               std::shared_ptr<arrow::Array> selection,
                                std::function<arrow::Status()>* func) = 0;
-
+  virtual arrow::Status Submit(ArrayList in_arr_list,
+                               std::shared_ptr<arrow::Array> selection,
+                               std::function<arrow::Status()>* func) = 0;
   virtual arrow::Status FinishAndReset(ArrayList* out) = 0;
 };
 
 template <typename DataType, typename CType>
 class ShuffleV2ActionTypedImpl : public ShuffleV2Action::Impl {
  public:
-  ShuffleV2ActionTypedImpl(arrow::compute::FunctionContext* ctx, int arg_id)
-      : ctx_(ctx), arg_id_(arg_id) {
+  ShuffleV2ActionTypedImpl(arrow::compute::FunctionContext* ctx, bool is_arr_list)
+      : ctx_(ctx) {
 #ifdef DEBUG
     std::cout << "Construct ShuffleV2ActionTypedImpl" << std::endl;
 #endif
@@ -67,16 +74,61 @@ class ShuffleV2ActionTypedImpl : public ShuffleV2Action::Impl {
     arrow::MakeBuilder(ctx_->memory_pool(), arrow::TypeTraits<DataType>::type_singleton(),
                        &builder);
     builder_.reset(arrow::internal::checked_cast<BuilderType*>(builder.release()));
-    exec_ = [this]() {
-      CType* res;
-      if (is_null_()) {
-        RETURN_NOT_OK(builder_->AppendNull());
-      } else {
-        res = (CType*)get_();
-        RETURN_NOT_OK(builder_->Append(*res));
-      }
-      return arrow::Status::OK();
-    };
+    if (is_arr_list) {
+      exec_ = [this]() {
+        auto item = structed_selection_[row_id_];
+        if (!typed_in_arr_list_[item.array_id]->IsNull(item.id)) {
+          RETURN_NOT_OK(
+              builder_->Append(typed_in_arr_list_[item.array_id]->GetView(item.id)));
+        } else {
+          RETURN_NOT_OK(builder_->AppendNull());
+        }
+        row_id_++;
+        return arrow::Status::OK();
+      };
+
+      nullable_exec_ = [this]() {
+        if (!selection_->IsNull(row_id_)) {
+          auto item = structed_selection_[row_id_];
+          if (!typed_in_arr_list_[item.array_id]->IsNull(item.id)) {
+            RETURN_NOT_OK(
+                builder_->Append(typed_in_arr_list_[item.array_id]->GetView(item.id)));
+          } else {
+            RETURN_NOT_OK(builder_->AppendNull());
+          }
+        } else {
+          RETURN_NOT_OK(builder_->AppendNull());
+        }
+        row_id_++;
+        return arrow::Status::OK();
+      };
+
+    } else {
+      exec_ = [this]() {
+        auto item = uint32_selection_[row_id_];
+        if (!typed_in_arr_->IsNull(item)) {
+          RETURN_NOT_OK(builder_->Append(typed_in_arr_->GetView(item)));
+        } else {
+          RETURN_NOT_OK(builder_->AppendNull());
+        }
+        row_id_++;
+        return arrow::Status::OK();
+      };
+      nullable_exec_ = [this]() {
+        if (!selection_->IsNull(row_id_)) {
+          auto item = uint32_selection_[row_id_];
+          if (!typed_in_arr_->IsNull(item)) {
+            RETURN_NOT_OK(builder_->Append(typed_in_arr_->GetView(item)));
+          } else {
+            RETURN_NOT_OK(builder_->AppendNull());
+          }
+        } else {
+          RETURN_NOT_OK(builder_->AppendNull());
+        }
+        row_id_++;
+        return arrow::Status::OK();
+      };
+    }
   }
   ~ShuffleV2ActionTypedImpl() {
 #ifdef DEBUG
@@ -84,12 +136,39 @@ class ShuffleV2ActionTypedImpl : public ShuffleV2Action::Impl {
 #endif
   }
 
-  arrow::Status Submit(std::vector<std::function<bool()>> is_null_func_list,
-                       std::vector<std::function<void*()>> get_func_list,
+  arrow::Status Submit(ArrayList in_arr_list, std::shared_ptr<arrow::Array> selection,
                        std::function<arrow::Status()>* exec) {
-    is_null_ = is_null_func_list[arg_id_];
-    get_ = get_func_list[arg_id_];
-    *exec = exec_;
+    row_id_ = 0;
+    if (typed_in_arr_list_.size() == 0) {
+      for (auto arr : in_arr_list) {
+        typed_in_arr_list_.push_back(std::dynamic_pointer_cast<ArrayType>(arr));
+      }
+    }
+    selection_ = selection;
+    structed_selection_ =
+        (ArrayItemIndex*)std::dynamic_pointer_cast<arrow::FixedSizeBinaryArray>(selection)
+            ->raw_values();
+    if (selection->null_count() == 0) {
+      *exec = exec_;
+    } else {
+      *exec = nullable_exec_;
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Submit(std::shared_ptr<arrow::Array> in_arr,
+                       std::shared_ptr<arrow::Array> selection,
+                       std::function<arrow::Status()>* exec) {
+    row_id_ = 0;
+    typed_in_arr_ = std::dynamic_pointer_cast<ArrayType>(in_arr);
+    selection_ = selection;
+    uint32_selection_ =
+        (uint32_t*)std::dynamic_pointer_cast<arrow::UInt32Array>(selection)->raw_values();
+    if (selection->null_count() == 0) {
+      *exec = exec_;
+    } else {
+      *exec = nullable_exec_;
+    }
     return arrow::Status::OK();
   }
 
@@ -107,25 +186,37 @@ class ShuffleV2ActionTypedImpl : public ShuffleV2Action::Impl {
   // input
   arrow::compute::FunctionContext* ctx_;
   int arg_id_;
+  uint64_t row_id_ = 0;
+  std::vector<std::shared_ptr<ArrayType>> typed_in_arr_list_;
+  std::shared_ptr<ArrayType> typed_in_arr_;
+  std::shared_ptr<arrow::Array> selection_;
+  ArrayItemIndex* structed_selection_;
+  uint32_t* uint32_selection_;
   // result
-  std::function<bool()> is_null_;
-  std::function<void*()> get_;
   std::function<arrow::Status()> exec_;
+  std::function<arrow::Status()> nullable_exec_;
   std::shared_ptr<BuilderType> builder_;
 };
 
 ShuffleV2Action::ShuffleV2Action(arrow::compute::FunctionContext* ctx,
-                                 std::shared_ptr<arrow::DataType> type, int arg_id) {
-  auto status = Impl::MakeShuffleV2ActionImpl(ctx, type, arg_id, &impl_);
+                                 std::shared_ptr<arrow::DataType> type,
+                                 bool is_arr_list) {
+  auto status = Impl::MakeShuffleV2ActionImpl(ctx, type, is_arr_list, &impl_);
 }
 
 ShuffleV2Action::~ShuffleV2Action() {}
 
-arrow::Status ShuffleV2Action::Submit(
-    std::vector<std::function<bool()>> is_null_func_list,
-    std::vector<std::function<void*()>> get_func_list,
-    std::function<arrow::Status()>* func) {
-  RETURN_NOT_OK(impl_->Submit(is_null_func_list, get_func_list, func));
+arrow::Status ShuffleV2Action::Submit(ArrayList in_arr_list,
+                                      std::shared_ptr<arrow::Array> selection,
+                                      std::function<arrow::Status()>* func) {
+  RETURN_NOT_OK(impl_->Submit(in_arr_list, selection, func));
+  return arrow::Status::OK();
+}
+
+arrow::Status ShuffleV2Action::Submit(std::shared_ptr<arrow::Array> in_arr,
+                                      std::shared_ptr<arrow::Array> selection,
+                                      std::function<arrow::Status()>* func) {
+  RETURN_NOT_OK(impl_->Submit(in_arr, selection, func));
   return arrow::Status::OK();
 }
 

@@ -16,11 +16,13 @@
 #include <gandiva/node.h>
 #include <gandiva/projector.h>
 #include <gandiva/tree_expr_builder.h>
+
 #include <chrono>
 #include <cstring>
 #include <fstream>
 #include <iostream>
 #include <unordered_map>
+
 #include "codegen/arrow_compute/ext/array_item_index.h"
 #include "codegen/arrow_compute/ext/codegen_node_visitor.h"
 #include "codegen/arrow_compute/ext/item_iterator.h"
@@ -35,20 +37,6 @@ namespace extra {
 using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
 
 ///////////////  ConditionedShuffleArrayList  ////////////////
-void NoneConditionShuffle(
-    int num_rows, std::vector<std::function<arrow::Status()>> next_func_list,
-    std::vector<std::function<bool()>> is_null_func_list,
-    std::vector<std::function<void*()>> get_func_list,
-    std::vector<std::function<arrow::Status()>> output_function_list) {
-  for (int row_id = 0; row_id < num_rows; row_id++) {
-    for (auto next : next_func_list) {
-      next();
-    }
-    for (auto exec : output_function_list) {
-      exec();
-    }
-  }
-}
 class ConditionedShuffleArrayListKernel::Impl {
  public:
   Impl(arrow::compute::FunctionContext* ctx, std::shared_ptr<gandiva::Node> func_node,
@@ -59,26 +47,26 @@ class ConditionedShuffleArrayListKernel::Impl {
         func_node_(func_node),
         left_field_list_(left_field_list),
         right_field_list_(right_field_list) {
-    for (auto field : left_field_list) {
-      std::shared_ptr<ItemIterator> iter;
-      MakeArrayListItemIterator(field->type(), &iter);
-      input_iterator_list_.push_back(iter);
-    }
-    for (auto field : right_field_list) {
-      std::shared_ptr<ItemIterator> iter;
-      MakeArrayItemIterator(field->type(), &iter);
-      input_iterator_list_.push_back(iter);
+    if (func_node) {
+      for (auto field : left_field_list) {
+        std::shared_ptr<ItemIterator> iter;
+        MakeArrayListItemIterator(field->type(), &iter);
+        input_iterator_list_.push_back(iter);
+      }
+      for (auto field : right_field_list) {
+        std::shared_ptr<ItemIterator> iter;
+        MakeArrayItemIterator(field->type(), &iter);
+        input_iterator_list_.push_back(iter);
+      }
     }
 
     auto input_field_list = {left_field_list, right_field_list};
     input_cache_.resize(left_field_list.size());
     auto left_field_list_size = left_field_list.size();
     for (auto out_field : output_field_list) {
-      int arg_id = 0;
       int col_id = 0;
       bool found = false;
       for (auto arg : input_field_list) {
-        col_id = 0;
         for (auto col : arg) {
           if (col->name() == out_field->name()) {
             found = true;
@@ -87,11 +75,15 @@ class ConditionedShuffleArrayListKernel::Impl {
           col_id++;
         }
         if (found) break;
-        arg_id++;
       }
+
       std::shared_ptr<ShuffleV2Action> action;
-      MakeShuffleV2Action(ctx_, out_field->type(), arg_id * left_field_list_size + col_id,
-                          &action);
+      if (col_id < left_field_list_size) {
+        MakeShuffleV2Action(ctx_, out_field->type(), true, &action);
+      } else {
+        MakeShuffleV2Action(ctx_, out_field->type(), false, &action);
+      }
+      output_indices_.push_back(col_id);
       output_action_list_.push_back(action);
     }
   }
@@ -100,7 +92,8 @@ class ConditionedShuffleArrayListKernel::Impl {
   arrow::Status Evaluate(const ArrayList& in) {
     if (in.size() != input_cache_.size()) {
       return arrow::Status::Invalid(
-          "ConditionedShuffleArrayListKernel input arrayList size does not match numCols "
+          "ConditionedShuffleArrayListKernel input arrayList size does not match "
+          "numCols "
           "in cache, which are ",
           in.size(), " and ", input_cache_.size());
     }
@@ -125,8 +118,6 @@ class ConditionedShuffleArrayListKernel::Impl {
     auto start = std::chrono::steady_clock::now();
     if (func_node_) {
       LoadJITFunction(func_node_, left_field_list_, right_field_list_);
-    } else {
-      ConditionShuffleCodeGen = &NoneConditionShuffle;
     }
     auto end = std::chrono::steady_clock::now();
     std::cout
@@ -134,49 +125,108 @@ class ConditionedShuffleArrayListKernel::Impl {
         << (std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() /
             1000)
         << " ms." << std::endl;
-    auto eval_func = [this, schema](std::shared_ptr<arrow::Array> left_selection,
-                                    std::vector<ArrayList> left_in,
-                                    std::shared_ptr<arrow::Array> right_selection,
-                                    ArrayList right_in,
-                                    std::shared_ptr<arrow::RecordBatch>* out) {
-      int i = 0;
-      int num_rows = right_selection->length();
-      std::vector<std::function<bool()>> is_null_func_list;
-      std::vector<std::function<arrow::Status()>> next_func_list;
-      std::vector<std::function<void*()>> get_func_list;
-      std::vector<std::function<arrow::Status()>> shuffle_func_list;
-      std::function<bool()> is_null;
-      std::function<arrow::Status()> next;
-      std::function<void*()> get;
-      std::function<arrow::Status()> shuffle;
-      for (auto array_list : left_in) {
-        input_iterator_list_[i++]->Submit(array_list, left_selection, &next, &is_null,
-                                          &get);
-        is_null_func_list.push_back(is_null);
-        next_func_list.push_back(next);
-        get_func_list.push_back(get);
-      }
-      for (auto array : right_in) {
-        input_iterator_list_[i++]->Submit(array, right_selection, &next, &is_null, &get);
-        is_null_func_list.push_back(is_null);
-        next_func_list.push_back(next);
-        get_func_list.push_back(get);
-      }
-      for (auto action : output_action_list_) {
-        RETURN_NOT_OK(action->Submit(is_null_func_list, get_func_list, &shuffle));
-        shuffle_func_list.push_back(shuffle);
-      }
-      ConditionShuffleCodeGen(num_rows, next_func_list, is_null_func_list, get_func_list,
-                              shuffle_func_list);
-      ArrayList out_arr_list;
-      for (auto output_action : output_action_list_) {
-        output_action->FinishAndReset(&out_arr_list);
-      }
-      *out = arrow::RecordBatch::Make(schema, out_arr_list[0]->length(), out_arr_list);
-      // arrow::PrettyPrint(*(*out).get(), 2, &std::cout);
+    std::function<arrow::Status(std::shared_ptr<arrow::Array>, std::vector<ArrayList>,
+                                std::shared_ptr<arrow::Array>, ArrayList,
+                                std::shared_ptr<arrow::RecordBatch>*)>
+        eval_func;
+    if (func_node_) {
+      eval_func = [this, schema](std::shared_ptr<arrow::Array> left_selection,
+                                 std::vector<ArrayList> left_in,
+                                 std::shared_ptr<arrow::Array> right_selection,
+                                 ArrayList right_in,
+                                 std::shared_ptr<arrow::RecordBatch>* out) {
+        int num_rows = right_selection->length();
+        std::vector<std::function<bool()>> is_null_func_list;
+        std::vector<std::function<arrow::Status()>> next_func_list;
+        std::vector<std::function<void*()>> get_func_list;
+        std::vector<std::function<arrow::Status()>> shuffle_func_list;
+        std::function<bool()> is_null;
+        std::function<arrow::Status()> next;
+        std::function<void*()> get;
+        std::function<arrow::Status()> shuffle;
+        auto left_field_list_size = left_field_list_.size();
+        int i = 0;
+        for (auto array_list : left_in) {
+          RETURN_NOT_OK(input_iterator_list_[i++]->Submit(array_list, left_selection,
+                                                          &next, &is_null, &get));
+          is_null_func_list.push_back(is_null);
+          next_func_list.push_back(next);
+          get_func_list.push_back(get);
+        }
+        for (auto array : right_in) {
+          RETURN_NOT_OK(input_iterator_list_[i++]->Submit(array, right_selection, &next,
+                                                          &is_null, &get));
+          is_null_func_list.push_back(is_null);
+          next_func_list.push_back(next);
+          get_func_list.push_back(get);
+        }
+        i = 0;
+        for (auto id : output_indices_) {
+          std::cout << id << std::endl;
+          if (id < left_field_list_size) {
+            RETURN_NOT_OK(
+                output_action_list_[i++]->Submit(left_in[id], left_selection, &shuffle));
+            shuffle_func_list.push_back(shuffle);
+          } else {
+            RETURN_NOT_OK(output_action_list_[i++]->Submit(
+                right_in[id - left_field_list_size], right_selection, &shuffle));
+            shuffle_func_list.push_back(shuffle);
+          }
+        }
+        ConditionShuffleCodeGen(num_rows, next_func_list, is_null_func_list,
+                                get_func_list, shuffle_func_list);
+        ArrayList out_arr_list;
+        for (auto output_action : output_action_list_) {
+          RETURN_NOT_OK(output_action->FinishAndReset(&out_arr_list));
+        }
+        *out = arrow::RecordBatch::Make(schema, out_arr_list[0]->length(), out_arr_list);
+        // arrow::PrettyPrint(*(*out).get(), 2, &std::cout);
 
-      return arrow::Status::OK();
-    };
+        return arrow::Status::OK();
+      };
+    } else {
+      eval_func = [this, schema](std::shared_ptr<arrow::Array> left_selection,
+                                 std::vector<ArrayList> left_in,
+                                 std::shared_ptr<arrow::Array> right_selection,
+                                 ArrayList right_in,
+                                 std::shared_ptr<arrow::RecordBatch>* out) {
+        int num_rows = right_selection->length();
+        std::vector<std::function<bool()>> is_null_func_list;
+        std::vector<std::function<arrow::Status()>> next_func_list;
+        std::vector<std::function<void*()>> get_func_list;
+        std::vector<std::function<arrow::Status()>> shuffle_func_list;
+        std::function<bool()> is_null;
+        std::function<arrow::Status()> next;
+        std::function<void*()> get;
+        std::function<arrow::Status()> shuffle;
+        auto left_field_list_size = left_field_list_.size();
+        int i = 0;
+        for (auto id : output_indices_) {
+          if (id < left_field_list_size) {
+            RETURN_NOT_OK(
+                output_action_list_[i++]->Submit(left_in[id], left_selection, &shuffle));
+            shuffle_func_list.push_back(shuffle);
+          } else {
+            RETURN_NOT_OK(output_action_list_[i++]->Submit(
+                right_in[id - left_field_list_size], right_selection, &shuffle));
+            shuffle_func_list.push_back(shuffle);
+          }
+        }
+        for (int row_id = 0; row_id < num_rows; row_id++) {
+          for (auto exec : shuffle_func_list) {
+            exec();
+          }
+        }
+        ArrayList out_arr_list;
+        for (auto output_action : output_action_list_) {
+          RETURN_NOT_OK(output_action->FinishAndReset(&out_arr_list));
+        }
+        *out = arrow::RecordBatch::Make(schema, out_arr_list[0]->length(), out_arr_list);
+        // arrow::PrettyPrint(*(*out).get(), 2, &std::cout);
+
+        return arrow::Status::OK();
+      };
+    }
     *out = std::make_shared<ConditionShuffleCodeGenResultIterator>(
         ctx_, input_cache_, eval_func, in_indices_iter_);
 
@@ -193,6 +243,7 @@ class ConditionedShuffleArrayListKernel::Impl {
   std::vector<std::shared_ptr<arrow::Field>> left_field_list_;
   std::vector<std::shared_ptr<arrow::Field>> right_field_list_;
   std::vector<std::shared_ptr<ItemIterator>> input_iterator_list_;
+  std::vector<int> output_indices_;
   std::vector<std::shared_ptr<ShuffleV2Action>> output_action_list_;
   void (*ConditionShuffleCodeGen)(
       int num_rows, std::vector<std::function<arrow::Status()>> next_func_list,
@@ -371,7 +422,7 @@ class ConditionedShuffleArrayListKernel::Impl {
     std::shared_ptr<ResultIterator<arrow::RecordBatch>> in_indices_iter_;
     std::vector<ArrayList> input_cache_;
   };
-};  // namespace arrowcompute
+};
 
 arrow::Status ConditionedShuffleArrayListKernel::Make(
     arrow::compute::FunctionContext* ctx, std::shared_ptr<gandiva::Node> func_node,
