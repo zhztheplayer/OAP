@@ -40,6 +40,8 @@ arrow::Status CodeGenNodeVisitorV2::Visit(const gandiva::FunctionNode& node) {
     ss << "(" << child_visitor_list[0]->GetResult()
        << " == " << child_visitor_list[1]->GetResult() << ")";
   } else if (func_name.compare("not") == 0) {
+    ss << "!(" << child_visitor_list[0]->GetResult() << ")";
+  } else {
     ss << child_visitor_list[0]->GetResult();
   }
   if (cur_func_id == 0) {
