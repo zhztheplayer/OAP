@@ -88,6 +88,7 @@ object ArrowFilters {
       case _ => None // fixme complete this
     }
   }
+
   private def createComparisonNode(opName: String,
                                    attribute: String, value: Any): Option[TreeNode] = {
     Some(DatasetTypes.TreeNode.newBuilder.setCpNode(

@@ -17,28 +17,26 @@
 
 package org.apache.spark.sql.execution.datasources.arrow;
 
-import scala.collection.JavaConverters._
-
 import org.apache.arrow.dataset.Dataset
 import org.apache.arrow.dataset.jni.{NativeDataSource, NativeScanner}
 import org.apache.arrow.dataset.scanner.ScanOptions
-import org.apache.arrow.vector.VectorSchemaRoot
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.FileStatus
 import org.apache.hadoop.mapreduce.Job
-
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.execution.datasources.{FileFormat, OutputWriterFactory, PartitionedFile}
 import org.apache.spark.sql.execution.datasources.arrow.ArrowFileFormat.UnsafeItr
 import org.apache.spark.sql.execution.datasources.v2.arrow.{ArrowFilters, ArrowOptions, ArrowUtils}
-import org.apache.spark.sql.execution.vectorized.{ArrowWritableColumnVector, ColumnVectorUtils, OnHeapColumnVector}
+import org.apache.spark.sql.execution.datasources.{FileFormat, OutputWriterFactory, PartitionedFile}
 import org.apache.spark.sql.sources.{DataSourceRegister, Filter}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
-import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, ColumnVector};
+
+import scala.collection.JavaConverters._;
 
 class ArrowFileFormat extends FileFormat with DataSourceRegister with Serializable {
+
+  val batchSize = 4096
 
   def convert(files: Seq[FileStatus], options: Map[String, String]): Option[StructType] = {
     ArrowUtils.readSchema(files, new CaseInsensitiveStringMap(options.asJava))
@@ -73,9 +71,8 @@ class ArrowFileFormat extends FileFormat with DataSourceRegister with Serializab
       val sqlConf = sparkSession.sessionState.conf;
       val enableFilterPushDown: Boolean = sqlConf
         .getConfString("spark.sql.arrow.filterPushdown", "true").toBoolean
-      val path = file.filePath
       val discovery = ArrowUtils.makeArrowDiscovery(
-        path, new ArrowOptions(
+        file.filePath, new ArrowOptions(
           new CaseInsensitiveStringMap(
             options.asJava).asScala.toMap))
       val source = discovery.finish()
@@ -93,7 +90,7 @@ class ArrowFileFormat extends FileFormat with DataSourceRegister with Serializab
       val scanner = new NativeScanner(
         dataset,
         new ScanOptions(requiredSchema.map(f => f.name).toArray,
-          filter, 4096),
+          filter, batchSize),
         org.apache.spark.sql.util.ArrowUtils.rootAllocator)
       val itrList = scanner
         .scan()
@@ -105,27 +102,9 @@ class ArrowFileFormat extends FileFormat with DataSourceRegister with Serializab
       val itr = itrList
         .toIterator
         .flatMap(itr => itr.asScala)
-        .map(vsr => loadVsr(vsr, file.partitionValues, partitionSchema))
+        .map(vsr => ArrowUtils.loadVsr(vsr, file.partitionValues, partitionSchema))
       new UnsafeItr(itr).asInstanceOf[Iterator[InternalRow]]
     }
-  }
-
-  // fixme code duplicating with ArrowPartitionReaderFactory
-  def loadVsr(vsr: VectorSchemaRoot, partitionValues: InternalRow,
-              partitionSchema: StructType): ColumnarBatch = {
-    val fvs = vsr.getFieldVectors
-
-    val rowCount = vsr.getRowCount
-    val vectors = ArrowWritableColumnVector.loadColumns(rowCount, fvs)
-    val partitionColumns = OnHeapColumnVector.allocateColumns(rowCount, partitionSchema)
-    (0 until partitionColumns.length).foreach(i => {
-      ColumnVectorUtils.populate(partitionColumns(i), partitionValues, i)
-      partitionColumns(i).setIsConstant()
-    })
-
-    val batch = new ColumnarBatch(vectors ++ partitionColumns, rowCount, new Array[Long](5))
-    batch.setNumRows(rowCount)
-    batch
   }
 
   override def shortName(): String = "arrow"

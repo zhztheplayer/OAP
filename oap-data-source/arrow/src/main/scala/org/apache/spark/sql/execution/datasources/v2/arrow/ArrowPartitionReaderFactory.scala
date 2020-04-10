@@ -19,12 +19,10 @@ package org.apache.spark.sql.execution.datasources.v2.arrow
 import org.apache.arrow.dataset.Dataset
 import org.apache.arrow.dataset.jni.{NativeDataSource, NativeScanner}
 import org.apache.arrow.dataset.scanner.ScanOptions
-import org.apache.arrow.vector.VectorSchemaRoot
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.PartitionedFile
 import org.apache.spark.sql.execution.datasources.v2.FilePartitionReaderFactory
-import org.apache.spark.sql.execution.vectorized.{ArrowWritableColumnVector, ColumnVectorUtils, OnHeapColumnVector}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.sources.v2.reader.{InputPartition, PartitionReader}
@@ -54,22 +52,6 @@ case class ArrowPartitionReaderFactory(
     throw new UnsupportedOperationException
   }
 
-  def loadVsr(vsr: VectorSchemaRoot, partitionValues: InternalRow): ColumnarBatch = {
-    val fvs = vsr.getFieldVectors
-
-    val rowCount = vsr.getRowCount
-    val vectors = ArrowWritableColumnVector.loadColumns(rowCount, fvs)
-    val partitionColumns = OnHeapColumnVector.allocateColumns(rowCount, readPartitionSchema)
-    (0 until partitionColumns.length).foreach(i => {
-      ColumnVectorUtils.populate(partitionColumns(i), partitionValues, i)
-      partitionColumns(i).setIsConstant()
-    })
-
-    val batch = new ColumnarBatch(vectors ++ partitionColumns, rowCount, new Array[Long](5))
-    batch.setNumRows(rowCount)
-    batch
-  }
-
   override def buildColumnarReader(
       partitionedFile: PartitionedFile): PartitionReader[ColumnarBatch] = {
     val path = partitionedFile.filePath
@@ -84,7 +66,6 @@ case class ArrowPartitionReaderFactory(
       org.apache.arrow.dataset.filter.Filter.EMPTY
     }
     val scanner = new NativeScanner(dataset,
-      // todo predicate validation / pushdown
       new ScanOptions(readDataSchema.map(f => f.name).toArray,
         filter, batchSize),
       org.apache.spark.sql.util.ArrowUtils.rootAllocator)
@@ -98,7 +79,7 @@ case class ArrowPartitionReaderFactory(
     val itr = itrList
       .toIterator
       .flatMap(itr => itr.asScala)
-      .map(vsr => loadVsr(vsr, partitionedFile.partitionValues))
+      .map(vsr => ArrowUtils.loadVsr(vsr, partitionedFile.partitionValues, readPartitionSchema))
 
     new PartitionReader[ColumnarBatch] {
 

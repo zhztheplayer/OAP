@@ -3,7 +3,7 @@ package org.apache.spark.sql
 class DataFrameReaderImplicits(r: DataFrameReader) {
 
   /**
-   * Loads an file via Arrow Datasets API and returns the result as a `DataFrame`.
+   * Loads a file via Arrow Datasets API and returns the result as a `DataFrame`.
    *
    * @param path input path
    * @since 3.0.0-SNAPSHOT

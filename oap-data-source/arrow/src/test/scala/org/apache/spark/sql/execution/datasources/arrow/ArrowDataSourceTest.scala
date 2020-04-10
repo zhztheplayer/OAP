@@ -28,22 +28,22 @@ import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.{DataFrame, QueryTest}
 import org.apache.spark.sql.DataFrameReaderImplicits._
 
-class ArrowSuite extends QueryTest with SharedSQLContext {
+class ArrowDataSourceTest extends QueryTest with SharedSQLContext {
   private val parquetFile = "parquet-1217.parquet"
 
   override def beforeAll(): Unit = {
     super.beforeAll()
     import testImplicits._
     spark.read.json(Seq("{\"col\": -1}", "{\"col\": 0}", "{\"col\": 1}", "{\"col\": 2}", "{\"col\": null}").toDS())
-      .write.parquet(ArrowSuite.locateResourcePath(parquetFile))
+      .write.parquet(ArrowDataSourceTest.locateResourcePath(parquetFile))
   }
 
   override def afterAll(): Unit = {
-    delete(ArrowSuite.locateResourcePath(parquetFile))
+    delete(ArrowDataSourceTest.locateResourcePath(parquetFile))
   }
 
   test("reading parquet file") {
-    val path = ArrowSuite.locateResourcePath(parquetFile)
+    val path = ArrowDataSourceTest.locateResourcePath(parquetFile)
     verifyParquet(
       spark.read
         .option(ArrowOptions.KEY_ORIGINAL_FORMAT, "parquet")
@@ -52,7 +52,7 @@ class ArrowSuite extends QueryTest with SharedSQLContext {
   }
 
   test("simple SQL query on parquet file") {
-    val path = ArrowSuite.locateResourcePath(parquetFile)
+    val path = ArrowDataSourceTest.locateResourcePath(parquetFile)
     val frame = spark.read
       .option(ArrowOptions.KEY_ORIGINAL_FORMAT, "parquet")
       .option(ArrowOptions.KEY_FILESYSTEM, "hdfs")
@@ -64,7 +64,7 @@ class ArrowSuite extends QueryTest with SharedSQLContext {
   }
 
   test("simple SQL query on parquet file with pushed filters") {
-    val path = ArrowSuite.locateResourcePath(parquetFile)
+    val path = ArrowDataSourceTest.locateResourcePath(parquetFile)
     val frame = spark.read
       .option(ArrowOptions.KEY_ORIGINAL_FORMAT, "parquet")
       .option(ArrowOptions.KEY_FILESYSTEM, "hdfs")
@@ -74,7 +74,7 @@ class ArrowSuite extends QueryTest with SharedSQLContext {
     val result = spark.sql("select col from ptab where col = 1") // fixme rowcount == 2?
     assert(
       result.schema ===
-        StructType(Seq(StructField("col", IntegerType))))
+        StructType(Seq(StructField("col", LongType))))
     assert(result.collect().length === 1)
   }
 
@@ -87,7 +87,7 @@ class ArrowSuite extends QueryTest with SharedSQLContext {
   }
 
   ignore("reading csv file") {
-    val path = ArrowSuite.locateResourcePath(csvFile)
+    val path = ArrowDataSourceTest.locateResourcePath(csvFile)
     verifyCsv(
       spark.read
         .format("arrow")
@@ -96,7 +96,7 @@ class ArrowSuite extends QueryTest with SharedSQLContext {
   }
 
   ignore("read csv file - programmatic API ") {
-    val path = ArrowSuite.locateResourcePath(csvFile)
+    val path = ArrowDataSourceTest.locateResourcePath(csvFile)
     verifyCsv(
       spark.read
         .option(ArrowOptions.KEY_ORIGINAL_FORMAT, "csv")
@@ -281,8 +281,8 @@ class ArrowSuite extends QueryTest with SharedSQLContext {
   }
 }
 
-object ArrowSuite {
+object ArrowDataSourceTest {
   private def locateResourcePath(resource: String):String = {
-    classOf[ArrowSuite].getClassLoader.getResource("").getPath.concat(File.separator).concat(resource)
+    classOf[ArrowDataSourceTest].getClassLoader.getResource("").getPath.concat(File.separator).concat(resource)
   }
 }
