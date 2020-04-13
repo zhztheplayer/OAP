@@ -15,7 +15,7 @@ This project is to enable columnar processing operators for spark sql, columnar 
 1. Use arrow as column vector format as intermediate data among spark operator.
 2. Use Gandiva to evaluate columnar operator expressions.
 
-![Overview](/resource/overview.jpg)
+![Overview](/oap-native-sql/resource/overview.jpg)
 
 ## Installation
 
@@ -44,7 +44,7 @@ parquet-arrow-1.11.0.jar  parquet-arrow-1.11.0.jar.lastUpdated  parquet-arrow-1.
 #### Install Apache Arrow and Gandiva
 
 Please refer this markdown to install Apache Arrow and Gandiva.
-[Apache Arrow Installation](/resource/ApacheArrowInstallation.md)
+[Apache Arrow Installation](/oap-native-sql/resource/ApacheArrowInstallation.md)
 
 #### Build and install a columnarSupported spark
 
@@ -101,7 +101,7 @@ spark.sql.columnVector.arrow.enabled true
 
 For initial microbenchmark performance, we add 10 fields up with spark, data size is 200G data
 
-![Performance](/resource/performance.png)
+![Performance](/oap-native-sql/resource/performance.png)
 
 ## Coding Style
 
