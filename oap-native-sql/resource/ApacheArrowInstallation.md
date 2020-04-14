@@ -63,16 +63,16 @@ apache arrow, parquet and gandiva
 git clone https://github.com/Intel-bigdata/arrow.git
 mkdir -p arrow/cpp/release-build
 cd arrow/cpp/release-build
-cmake -DARROW_GANDIVA_JAVA=ON -DARROW_GANDIVA=ON -DARROW_PARQUET=ON -DARROW_HDFS=ON -DARROW_BOOST_USE_SHARED=ON -DARROW_JNI=ON -DARROW_WITH_SNAPPY=ON ..
+cmake -DARROW_GANDIVA_JAVA=ON -DARROW_GANDIVA=ON -DARROW_PARQUET=ON -DARROW_HDFS=ON -DARROW_BOOST_USE_SHARED=ON -DARROW_JNI=ON -DARROW_WITH_SNAPPY=ON -DARROW_FILESYSTEM=ON -DARROW_JSON=ON ..
 make -j
 make install
 
 # build java
 cd ../java
 # change property 'arrow.cpp.build.dir' to the relative path of cpp build dir in adapter/parquet/pom.xml and gandiva/pom.xml
-mvn clean install -P arrow-jni -am -DskipTests
+mvn clean install -P arrow-jni -am -Darrow.cpp.build.dir=../cpp/release-build/release/ -DskipTests 
 # if you are behine proxy, please also add proxy for socks
-mvn clean install -P arrow-jni -am -DskipTests -DsocksProxyHost=${proxyHost} -DsocksProxyPort=1080 
+mvn clean install -P arrow-jni -am -Darrow.cpp.build.dir=../cpp/release-build/release/ -DskipTests -DsocksProxyHost=${proxyHost} -DsocksProxyPort=1080 
 ```
 
 run test
