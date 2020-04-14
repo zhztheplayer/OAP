@@ -7,8 +7,6 @@
 #include <arrow/compute/kernels/count.h>
 #include <arrow/compute/kernels/hash.h>
 #include <arrow/compute/kernels/minmax.h>
-#include <arrow/compute/kernels/ntake.h>
-#include <arrow/compute/kernels/probe.h>
 #include <arrow/compute/kernels/sort_arrays_to_indices.h>
 #include <arrow/compute/kernels/sum.h>
 #include <arrow/pretty_print.h>
@@ -398,7 +396,7 @@ class SumArrayKernel::Impl {
     }
     std::shared_ptr<arrow::Array> arr_out;
     std::shared_ptr<arrow::Scalar> scalar_out;
-    RETURN_NOT_OK(arrow::MakeScalar(res_data_type_, res, &scalar_out));
+    scalar_out = arrow::MakeScalar(res);
     RETURN_NOT_OK(arrow::MakeArrayFromScalar(*scalar_out.get(), 1, &arr_out));
     out->push_back(arr_out);
     return arrow::Status::OK();
@@ -460,7 +458,7 @@ class CountArrayKernel::Impl {
     }
     std::shared_ptr<arrow::Array> arr_out;
     std::shared_ptr<arrow::Scalar> scalar_out;
-    RETURN_NOT_OK(arrow::MakeScalar(arrow::int64(), res, &scalar_out));
+    scalar_out = arrow::MakeScalar(res);
     RETURN_NOT_OK(arrow::MakeArrayFromScalar(*scalar_out.get(), 1, &arr_out));
     out->push_back(arr_out);
     return arrow::Status::OK();
@@ -537,12 +535,12 @@ class SumCountArrayKernel::Impl {
     }
     std::shared_ptr<arrow::Array> sum_out;
     std::shared_ptr<arrow::Scalar> sum_scalar_out;
-    RETURN_NOT_OK(arrow::MakeScalar(res_data_type_, sum_res, &sum_scalar_out));
+    sum_scalar_out = arrow::MakeScalar(sum_res);
     RETURN_NOT_OK(arrow::MakeArrayFromScalar(*sum_scalar_out.get(), 1, &sum_out));
 
     std::shared_ptr<arrow::Array> cnt_out;
     std::shared_ptr<arrow::Scalar> cnt_scalar_out;
-    RETURN_NOT_OK(arrow::MakeScalar(arrow::int64(), cnt_res, &cnt_scalar_out));
+    cnt_scalar_out = arrow::MakeScalar(cnt_res);
     RETURN_NOT_OK(arrow::MakeArrayFromScalar(*cnt_scalar_out.get(), 1, &cnt_out));
 
     out->push_back(sum_out);
@@ -637,7 +635,7 @@ class AvgByCountArrayKernel::Impl {
     double res = sum_res * 1.0 / cnt_res;
     std::shared_ptr<arrow::Array> arr_out;
     std::shared_ptr<arrow::Scalar> scalar_out;
-    RETURN_NOT_OK(arrow::MakeScalar(arrow::float64(), res, &scalar_out));
+    scalar_out = arrow::MakeScalar(res);
     RETURN_NOT_OK(arrow::MakeArrayFromScalar(*scalar_out.get(), 1, &arr_out));
 
     out->push_back(arr_out);
@@ -719,7 +717,7 @@ class MinArrayKernel::Impl {
     }
     std::shared_ptr<arrow::Array> arr_out;
     std::shared_ptr<arrow::Scalar> scalar_out;
-    RETURN_NOT_OK(arrow::MakeScalar(data_type_, res, &scalar_out));
+    scalar_out = arrow::MakeScalar(res);
     RETURN_NOT_OK(arrow::MakeArrayFromScalar(*scalar_out.get(), 1, &arr_out));
     out->push_back(arr_out);
     return arrow::Status::OK();
@@ -797,7 +795,7 @@ class MaxArrayKernel::Impl {
     }
     std::shared_ptr<arrow::Array> arr_out;
     std::shared_ptr<arrow::Scalar> scalar_out;
-    RETURN_NOT_OK(arrow::MakeScalar(data_type_, res, &scalar_out));
+    scalar_out = arrow::MakeScalar(res);
     RETURN_NOT_OK(arrow::MakeArrayFromScalar(*scalar_out.get(), 1, &arr_out));
     out->push_back(arr_out);
     return arrow::Status::OK();
@@ -858,10 +856,11 @@ class EncodeArrayTypedImpl : public EncodeArrayKernel::Impl {
     auto insert_on_not_found = [this](int32_t i) { builder_->Append(i); };
 
     int cur_id = 0;
+    int memo_index = 0;
     if (typed_array->null_count() == 0) {
       for (; cur_id < typed_array->length(); cur_id++) {
         hash_table_->GetOrInsert(typed_array->GetView(cur_id), insert_on_found,
-                                 insert_on_not_found);
+                                 insert_on_not_found, &memo_index);
       }
     } else {
       for (; cur_id < typed_array->length(); cur_id++) {
@@ -869,7 +868,7 @@ class EncodeArrayTypedImpl : public EncodeArrayKernel::Impl {
           RETURN_NOT_OK(builder_->AppendNull());
         } else {
           hash_table_->GetOrInsert(typed_array->GetView(cur_id), insert_on_found,
-                                   insert_on_not_found);
+                                   insert_on_not_found, &memo_index);
         }
       }
     }
