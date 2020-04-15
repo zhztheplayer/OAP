@@ -20,13 +20,14 @@ package org.apache.spark.sql.execution.datasources.arrow
 import java.io.File
 
 import org.apache.commons.io.FileUtils
+
+import org.apache.spark.sql.{DataFrame, QueryTest}
+import org.apache.spark.sql.DataFrameReaderImplicits._
 import org.apache.spark.sql.execution.datasources.v2.arrow.ArrowOptions
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSQLContext
-import org.apache.spark.sql.types.{IntegerType, LongType, StructField, StructType}
+import org.apache.spark.sql.types.{LongType, StructField, StructType}
 import org.apache.spark.sql.util.ArrowUtils
-import org.apache.spark.sql.{DataFrame, QueryTest}
-import org.apache.spark.sql.DataFrameReaderImplicits._
 
 class ArrowDataSourceTest extends QueryTest with SharedSQLContext {
   private val parquetFile = "parquet-1217.parquet"
@@ -34,7 +35,9 @@ class ArrowDataSourceTest extends QueryTest with SharedSQLContext {
   override def beforeAll(): Unit = {
     super.beforeAll()
     import testImplicits._
-    spark.read.json(Seq("{\"col\": -1}", "{\"col\": 0}", "{\"col\": 1}", "{\"col\": 2}", "{\"col\": null}").toDS())
+    spark.read
+      .json(Seq("{\"col\": -1}", "{\"col\": 0}", "{\"col\": 1}", "{\"col\": 2}", "{\"col\": null}")
+        .toDS())
       .write.parquet(ArrowDataSourceTest.locateResourcePath(parquetFile))
   }
 
@@ -172,7 +175,9 @@ class ArrowDataSourceTest extends QueryTest with SharedSQLContext {
 
       val aPrev = System.currentTimeMillis()
       (0 until iterations).foreach(_ => {
+        // scalastyle:off println
         println(ArrowUtils.rootAllocator.getAllocatedMemory())
+        // scalastyle:on println
         spark.sql("select\n\tsum(l_extendedprice * l_discount) as revenue\n" +
           "from\n\tlineitem_arrow\n" +
           "where\n\tl_shipdate >= date '1994-01-01'\n\t" +
@@ -223,28 +228,40 @@ class ArrowDataSourceTest extends QueryTest with SharedSQLContext {
 
       val pPrev = System.currentTimeMillis()
       (0 until iterations).foreach(_ =>
-        spark.sql("select\n\tp_brand,\n\tp_type,\n\tp_size,\n\tcount(distinct ps_suppkey) as supplier_cnt\n" +
-          "from\n\tpartsupp_parquet,\n\tpart_parquet\nwhere\n\tp_partkey = ps_partkey\n\tand p_brand <> 'Brand#45'\n\t" +
-          "and p_type not like 'MEDIUM POLISHED%'\n\tand p_size in (49, 14, 23, 45, 19, 3, 36, 9)\n\t" +
-          "and ps_suppkey not in (\n\t\tselect\n\t\t\ts_suppkey\n\t\tfrom\n\t\t\tsupplier_parquet\n\t\twhere\n\t\t\t" +
-          "s_comment like '%Customer%Complaints%'\n\t)\ngroup by\n\tp_brand,\n\tp_type,\n\tp_size\norder by\n\t" +
+        spark.sql("select\n\tp_brand,\n\tp_type,\n\tp_size," +
+          "\n\tcount(distinct ps_suppkey) as supplier_cnt\n" +
+          "from\n\tpartsupp_parquet,\n\tpart_parquet\nwhere\n\tp_partkey" +
+          " = ps_partkey\n\tand p_brand <> 'Brand#45'\n\t" +
+          "and p_type not like 'MEDIUM POLISHED%'\n\tand p_size in " +
+          "(49, 14, 23, 45, 19, 3, 36, 9)\n\t" +
+          "and ps_suppkey not in (\n\t\tselect\n\t\t\ts_suppkey\n\t\t" +
+          "from\n\t\t\tsupplier_parquet\n\t\twhere\n\t\t\t" +
+          "s_comment like '%Customer%Complaints%'\n\t)\ngroup by\n\t" +
+          "p_brand,\n\tp_type,\n\tp_size\norder by\n\t" +
           "supplier_cnt desc,\n\tp_brand,\n\tp_type,\n\tp_size").show()
       )
       val parquetExecTime = System.currentTimeMillis() - pPrev
 
       val aPrev = System.currentTimeMillis()
       (0 until iterations).foreach(_ =>
-        spark.sql("select\n\tp_brand,\n\tp_type,\n\tp_size,\n\tcount(distinct ps_suppkey) as supplier_cnt\n" +
-          "from\n\tpartsupp_arrow,\n\tpart_arrow\nwhere\n\tp_partkey = ps_partkey\n\tand p_brand <> 'Brand#45'\n\t" +
-          "and p_type not like 'MEDIUM POLISHED%'\n\tand p_size in (49, 14, 23, 45, 19, 3, 36, 9)\n\t" +
-          "and ps_suppkey not in (\n\t\tselect\n\t\t\ts_suppkey\n\t\tfrom\n\t\t\tsupplier_arrow\n\t\twhere\n\t\t\t" +
-          "s_comment like '%Customer%Complaints%'\n\t)\ngroup by\n\tp_brand,\n\tp_type,\n\tp_size\norder by\n\t" +
+        spark.sql("select\n\tp_brand,\n\tp_type,\n\tp_size," +
+          "\n\tcount(distinct ps_suppkey) as supplier_cnt\n" +
+          "from\n\tpartsupp_arrow,\n\tpart_arrow\nwhere\n\tp_partkey" +
+          " = ps_partkey\n\tand p_brand <> 'Brand#45'\n\t" +
+          "and p_type not like 'MEDIUM POLISHED%'\n\tand p_size in " +
+          "(49, 14, 23, 45, 19, 3, 36, 9)\n\t" +
+          "and ps_suppkey not in (\n\t\tselect\n\t\t\ts_suppkey\n\t\t" +
+          "from\n\t\t\tsupplier_arrow\n\t\twhere\n\t\t\t" +
+          "s_comment like '%Customer%Complaints%'\n\t)\ngroup by\n\t" +
+          "p_brand,\n\tp_type,\n\tp_size\norder by\n\t" +
           "supplier_cnt desc,\n\tp_brand,\n\tp_type,\n\tp_size").show()
       )
       val arrowExecTime = System.currentTimeMillis() - aPrev
 
+      // scalastyle:off println
       println(arrowExecTime)
       println(parquetExecTime)
+      // scalastyle:on println
       // unstable assert
       assert(arrowExecTime < parquetExecTime)
     }
@@ -257,11 +274,16 @@ class ArrowDataSourceTest extends QueryTest with SharedSQLContext {
       .arrow(lineitem)
     frame.createOrReplaceTempView("lineitem")
 
-    spark.sql("select\n\tl_returnflag,\n\tl_linestatus,\n\tsum(l_quantity) as sum_qty,\n\t" +
-      "sum(l_extendedprice) as sum_base_price,\n\tsum(l_extendedprice * (1 - l_discount)) as sum_disc_price,\n\t" +
-      "sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,\n\tavg(l_quantity) as avg_qty,\n\t" +
-      "avg(l_extendedprice) as avg_price,\n\tavg(l_discount) as avg_disc,\n\tcount(*) as count_order\nfrom\n\t" +
-      "lineitem\nwhere\n\tl_shipdate <= date '1998-12-01' - interval '90' day\ngroup by\n\tl_returnflag,\n\t" +
+    spark.sql("select\n\tl_returnflag,\n\tl_linestatus," +
+      "\n\tsum(l_quantity) as sum_qty,\n\t" +
+      "sum(l_extendedprice) as sum_base_price," +
+      "\n\tsum(l_extendedprice * (1 - l_discount)) as sum_disc_price,\n\t" +
+      "sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge," +
+      "\n\tavg(l_quantity) as avg_qty,\n\t" +
+      "avg(l_extendedprice) as avg_price,\n\tavg(l_discount) as avg_disc," +
+      "\n\tcount(*) as count_order\nfrom\n\t" +
+      "lineitem\nwhere\n\tl_shipdate <= date '1998-12-01' - interval '90' day" +
+      "\ngroup by\n\tl_returnflag,\n\t" +
       "l_linestatus\norder by\n\tl_returnflag,\n\tl_linestatus").explain(true)
   }
 
@@ -282,7 +304,8 @@ class ArrowDataSourceTest extends QueryTest with SharedSQLContext {
 }
 
 object ArrowDataSourceTest {
-  private def locateResourcePath(resource: String):String = {
-    classOf[ArrowDataSourceTest].getClassLoader.getResource("").getPath.concat(File.separator).concat(resource)
+  private def locateResourcePath(resource: String): String = {
+    classOf[ArrowDataSourceTest].getClassLoader.getResource("")
+      .getPath.concat(File.separator).concat(resource)
   }
 }

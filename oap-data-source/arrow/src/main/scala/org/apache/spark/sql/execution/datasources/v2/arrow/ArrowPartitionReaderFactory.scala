@@ -26,6 +26,7 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.PartitionedFile
 import org.apache.spark.sql.execution.datasources.v2.FilePartitionReaderFactory
+import org.apache.spark.sql.execution.datasources.v2.arrow.ArrowSQLConf._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.sources.v2.reader.{InputPartition, PartitionReader}
@@ -43,8 +44,7 @@ case class ArrowPartitionReaderFactory(
     extends FilePartitionReaderFactory {
 
   private val batchSize = 4096
-  private val enableFilterPushDown: Boolean = sqlConf
-    .getConfString("spark.sql.arrow.filterPushdown", "true").toBoolean
+  private val enableFilterPushDown: Boolean = sqlConf.arrowFilterPushDown
 
   override def supportColumnarReads(partition: InputPartition): Boolean = true
 

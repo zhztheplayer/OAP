@@ -31,6 +31,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.{FileFormat, OutputWriterFactory, PartitionedFile}
 import org.apache.spark.sql.execution.datasources.arrow.ArrowFileFormat.UnsafeItr
 import org.apache.spark.sql.execution.datasources.v2.arrow.{ArrowFilters, ArrowOptions, ArrowUtils}
+import org.apache.spark.sql.execution.datasources.v2.arrow.ArrowSQLConf._
 import org.apache.spark.sql.sources.{DataSourceRegister, Filter}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
@@ -70,8 +71,7 @@ class ArrowFileFormat extends FileFormat with DataSourceRegister with Serializab
     (file: PartitionedFile) => {
 
       val sqlConf = sparkSession.sessionState.conf;
-      val enableFilterPushDown: Boolean = sqlConf
-        .getConfString("spark.sql.arrow.filterPushdown", "true").toBoolean
+      val enableFilterPushDown = sqlConf.arrowFilterPushDown
       val discovery = ArrowUtils.makeArrowDiscovery(
         file.filePath, new ArrowOptions(
           new CaseInsensitiveStringMap(
