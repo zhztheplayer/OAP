@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.execution.datasources.v2.arrow
 
+import scala.collection.JavaConverters._
+
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.execution.datasources.PartitioningAwareFileIndex
 import org.apache.spark.sql.execution.datasources.v2.FileScan
@@ -24,8 +26,6 @@ import org.apache.spark.sql.sources.v2.reader.PartitionReaderFactory
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.util.SerializableConfiguration
-
-import scala.collection.JavaConverters._
 
 case class ArrowScan(
     sparkSession: SparkSession,

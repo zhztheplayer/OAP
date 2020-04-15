@@ -17,22 +17,23 @@
 
 package org.apache.spark.sql.execution.datasources.arrow;
 
+import scala.collection.JavaConverters._
+
 import org.apache.arrow.dataset.Dataset
 import org.apache.arrow.dataset.jni.{NativeDataSource, NativeScanner}
 import org.apache.arrow.dataset.scanner.ScanOptions
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.FileStatus
 import org.apache.hadoop.mapreduce.Job
+
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.execution.datasources.{FileFormat, OutputWriterFactory, PartitionedFile}
 import org.apache.spark.sql.execution.datasources.arrow.ArrowFileFormat.UnsafeItr
 import org.apache.spark.sql.execution.datasources.v2.arrow.{ArrowFilters, ArrowOptions, ArrowUtils}
-import org.apache.spark.sql.execution.datasources.{FileFormat, OutputWriterFactory, PartitionedFile}
 import org.apache.spark.sql.sources.{DataSourceRegister, Filter}
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.util.CaseInsensitiveStringMap
-
-import scala.collection.JavaConverters._;
+import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
 class ArrowFileFormat extends FileFormat with DataSourceRegister with Serializable {
 
@@ -60,12 +61,12 @@ class ArrowFileFormat extends FileFormat with DataSourceRegister with Serializab
   override def supportBatch(sparkSession: SparkSession, dataSchema: StructType): Boolean = true
 
   override def buildReaderWithPartitionValues(sparkSession: SparkSession,
-                                              dataSchema: StructType,
-                                              partitionSchema: StructType,
-                                              requiredSchema: StructType,
-                                              filters: Seq[Filter],
-                                              options: Map[String, String],
-                                              hadoopConf: Configuration): PartitionedFile => Iterator[InternalRow] = {
+      dataSchema: StructType,
+      partitionSchema: StructType,
+      requiredSchema: StructType,
+      filters: Seq[Filter],
+      options: Map[String, String],
+      hadoopConf: Configuration): PartitionedFile => Iterator[InternalRow] = {
     (file: PartitionedFile) => {
 
       val sqlConf = sparkSession.sessionState.conf;

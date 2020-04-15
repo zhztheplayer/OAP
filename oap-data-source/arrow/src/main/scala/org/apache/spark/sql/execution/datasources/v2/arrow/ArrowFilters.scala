@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution.datasources.v2.arrow
 import org.apache.arrow.dataset.DatasetTypes
 import org.apache.arrow.dataset.DatasetTypes.TreeNode
 import org.apache.arrow.dataset.filter.FilterImpl
+
 import org.apache.spark.sql.sources._
 
 object ArrowFilters {

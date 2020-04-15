@@ -19,17 +19,18 @@ package org.apache.spark.sql.execution.datasources.v2.arrow
 import java.net.URI
 import java.util.TimeZone
 
+import scala.collection.JavaConverters._
+
 import org.apache.arrow.dataset.file.{FileSystem, SingleFileDataSourceDiscovery}
 import org.apache.arrow.vector.VectorSchemaRoot
 import org.apache.arrow.vector.types.pojo.Schema
 import org.apache.hadoop.fs.FileStatus
+
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.vectorized.{ArrowWritableColumnVector, ColumnVectorUtils, OnHeapColumnVector}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.sql.vectorized.ColumnarBatch
-
-import scala.collection.JavaConverters._
 
 object ArrowUtils {
   def readSchema(file: FileStatus, options: CaseInsensitiveStringMap): Option[StructType] = {
@@ -74,7 +75,8 @@ object ArrowUtils {
     org.apache.spark.sql.util.ArrowUtils.toArrowSchema(t, TimeZone.getDefault.getID)
   }
 
-  def loadVsr(vsr: VectorSchemaRoot, partitionValues: InternalRow, partitionSchema: StructType): ColumnarBatch = {
+  def loadVsr(vsr: VectorSchemaRoot,
+              partitionValues: InternalRow, partitionSchema: StructType): ColumnarBatch = {
     val fvs = vsr.getFieldVectors
 
     val rowCount = vsr.getRowCount

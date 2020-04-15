@@ -16,9 +16,12 @@
  */
 package org.apache.spark.sql.execution.datasources.v2.arrow
 
+import scala.collection.JavaConverters._
+
 import org.apache.arrow.dataset.Dataset
 import org.apache.arrow.dataset.jni.{NativeDataSource, NativeScanner}
 import org.apache.arrow.dataset.scanner.ScanOptions
+
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.PartitionedFile
@@ -29,8 +32,6 @@ import org.apache.spark.sql.sources.v2.reader.{InputPartition, PartitionReader}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.SerializableConfiguration
-
-import scala.collection.JavaConverters._
 
 case class ArrowPartitionReaderFactory(
     sqlConf: SQLConf,
