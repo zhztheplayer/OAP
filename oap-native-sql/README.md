@@ -25,6 +25,13 @@ This project is to enable columnar processing operators for spark sql, columnar 
 
 [spark download](https://spark.apache.org/downloads.html)
 
+Remove original Arrow Jars inside Spark assemply folder
+``` shell
+yes | rm assembly/target/scala-2.12/jars/arrow-format-0.15.1.jar
+yes | rm assembly/target/scala-2.12/jars/arrow-vector-0.15.1.jar
+yes | rm assembly/target/scala-2.12/jars/arrow-memory-0.15.1.jar
+```
+
 #### install arrow 0.17.0
 
 ```
@@ -71,6 +78,13 @@ Internal Location: vsr602://mnt/nvme2/chendi/000000/spark-sql_2.12-3.1.0-SNAPSHO
 
 Please refer this link to install Spark.
 [Apache Spark Installation](/oap-native-sql/resource/SparkInstallation.md)
+
+Remove original Arrow Jars inside Spark assemply folder
+``` shell
+yes | rm assembly/target/scala-2.12/jars/arrow-format-0.15.1.jar
+yes | rm assembly/target/scala-2.12/jars/arrow-vector-0.15.1.jar
+yes | rm assembly/target/scala-2.12/jars/arrow-memory-0.15.1.jar
+```
 
 #### install arrow 0.17.0
 
