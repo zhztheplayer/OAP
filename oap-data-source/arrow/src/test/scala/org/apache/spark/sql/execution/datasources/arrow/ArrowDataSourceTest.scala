@@ -25,11 +25,11 @@ import org.apache.spark.sql.{DataFrame, QueryTest}
 import org.apache.spark.sql.DataFrameReaderImplicits._
 import org.apache.spark.sql.execution.datasources.v2.arrow.ArrowOptions
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.test.SharedSQLContext
+import org.apache.spark.sql.test.{SharedSparkSession}
 import org.apache.spark.sql.types.{LongType, StructField, StructType}
 import org.apache.spark.sql.util.ArrowUtils
 
-class ArrowDataSourceTest extends QueryTest with SharedSQLContext {
+class ArrowDataSourceTest extends QueryTest with SharedSparkSession {
   private val parquetFile = "parquet-1217.parquet"
 
   override def beforeAll(): Unit = {

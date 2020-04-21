@@ -19,10 +19,11 @@ package org.apache.spark.sql.execution.datasources.v2.arrow
 import scala.collection.JavaConverters._
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.connector.read.PartitionReaderFactory
 import org.apache.spark.sql.execution.datasources.PartitioningAwareFileIndex
 import org.apache.spark.sql.execution.datasources.v2.FileScan
 import org.apache.spark.sql.sources.Filter
-import org.apache.spark.sql.sources.v2.reader.PartitionReaderFactory
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.util.SerializableConfiguration
@@ -33,8 +34,10 @@ case class ArrowScan(
     readDataSchema: StructType,
     readPartitionSchema: StructType,
     pushedFilters: Array[Filter],
-    options: CaseInsensitiveStringMap)
-    extends FileScan(sparkSession, fileIndex, readDataSchema, readPartitionSchema) {
+    options: CaseInsensitiveStringMap,
+    partitionFilters: Seq[Expression] = Seq.empty,
+    dataFilters: Seq[Expression] = Seq.empty)
+    extends FileScan {
 
   override def createReaderFactory(): PartitionReaderFactory = {
     val caseSensitiveMap = options.asCaseSensitiveMap().asScala.toMap
@@ -49,4 +52,8 @@ case class ArrowScan(
       pushedFilters,
       new ArrowOptions(options.asScala.toMap))
   }
+
+  override def withFilters(partitionFilters: Seq[Expression],
+                           dataFilters: Seq[Expression]): FileScan =
+    this.copy(partitionFilters = partitionFilters, dataFilters = dataFilters)
 }

@@ -87,7 +87,7 @@ object ArrowUtils {
       partitionColumns(i).setIsConstant()
     })
 
-    val batch = new ColumnarBatch(vectors ++ partitionColumns, rowCount, new Array[Long](5))
+    val batch = new ColumnarBatch(vectors ++ partitionColumns, rowCount)
     batch
   }
 
