@@ -7,7 +7,7 @@
   <properties>
     <scala.version>2.12.10</scala.version>
     <scala.binary.version>2.12</scala.binary.version>
-    <spark.version>3.0.0-SNAPSHOT</spark.version>
+    <spark.version>3.1.0-SNAPSHOT</spark.version>
     <arrow.version>1.0.0-SNAPSHOT</arrow.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>

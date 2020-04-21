@@ -19,8 +19,6 @@ package org.apache.spark.sql.execution.datasources.arrow;
 
 import scala.collection.JavaConverters._
 
-import org.apache.arrow.dataset.Dataset
-import org.apache.arrow.dataset.jni.{NativeDataSource, NativeScanner}
 import org.apache.arrow.dataset.scanner.ScanOptions
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.FileStatus
@@ -72,15 +70,13 @@ class ArrowFileFormat extends FileFormat with DataSourceRegister with Serializab
 
       val sqlConf = sparkSession.sessionState.conf;
       val enableFilterPushDown = sqlConf.arrowFilterPushDown
-      val discovery = ArrowUtils.makeArrowDiscovery(
+      val factory = ArrowUtils.makeArrowDiscovery(
         file.filePath, new ArrowOptions(
           new CaseInsensitiveStringMap(
             options.asJava).asScala.toMap))
-      val source = discovery.finish()
 
       // todo predicate validation / pushdown
-      val dataset = new Dataset[NativeDataSource](List(source).asJava,
-        discovery.inspect())
+      val dataset = factory.finish();
 
       val filter = if (enableFilterPushDown) {
         ArrowFilters.translateFilters(filters)
@@ -88,11 +84,9 @@ class ArrowFileFormat extends FileFormat with DataSourceRegister with Serializab
         org.apache.arrow.dataset.filter.Filter.EMPTY
       }
 
-      val scanner = new NativeScanner(
-        dataset,
-        new ScanOptions(requiredSchema.map(f => f.name).toArray,
-          filter, batchSize),
-        org.apache.spark.sql.util.ArrowUtils.rootAllocator)
+      val scanOptions = new ScanOptions(requiredSchema.map(f => f.name).toArray,
+        filter, batchSize)
+      val scanner = dataset.newScan(scanOptions)
       val itrList = scanner
         .scan()
         .iterator()

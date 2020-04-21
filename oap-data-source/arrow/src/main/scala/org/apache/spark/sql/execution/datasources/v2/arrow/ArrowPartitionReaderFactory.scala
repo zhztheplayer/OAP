@@ -18,8 +18,6 @@ package org.apache.spark.sql.execution.datasources.v2.arrow
 
 import scala.collection.JavaConverters._
 
-import org.apache.arrow.dataset.Dataset
-import org.apache.arrow.dataset.jni.{NativeDataSource, NativeScanner}
 import org.apache.arrow.dataset.scanner.ScanOptions
 
 import org.apache.spark.broadcast.Broadcast
@@ -56,20 +54,16 @@ case class ArrowPartitionReaderFactory(
   override def buildColumnarReader(
       partitionedFile: PartitionedFile): PartitionReader[ColumnarBatch] = {
     val path = partitionedFile.filePath
-    val discovery = ArrowUtils.makeArrowDiscovery(path, options)
-    val source = discovery.finish()
-
-    val dataset = new Dataset[NativeDataSource](List(source).asJava,
-      discovery.inspect())
+    val factory = ArrowUtils.makeArrowDiscovery(path, options)
+    val dataset = factory.finish()
     val filter = if (enableFilterPushDown) {
       ArrowFilters.translateFilters(pushedFilters)
     } else {
       org.apache.arrow.dataset.filter.Filter.EMPTY
     }
-    val scanner = new NativeScanner(dataset,
-      new ScanOptions(readDataSchema.map(f => f.name).toArray,
-        filter, batchSize),
-      org.apache.spark.sql.util.ArrowUtils.rootAllocator)
+    val scanOptions = new ScanOptions(readDataSchema.map(f => f.name).toArray,
+      filter, batchSize)
+    val scanner = dataset.newScan(scanOptions)
     val itrList = scanner
       .scan()
       .iterator()

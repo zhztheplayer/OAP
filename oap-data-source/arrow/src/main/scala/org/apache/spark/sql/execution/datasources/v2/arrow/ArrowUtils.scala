@@ -21,7 +21,7 @@ import java.util.TimeZone
 
 import scala.collection.JavaConverters._
 
-import org.apache.arrow.dataset.file.{FileSystem, SingleFileDataSourceDiscovery}
+import org.apache.arrow.dataset.file.{FileSystem, SingleFileDatasetFactory}
 import org.apache.arrow.vector.VectorSchemaRoot
 import org.apache.arrow.vector.types.pojo.Schema
 import org.apache.hadoop.fs.FileStatus
@@ -34,26 +34,26 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
 
 object ArrowUtils {
   def readSchema(file: FileStatus, options: CaseInsensitiveStringMap): Option[StructType] = {
-    val discovery: SingleFileDataSourceDiscovery =
+    val factory: SingleFileDatasetFactory =
       makeArrowDiscovery(file.getPath.toString, new ArrowOptions(options.asScala.toMap))
-    val schema = discovery.inspect() // todo mem leak?
+    val schema = factory.inspect() // todo mem leak?
     Option(org.apache.spark.sql.util.ArrowUtils.fromArrowSchema(schema))
   }
 
   def readSchema(files: Seq[FileStatus], options: CaseInsensitiveStringMap): Option[StructType] =
     readSchema(files.toList.head, options) // todo merge schema
 
-  def makeArrowDiscovery(file: String, options: ArrowOptions): SingleFileDataSourceDiscovery = {
+  def makeArrowDiscovery(file: String, options: ArrowOptions): SingleFileDatasetFactory = {
 
     val format = getFormat(options).getOrElse(throw new IllegalStateException)
     val fs = getFs(options).getOrElse(throw new IllegalStateException)
 
-    val discovery = new SingleFileDataSourceDiscovery(
+    val factory = new SingleFileDatasetFactory(
       org.apache.spark.sql.util.ArrowUtils.rootAllocator,
       format,
       fs,
       rewriteFilePath(file))
-    discovery
+    factory
   }
 
   def rewriteFilePath(file: String): String = {
