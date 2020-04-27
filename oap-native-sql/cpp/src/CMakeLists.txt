@@ -23,12 +23,16 @@ set(source_root_directory ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Gandiva protobuf
 
+set(CMAKE_FIND_LIBRARY_SUFFIXES ".so")
 find_package(Protobuf)
 
-if(Protobuf_FOUND)
-  set(PROTOBUF_SOURCE_URL "${Protobuf_INCLUDE_DIRS}")
-else()
-  message("Building Protocol Buffers from source")
+if ("${Protobuf_LIBRARY}" STREQUAL "Protobuf_LIBRARY-NOTFOUND")
+  message(WARNING "libprotobuf.so not found, will build from source")
+  set(BUILD_PROTOBUF true)
+endif()
+
+if(BUILD_PROTOBUF)
+  message(STATUS "Building Protocol Buffers from source")
   set (PROTOBUF_SOURCE_URL
        "https://github.com/protocolbuffers/protobuf/releases/download/v3.7.1/protobuf-all-3.7.1.tar.gz"
         "https://github.com/ursa-labs/thirdparty/releases/download/latest/protobuf-v3.7.1.tar.gz"
@@ -67,6 +71,7 @@ else()
                       CONFIGURE_COMMAND "./configure" ${PROTOBUF_CONFIGURE_ARGS}
                       BUILD_COMMAND ${PROTOBUF_BUILD_COMMAND}
                       BUILD_IN_SOURCE 1
+                      URL_MD5 cda6ae370a5df941f8aa837c8a0292ba
                       URL ${PROTOBUF_SOURCE_URL}
   )
 
@@ -77,6 +82,8 @@ else()
     PROPERTIES IMPORTED_LOCATION "${PROTOBUF_STATIC_LIB}" INTERFACE_INCLUDE_DIRECTORIES
                "${PROTOBUF_INCLUDE_DIR}")
   add_dependencies(protobuf::libprotobuf protobuf_ep)
+else()
+  set(PROTOC_BIN ${Protobuf_PROTOC_EXECUTABLE})
 endif()
 
 file(MAKE_DIRECTORY ${root_directory}/src/proto)
@@ -96,7 +103,7 @@ add_custom_command(OUTPUT ${PROTO_OUTPUT_FILES}
                            --cpp_out
                        ${PROTO_OUTPUT_DIR}
                            ${CMAKE_CURRENT_SOURCE_DIR}/proto/Exprs.proto
-                   DEPENDS protobuf_ep ${ABS_GANDIVA_PROTO}
+                   DEPENDS  ${ABS_GANDIVA_PROTO}
                    COMMENT "Running PROTO compiler on Exprs.proto"
                    VERBATIM)
 
@@ -179,9 +186,14 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
 file(MAKE_DIRECTORY ${root_directory}/releases)
 add_library(spark_columnar_jni SHARED ${SPARK_COLUMNAR_PLUGIN_SRCS})
 add_dependencies(spark_columnar_jni jni_proto)
+if(BUILD_PROTOBUF)
 target_link_libraries(spark_columnar_jni
                       LINK_PUBLIC ${ARROW_LIB} ${PARQUET_LIB} ${GANDIVA_LIB} ${GANDIVA_LINK_LIBS}
                       LINK_PRIVATE protobuf::libprotobuf)
+else()
+target_link_libraries(spark_columnar_jni
+                      LINK_PUBLIC ${ARROW_LIB} ${PARQUET_LIB} ${GANDIVA_LIB} ${GANDIVA_LINK_LIBS} ${PROTOBUF_LIBRARY})
+endif()
 target_include_directories(spark_columnar_jni PUBLIC ${CMAKE_SYSTEM_INCLUDE_PATH} ${JNI_INCLUDE_DIRS} ${source_root_directory} ${PROTO_OUTPUT_DIR} ${PROTOBUF_INCLUDE})
 set_target_properties(spark_columnar_jni PROPERTIES
                       LIBRARY_OUTPUT_DIRECTORY ${root_directory}/releases
