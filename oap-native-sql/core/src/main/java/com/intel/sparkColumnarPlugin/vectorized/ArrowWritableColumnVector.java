@@ -948,6 +948,12 @@ public final class ArrowWritableColumnVector extends WritableColumnVector {
     final int getInt(int rowId) {
       return accessor.get(rowId);
     }
+
+    @Override
+    final UTF8String getUTF8String(int rowId) {
+      return UTF8String.fromString(Integer.toString(accessor.get(rowId)));
+    }
+
   }
 
   private static class TimestampAccessor extends ArrowVectorAccessor {
@@ -1562,6 +1568,11 @@ public final class ArrowWritableColumnVector extends WritableColumnVector {
     DateWriter(DateDayVector vector) {
       super(vector);
       this.writer = vector;
+    }
+
+    @Override
+    final void setInt(int rowId, int value) {
+      writer.set(rowId, value);
     }
 
     @Override
