@@ -36,6 +36,7 @@ class CodeGenerator {
     return arrow::Status::NotImplemented(
         "evaluate with selection array is not Implemented.");
   }
+  virtual std::string ToString() { return ""; }
 };
 }  // namespace codegen
 }  // namespace sparkcolumnarplugin

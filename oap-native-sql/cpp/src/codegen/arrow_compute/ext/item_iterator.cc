@@ -59,7 +59,7 @@ class ItemIterator::Impl {
 
 #undef PROCESS_SUPPORTED_TYPES
   Impl() {}
-  ~Impl() {}
+  virtual ~Impl() {}
   virtual arrow::Status Submit(ArrayList in_arr_list,
                                std::shared_ptr<arrow::Array> selection,
                                std::function<arrow::Status()>* next,

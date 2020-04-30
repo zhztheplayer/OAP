@@ -93,7 +93,7 @@ jobject MakeRecordBatchBuilder(JNIEnv* env, std::shared_ptr<arrow::Schema> schem
     }
     jobject arrowbuf_builder =
         env->NewObject(arrowbuf_builder_class, arrowbuf_builder_constructor,
-                       buffer_holder_.Insert(buffer), data, size, capacity);
+                       buffer_holder_.Insert(std::move(buffer)), data, size, capacity);
     env->SetObjectArrayElement(arrowbuf_builder_array, j, arrowbuf_builder);
   }
 
@@ -179,6 +179,8 @@ void JNI_OnUnload(JavaVM* vm, void* reserved) {
   env->DeleteGlobalRef(arrow_record_batch_builder_class);
 
   buffer_holder_.Clear();
+  handler_holder_.Clear();
+  batch_iterator_holder_.Clear();
 }
 
 JNIEXPORT jlong JNICALL
@@ -225,7 +227,18 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
         "nativeBuild: failed to create CodeGenerator, err msg is " + msg.message();
     env->ThrowNew(io_exception_class, error_message.c_str());
   }
-  return handler_holder_.Insert(std::shared_ptr<CodeGenerator>(handler));
+
+#ifdef DEBUG
+  auto handler_holder_size = handler_holder_.Size();
+  auto batch_holder_size = batch_iterator_holder_.Size();
+  auto buffer_holder_size = buffer_holder_.Size();
+  std::cout << "build native Evaluator " << handler->ToString()
+            << "\nremain refCnt [buffer|Evaluator|batchIterator] is ["
+            << buffer_holder_size << "|" << handler_holder_size << "|"
+            << batch_holder_size << "]" << std::endl;
+#endif
+
+  return handler_holder_.Insert(std::move(handler));
 }
 
 JNIEXPORT jlong JNICALL
@@ -267,7 +280,7 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
         "nativeBuild: failed to create CodeGenerator, err msg is " + msg.message();
     env->ThrowNew(io_exception_class, error_message.c_str());
   }
-  return handler_holder_.Insert(std::shared_ptr<CodeGenerator>(handler));
+  return handler_holder_.Insert(std::move(handler));
 }
 
 JNIEXPORT void JNICALL
@@ -291,6 +304,19 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
 JNIEXPORT void JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeClose(
     JNIEnv* env, jobject obj, jlong id) {
+  auto handler = GetCodeGenerator(env, id);
+  if (handler.use_count() > 2) {
+    std::cout << "evaluator ptr use count is " << handler.use_count() - 1 << std::endl;
+  }
+#ifdef DEBUG
+  auto handler_holder_size = handler_holder_.Size();
+  auto batch_holder_size = batch_iterator_holder_.Size();
+  auto buffer_holder_size = buffer_holder_.Size();
+  std::cout << "close native Evaluator " << handler->ToString()
+            << "\nremain refCnt [buffer|Evaluator|batchIterator] is ["
+            << buffer_holder_size << "|" << handler_holder_size << "|"
+            << batch_holder_size << "]" << std::endl;
+#endif
   handler_holder_.Erase(id);
 }
 
@@ -475,8 +501,7 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
     env->ThrowNew(io_exception_class, error_message.c_str());
   }
 
-  return batch_iterator_holder_.Insert(
-      std::shared_ptr<ResultIterator<arrow::RecordBatch>>(out));
+  return batch_iterator_holder_.Insert(std::move(out));
 }
 
 JNIEXPORT void JNICALL
@@ -714,14 +739,24 @@ JNIEXPORT void JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_BatchIterator_nativeClose(JNIEnv* env,
                                                                         jobject this_obj,
                                                                         jlong id) {
+#ifdef DEBUG
+  auto it = batch_iterator_holder_.Lookup(id);
+  if (it.use_count() > 2) {
+    std::cout << it->ToString() << " ptr use count is " << it.use_count() << std::endl;
+  }
+#endif
   batch_iterator_holder_.Erase(id);
 }
 
 JNIEXPORT void JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_AdaptorReferenceManager_nativeRelease(
     JNIEnv* env, jobject this_obj, jlong id) {
-  // auto buffer_holder_size = buffer_holder_.Size();
-  // std::cout << "release buffer, current size is " << buffer_holder_size << std::endl;
+#ifdef DEBUG
+  auto it = buffer_holder_.Lookup(id);
+  if (it.use_count() > 2) {
+    std::cout << "buffer ptr use count is " << it.use_count() << std::endl;
+  }
+#endif
   buffer_holder_.Erase(id);
 }
 
@@ -749,6 +784,15 @@ Java_com_intel_sparkColumnarPlugin_datasource_parquet_ParquetReaderJniWrapper_na
     std::string error_message = "nativeOpenParquetReader: " + status.message();
     env->ThrowNew(io_exception_class, error_message.c_str());
   }
+#ifdef DEBUG
+  auto handler_holder_size = handler_holder_.Size();
+  auto batch_holder_size = batch_iterator_holder_.Size();
+  auto buffer_holder_size = buffer_holder_.Size();
+  std::cout << "build native Parquet Reader "
+            << "\nremain refCnt [buffer|Evaluator|batchIterator] is ["
+            << buffer_holder_size << "|" << handler_holder_size << "|"
+            << batch_holder_size << "]" << std::endl;
+#endif
   return reader_holder_.Insert(std::shared_ptr<ParquetFileReader>(reader.release()));
 }
 
@@ -825,6 +869,15 @@ JNIEXPORT void JNICALL
 Java_com_intel_sparkColumnarPlugin_datasource_parquet_ParquetReaderJniWrapper_nativeCloseParquetReader(
     JNIEnv* env, jobject obj, jlong id) {
   reader_holder_.Erase(id);
+#ifdef DEBUG
+  auto handler_holder_size = handler_holder_.Size();
+  auto batch_holder_size = batch_iterator_holder_.Size();
+  auto buffer_holder_size = buffer_holder_.Size();
+  std::cout << "close native Parquet Reader "
+            << "\nremain refCnt [buffer|Evaluator|batchIterator] is ["
+            << buffer_holder_size << "|" << handler_holder_size << "|"
+            << batch_holder_size << "]" << std::endl;
+#endif
 }
 
 JNIEXPORT jobject JNICALL

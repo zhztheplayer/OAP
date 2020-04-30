@@ -24,4 +24,5 @@ class ResultIterator {
   virtual arrow::Status GetResult(std::shared_ptr<arrow::RecordBatch>* out) {
     return arrow::Status::NotImplemented("ResultIterator abstract GetResult()");
   }
+  virtual std::string ToString() { return ""; }
 };

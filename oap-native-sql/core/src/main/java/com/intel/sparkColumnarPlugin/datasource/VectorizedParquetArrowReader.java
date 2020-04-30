@@ -5,15 +5,12 @@ import com.intel.sparkColumnarPlugin.vectorized.ArrowWritableColumnVector;
 import java.io.IOException;
 import java.time.ZoneId;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.apache.spark.sql.execution.datasources.parquet.VectorizedParquetRecordReader;
 import com.intel.sparkColumnarPlugin.datasource.parquet.ParquetReader;
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.memory.RootAllocator;
-import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ipc.message.ArrowRecordBatch;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -45,13 +42,13 @@ public class VectorizedParquetArrowReader extends VectorizedParquetRecordReader 
   private int numReaded = 0;
   private long totalLength;
 
-  private List<FieldVector> vector_list;
-  private ColumnarBatch last_columnar_batch;
+  private ArrowRecordBatch next_batch;
+  //private ColumnarBatch last_columnar_batch;
 
   private StructType sourceSchema;
   private StructType readDataSchema;
 
-  private BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+  private Schema schema = null;
 
   public VectorizedParquetArrowReader(
     String path,
@@ -105,7 +102,7 @@ public class VectorizedParquetArrowReader extends VectorizedParquetRecordReader 
     ParquetInputSplit split = (ParquetInputSplit)inputSplit;
     LOG.info("ParquetReader uri path is " + uriPath + ", rowGroupIndices is " + Arrays.toString(rowGroupIndices) + ", column_indices is " + Arrays.toString(column_indices));
     this.reader = new ParquetReader(uriPath,
-      split.getStart(), split.getEnd(), column_indices, capacity, allocator);
+      split.getStart(), split.getEnd(), column_indices, capacity, ArrowWritableColumnVector.getNewAllocator());
   }
 
   @Override
@@ -120,20 +117,15 @@ public class VectorizedParquetArrowReader extends VectorizedParquetRecordReader 
 
   @Override
   public boolean nextBatch() throws IOException {
-    if (last_columnar_batch != null) {
-      last_columnar_batch.close();
+    next_batch = reader.readNext();
+    if (schema == null) {
+      schema = reader.getSchema();
     }
-    long start = System.nanoTime();
-    if (schemaRoot == null) {
-      Schema schema = reader.getSchema();
-      schemaRoot = VectorSchemaRoot.create(schema, allocator);
-    }
-    vector_list = reader.readNextVectors(schemaRoot);
-    if (vector_list == null) {
+    if (next_batch == null) {
       lastReadLength = 0;
       return false;
     }
-    lastReadLength = reader.lastReadLength();
+    lastReadLength = next_batch.getLength();
     numLoaded += lastReadLength;
 
     return true;
@@ -141,23 +133,18 @@ public class VectorizedParquetArrowReader extends VectorizedParquetRecordReader 
 
   @Override
   public Object getCurrentValue() {
-    long start = System.nanoTime();
     if (numReaded == numLoaded) {
       return null;
     }
     numReaded += lastReadLength;
-    int length = Math.toIntExact(lastReadLength);
     ArrowWritableColumnVector[] columnVectors =
-      ArrowWritableColumnVector.loadColumns(length, vector_list);
-    last_columnar_batch = new ColumnarBatch(columnVectors, length);
-    return last_columnar_batch;
+      ArrowWritableColumnVector.loadColumns(next_batch.getLength(), schema, next_batch);
+    next_batch.close();
+    return new ColumnarBatch(columnVectors, next_batch.getLength());
   }
 
   @Override
   public void close() throws IOException {
-    if (last_columnar_batch != null) {
-      last_columnar_batch.close();
-    }
     if (reader != null) {
       reader.close();
       reader = null;

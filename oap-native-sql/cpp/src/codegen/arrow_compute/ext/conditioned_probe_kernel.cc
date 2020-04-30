@@ -47,7 +47,7 @@ using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
 class ConditionedProbeArraysKernel::Impl {
  public:
   Impl() {}
-  ~Impl() {}
+  virtual ~Impl() {}
   virtual arrow::Status Evaluate(const ArrayList& in) {
     return arrow::Status::NotImplemented(
         "ConditionedProbeArraysKernel::Impl Evaluate is abstract");
@@ -661,6 +661,8 @@ extern "C" void MakeConditioner(std::shared_ptr<ConditionerBase> *out) {
         return true;
       };
     }
+
+    std::string ToString() override { return "ConditionedProbeArraysResultIterator"; }
 
     arrow::Status ProcessAndCacheOne(
         ArrayList in, const std::shared_ptr<arrow::Array>& selection) override {

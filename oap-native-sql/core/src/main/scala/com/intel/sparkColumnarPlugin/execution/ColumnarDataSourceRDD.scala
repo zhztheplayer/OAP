@@ -1,12 +1,12 @@
 package com.intel.sparkColumnarPlugin.execution
 
+import com.intel.sparkColumnarPlugin.vectorized._
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.connector.read.{InputPartition, PartitionReaderFactory, PartitionReader}
 import org.apache.spark.sql.execution.datasources.{FilePartition, PartitionedFile}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
-import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.sql.execution.datasources.v2.VectorizedFilePartitionReaderHandler
 import org.apache.spark.sql.execution.datasources.v2.parquet.ParquetPartitionReaderFactory
 
@@ -75,8 +75,9 @@ class ColumnarDataSourceRDD(
         reader.get()
       }
     }
+    val closeableColumnarBatchIterator = new CloseableColumnBatchIterator(iter.asInstanceOf[Iterator[ColumnarBatch]])
     // TODO: SPARK-25083 remove the type erasure hack in data source scan
-    new InterruptibleIterator(context, iter.asInstanceOf[Iterator[ColumnarBatch]])
+    new InterruptibleIterator(context, closeableColumnarBatchIterator)
   }
 
   override def getPreferredLocations(split: Partition): Seq[String] = {

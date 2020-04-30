@@ -55,7 +55,7 @@ class ColumnarShuffledHashJoin(
     var build_cb : ColumnarBatch = null
     var last_cb: ColumnarBatch = null
 
-    val inputBatchHolder = new ListBuffer[ArrowRecordBatch]() 
+    val inputBatchHolder = new ListBuffer[ColumnarBatch]()
     // TODO
     val l_input_schema: List[Attribute] = left.output.toList
     val r_input_schema: List[Attribute] = right.output.toList
@@ -232,17 +232,17 @@ class ColumnarShuffledHashJoin(
 
     while (buildIter.hasNext) {
       if (build_cb != null) {
-        build_cb.close()
         build_cb = null
       }
       build_cb = buildIter.next()
       val build_rb = ConverterUtils.createArrowRecordBatch(build_cb)
-      inputBatchHolder += build_rb
+      (0 until build_cb.numCols).toList.foreach(i => build_cb.column(i).asInstanceOf[ArrowWritableColumnVector].retain())
+      inputBatchHolder += build_cb
       prober.evaluate(build_rb)
       build_shuffler.evaluate(build_rb)
+      ConverterUtils.releaseArrowRecordBatch(build_rb)
     }
     if (build_cb != null) {
-      build_cb.close()
       build_cb = null
     } else {
       val res = new Iterator[ColumnarBatch] {
@@ -266,57 +266,57 @@ class ColumnarShuffledHashJoin(
     build_shuffle_iterator = build_shuffler.finishByIterator()
     buildTime += NANOSECONDS.toMillis(System.nanoTime() - beforeBuild)
     
-    streamIter.map(cb => {
-      if (last_cb != null) {
-        last_cb.close()
-        last_cb = null
+    new Iterator[ColumnarBatch] {
+      override def hasNext: Boolean = {
+        if(streamIter.hasNext) {
+          true
+        } else {
+          inputBatchHolder.foreach(cb => cb.close())
+          false
+        }
       }
-      val beforeJoin = System.nanoTime()
-      last_cb = cb
-      val stream_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb)
-      probe_iterator.processAndCacheOne(stream_input_arrow_schema, stream_rb)
-      val output_rb = build_shuffle_iterator.process(stream_input_arrow_schema, stream_rb) 
 
-      ConverterUtils.releaseArrowRecordBatch(stream_rb)
-      joinTime += NANOSECONDS.toMillis(System.nanoTime() - beforeJoin)
-
-      if (output_rb == null) {
-        val resultColumnVectors =
-          ArrowWritableColumnVector.allocateColumns(0, resultSchema).toArray
-        new ColumnarBatch(resultColumnVectors.map(v => v.asInstanceOf[ColumnVector]).toArray, 0)
-      } else {
-        val outputNumRows = output_rb.getLength
-        val output = ConverterUtils.fromArrowRecordBatch(output_arrow_schema, output_rb)
-        ConverterUtils.releaseArrowRecordBatch(output_rb)
-        totalOutputNumRows += outputNumRows 
-        new ColumnarBatch(output.map(v => v.asInstanceOf[ColumnVector]).toArray, outputNumRows)
-      }
+      override def next(): ColumnarBatch = {
+        val cb = streamIter.next()
+        last_cb = cb
+        val beforeJoin = System.nanoTime()
+        val stream_rb: ArrowRecordBatch = ConverterUtils.createArrowRecordBatch(cb)
+        probe_iterator.processAndCacheOne(stream_input_arrow_schema, stream_rb)
+        val output_rb = build_shuffle_iterator.process(stream_input_arrow_schema, stream_rb)
   
-    })
+        ConverterUtils.releaseArrowRecordBatch(stream_rb)
+        joinTime += NANOSECONDS.toMillis(System.nanoTime() - beforeJoin)
+        if (output_rb == null) {
+          val resultColumnVectors =
+            ArrowWritableColumnVector.allocateColumns(0, resultSchema).toArray
+          new ColumnarBatch(resultColumnVectors.map(v => v.asInstanceOf[ColumnVector]).toArray, 0)
+        } else {
+          val outputNumRows = output_rb.getLength
+          val output = ConverterUtils.fromArrowRecordBatch(output_arrow_schema, output_rb)
+          ConverterUtils.releaseArrowRecordBatch(output_rb)
+          totalOutputNumRows += outputNumRows 
+          new ColumnarBatch(output.map(v => v.asInstanceOf[ColumnVector]).toArray, outputNumRows)
+        }  
+      }
+    }
   }
 
   def close(): Unit = {
-    logInfo(" closed")
-    ConverterUtils.releaseArrowRecordBatchList(inputBatchHolder.toArray)
-    if (last_cb != null) {
-      last_cb.close()
-      last_cb = null
-    }
-    if (probe_iterator != null) {
-      probe_iterator.close()
-      probe_iterator = null
+    if (build_shuffler != null) {
+      build_shuffler.close()
+      build_shuffler = null
     }
     if (build_shuffle_iterator != null) {
       build_shuffle_iterator.close()
       build_shuffle_iterator = null
     }
-    if (build_shuffler != null) {
-      build_shuffler.close()
-      build_shuffler = null
-    }
     if (prober != null) {
       prober.close()
       prober = null
+    }
+    if (probe_iterator != null) {
+      probe_iterator.close()
+      probe_iterator = null
     }
   }
 }

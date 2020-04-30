@@ -124,7 +124,7 @@ class ColumnarConditionProjector(
   elapseTime_make = System.nanoTime() - start_make
   logInfo(s"Gandiva make total ${TimeUnit.NANOSECONDS.toMillis(elapseTime_make)} ms.")
 
-  val allocator = new RootAllocator(9223372036854775807L)
+  val allocator = ArrowWritableColumnVector.getNewAllocator
 
   def createFilter(arrowSchema: Schema, prepareList: (TreeNode, ArrowType)): Filter =
     synchronized {
@@ -183,10 +183,6 @@ class ColumnarConditionProjector(
         var input : ArrowRecordBatch = null
         var selectionVector : SelectionVectorInt16 = null
         while (numRows == 0) {
-          if (columnarBatch != null) {
-            columnarBatch.close()
-            columnarBatch = null
-          }
 
           if (cbIterator.hasNext) {
             columnarBatch = cbIterator.next()
@@ -202,7 +198,7 @@ class ColumnarConditionProjector(
             if (skip == true){
               logInfo("Use original ColumnarBatch")
               resColumnarBatch = columnarBatch
-              columnarBatch = null
+              (0 until resColumnarBatch.numCols).toList.foreach(i => resColumnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].retain())
               return true
             } 
             if (conditioner != null) {
@@ -224,7 +220,7 @@ class ColumnarConditionProjector(
               if (projectList == null && numRows == columnarBatch.numRows()) {
                 logInfo("No projection and conditioned row number is as same as original row number. Directly use original ColumnarBatch")
                 resColumnarBatch = columnarBatch
-                columnarBatch = null
+                (0 until resColumnarBatch.numCols).toList.foreach(i => resColumnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].retain())
                 return true
               }
             }
@@ -255,7 +251,6 @@ class ColumnarConditionProjector(
         val outputBatch = new ColumnarBatch(resultColumnVectors.map(_.asInstanceOf[ColumnVector]), numRows)
         procTime += ((System.nanoTime() - beforeEval) / (1000 * 1000))
         resColumnarBatch = outputBatch
-        cols.map(_.close())
         true
       }
 

@@ -252,8 +252,13 @@ case class RowToArrowColumnarExec(child: SparkPlan) extends UnaryExecNode {
       if (rowIterator.hasNext) {
         new Iterator[ColumnarBatch] {
           private val converters = new RowToColumnConverter(localSchema)
+          private var last_cb: ColumnarBatch = null
 
           override def hasNext: Boolean = {
+            if (last_cb != null) {
+              last_cb.close()
+              last_cb = null
+            }
             rowIterator.hasNext
           }
 
@@ -268,7 +273,8 @@ case class RowToArrowColumnarExec(child: SparkPlan) extends UnaryExecNode {
             }
             numInputRows += rowCount
             numOutputBatches += 1
-            new ColumnarBatch(vectors.toArray, rowCount)
+            last_cb = new ColumnarBatch(vectors.toArray, rowCount)
+            last_cb
           }
         }
       } else {

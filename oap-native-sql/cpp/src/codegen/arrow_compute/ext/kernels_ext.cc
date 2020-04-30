@@ -186,6 +186,8 @@ class SplitArrayListWithActionKernel::Impl {
                 << " us." << std::endl;
     }
 
+    std::string ToString() override { return "SplitArrayWithActionResultIterator"; }
+
     bool HasNext() override {
       if (offset_ >= total_length_) {
         return false;

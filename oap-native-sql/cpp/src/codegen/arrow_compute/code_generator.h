@@ -25,6 +25,9 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
         return_when_finish_(return_when_finish) {
     int i = 0;
     for (auto expr : expr_vector) {
+      expr_string += expr->ToString() + "|";
+    }
+    for (auto expr : expr_vector) {
       std::shared_ptr<ExprVisitor> root_visitor;
       if (finish_exprs_vector.empty()) {
         auto visitor = MakeExprVisitor(schema_ptr, expr, ret_types_, &expr_visitor_cache_,
@@ -49,6 +52,8 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
     expr_visitor_cache_.clear();
     visitor_list_.clear();
   }
+
+  std::string ToString() override { return expr_string; }
 
   arrow::Status DistinctInsert(const std::shared_ptr<ExprVisitor>& in,
                                std::vector<std::shared_ptr<ExprVisitor>>* visitor_list) {
@@ -226,6 +231,7 @@ class ArrowComputeCodeGenerator : public CodeGenerator {
   std::shared_ptr<arrow::Schema> schema_;
   std::shared_ptr<arrow::Schema> res_schema_;
   std::vector<std::shared_ptr<arrow::Field>> ret_types_;
+  std::string expr_string;
   // metrics
   uint64_t eval_elapse_time_ = 0;
   uint64_t finish_elapse_time_ = 0;

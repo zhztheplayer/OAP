@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
@@ -45,6 +46,14 @@ public final class ArrowWritableColumnVector extends WritableColumnVector {
   private int ordinal;
   private ValueVector vector;
 
+  public static BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+  public static BufferAllocator getNewAllocator() {
+    return new RootAllocator(Long.MAX_VALUE);
+  }
+  public static AtomicLong vectorCount = new AtomicLong(0);
+  private AtomicLong refCnt = new AtomicLong(0);
+  private boolean closed = false;
+
   /**
    * Allocates columns to store elements of each field of the schema on heap.
    * Capacity is the initial capacity of the vector and it will grow as necessary. Capacity is
@@ -53,7 +62,6 @@ public final class ArrowWritableColumnVector extends WritableColumnVector {
   public static ArrowWritableColumnVector[] allocateColumns(int capacity, StructType schema) {
     String timeZoneId = SQLConf.get().sessionLocalTimeZone();
     Schema arrowSchema = ArrowUtils.toArrowSchema(schema, timeZoneId);
-    BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
     VectorSchemaRoot new_root = VectorSchemaRoot.create(arrowSchema, allocator);
 
     List<FieldVector> fieldVectors = new_root.getFieldVectors();
@@ -75,7 +83,6 @@ public final class ArrowWritableColumnVector extends WritableColumnVector {
 
   public static ArrowWritableColumnVector[] loadColumns(int capacity, Schema arrowSchema,
                                                         ArrowRecordBatch recordBatch) {
-    BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
     VectorSchemaRoot root = VectorSchemaRoot.create(arrowSchema, allocator); 
     VectorLoader loader = new VectorLoader(root);
     loader.load(recordBatch);
@@ -84,6 +91,8 @@ public final class ArrowWritableColumnVector extends WritableColumnVector {
 
   public ArrowWritableColumnVector(ValueVector vector, int ordinal, int capacity, boolean init){
     super(capacity, ArrowUtils.fromArrowField(vector.getField()));
+    vectorCount.getAndIncrement();
+    refCnt.getAndIncrement();
 
     this.ordinal = ordinal;
     this.vector = vector;
@@ -97,10 +106,11 @@ public final class ArrowWritableColumnVector extends WritableColumnVector {
 
   public ArrowWritableColumnVector(int capacity, DataType dataType) {
     super(capacity, dataType);
+    vectorCount.getAndIncrement();
+    refCnt.getAndIncrement();
     String timeZoneId = SQLConf.get().sessionLocalTimeZone();
     List<Field> fields = Arrays.asList(ArrowUtils.toArrowField("col", dataType, true, timeZoneId));
     Schema arrowSchema = new Schema(fields);
-    BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
     VectorSchemaRoot root = VectorSchemaRoot.create(arrowSchema, allocator); 
 
     List<FieldVector> fieldVectors = root.getFieldVectors();
@@ -216,8 +226,24 @@ public final class ArrowWritableColumnVector extends WritableColumnVector {
     return new ArrowWritableColumnVector(capacity, type);
   }
 
+  public void retain() {
+    refCnt.getAndIncrement();
+  }
+
+  public long refCnt() {
+    return vector.getDataBuffer().refCnt();
+  }
+
   @Override
   public void close() {
+    if (closed) {
+      return;
+    }
+    if (refCnt.decrementAndGet() > 0) {
+      return;
+    }
+    closed = true;
+    vectorCount.getAndDecrement();
     super.close();
     // TODO: close Arrow Allocated Memory
     if (childColumns != null) {
@@ -227,12 +253,11 @@ public final class ArrowWritableColumnVector extends WritableColumnVector {
       }
       childColumns = null;
     }
-    if (accessor != null) {
-      accessor.close();
-    }
-    if (writer != null) {
-      writer.close();
-    }
+    vector.close();
+  }
+
+  public static String stat() {
+    return "vectorCounter is " + vectorCount.get() + ", allocator is " + allocator.toVerboseString();
   }
 
 
@@ -1520,13 +1545,11 @@ public final class ArrowWritableColumnVector extends WritableColumnVector {
   private static class StringWriter extends ArrowVectorWriter {
 
     private final VarCharVector writer;
-    private final BufferAllocator allocator;
     private int rowId;
 
     StringWriter(VarCharVector vector) {
       super(vector);
       this.writer = vector;
-      this.allocator = writer.getAllocator();
       this.rowId = 0;
     }
 

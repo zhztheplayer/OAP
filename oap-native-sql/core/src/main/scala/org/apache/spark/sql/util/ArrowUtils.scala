@@ -13,7 +13,6 @@ import org.apache.spark.sql.types._
 object ArrowUtils {
 
   val rootAllocator = new RootAllocator(Long.MaxValue)
-
   // todo: support more types.
 
   /** Maps data type from Spark to Arrow. NOTE: timeZoneId required for TimestampTypes */

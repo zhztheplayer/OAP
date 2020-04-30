@@ -10,14 +10,17 @@ import org.apache.arrow.memory.ReferenceManager;
 import org.apache.arrow.util.Preconditions;
 
 import io.netty.buffer.ArrowBuf;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * A simple reference manager implementation for memory allocated by native code. The underlying
- * memory will be released when reference count reach zero.
+ * A simple reference manager implementation for memory allocated by native
+ * code. The underlying memory will be released when reference count reach zero.
  */
 public class AdaptorReferenceManager implements ReferenceManager {
   private native void nativeRelease(long nativeMemoryHolder);
 
+  private static final Logger LOG = LoggerFactory.getLogger(AdaptorReferenceManager.class);
   private final AtomicInteger bufRefCnt = new AtomicInteger(0);
   private long nativeMemoryHolder;
   private int size = 0;
@@ -40,8 +43,7 @@ public class AdaptorReferenceManager implements ReferenceManager {
 
   @Override
   public boolean release(int decrement) {
-    Preconditions.checkState(
-        decrement >= 1, "ref count decrement should be greater than or equal to 1");
+    Preconditions.checkState(decrement >= 1, "ref count decrement should be greater than or equal to 1");
     // decrement the ref count
     final int refCnt;
     synchronized (this) {
@@ -85,8 +87,7 @@ public class AdaptorReferenceManager implements ReferenceManager {
   }
 
   @Override
-  public OwnershipTransferResult transferOwnership(
-      ArrowBuf sourceBuffer, BufferAllocator targetAllocator) {
+  public OwnershipTransferResult transferOwnership(ArrowBuf sourceBuffer, BufferAllocator targetAllocator) {
     throw new UnsupportedOperationException();
   }
 

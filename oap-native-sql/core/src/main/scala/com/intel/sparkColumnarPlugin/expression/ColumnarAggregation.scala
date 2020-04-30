@@ -57,6 +57,7 @@ class ColumnarAggregation(
   var elapseTime_make: Long = 0
   var rowId: Int = 0
   var processedNumRows: Int = 0
+  var result_iterator: BatchIterator = _
 
   logInfo(
     s"\ngroupingExpressions: $groupingExpressions,\noriginalInputAttributes: $originalInputAttributes,\naggregateExpressions: $aggregateExpressions,\naggregateAttributes: $aggregateAttributes,\nresultExpressions: $resultExpressions, \noutput: $output")
@@ -177,25 +178,35 @@ class ColumnarAggregation(
       aggregator.close()
       aggregator = null
     }
+    if (result_iterator != null) {
+      result_iterator.close()
+      result_iterator = null
+    }
   }
 
   def updateAggregationResult(columnarBatch: ColumnarBatch): Unit = {
     val numRows = columnarBatch.numRows
     val groupingProjectCols = groupingOrdinalList.map(i => {
+      columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].retain()
       columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector]
     })
     val aggregateProjectCols = projectOrdinalList.map(i => {
+      columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector].retain()
       columnarBatch.column(i).asInstanceOf[ArrowWritableColumnVector]
     })
 
     val groupingAggregateCols : List[ArrowWritableColumnVector] = if (groupingExpressionsProjector.needEvaluate) {
-      groupingExpressionsProjector.evaluate(numRows, groupingProjectCols.map(_.getValueVector()))
+      val res = groupingExpressionsProjector.evaluate(numRows, groupingProjectCols.map(_.getValueVector()))
+      groupingProjectCols.foreach(_.close())
+      res
     } else {
       groupingProjectCols
     }
 
     val aggregateCols : List[ArrowWritableColumnVector]= if (beforeAggregateProjector != null && beforeAggregateProjector.needEvaluate) {
-      beforeAggregateProjector.evaluate(numRows, aggregateProjectCols.map(_.getValueVector()))
+      val res = beforeAggregateProjector.evaluate(numRows, aggregateProjectCols.map(_.getValueVector()))
+      aggregateProjectCols.foreach(_.close())
+      res
     } else {
       aggregateProjectCols
     }
@@ -205,7 +216,8 @@ class ColumnarAggregation(
       ConverterUtils.createArrowRecordBatch(numRows, combinedAggregateCols.map(_.getValueVector()))
     aggregator.evaluate(inputAggrRecordBatch)
     ConverterUtils.releaseArrowRecordBatch(inputAggrRecordBatch)
-    combinedAggregateCols.map(v => v.close())
+    groupingAggregateCols.foreach(_.close())
+    aggregateCols.foreach(_.close())
   }
 
   def getAggregationResult(resultIter: BatchIterator): ColumnarBatch = {
@@ -231,16 +243,19 @@ class ColumnarAggregation(
       val aggrExprResultColumnVectorList = ConverterUtils.fromArrowRecordBatch(aggregateResultSchema, finalResultRecordBatch)
       ConverterUtils.releaseArrowRecordBatch(finalResultRecordBatch)
       val resultInputCols = aggregateToResultOrdinalList.map(i => {
+        aggrExprResultColumnVectorList(i).asInstanceOf[ArrowWritableColumnVector].retain()
         aggrExprResultColumnVectorList(i)
       })
       val resultColumnVectorList = if (aggregateToResultProjector.needEvaluate) {
         val res = aggregateToResultProjector.evaluate(resultLength, resultInputCols.map(_.getValueVector()))
         //for (i <- 0 until resultLength)
         //  logInfo(s"aggregateToResultProjector, input is ${resultInputCols.map(v => v.getUTF8String(i))}, output is ${res.map(v => v.getUTF8String(i))}")
+        resultInputCols.foreach(_.close())
         res
       } else {
         resultInputCols
       }
+      aggrExprResultColumnVectorList.foreach(_.close())
       //logInfo(s"AggregationResult first row is ${resultColumnVectorList.map(v => v.getUTF8String(0))}")
       new ColumnarBatch(resultColumnVectorList.map(v => v.asInstanceOf[ColumnVector]).toArray, resultLength)
     }
@@ -251,7 +266,6 @@ class ColumnarAggregation(
       var cb: ColumnarBatch = null
       var nextCalled = false
       var resultColumnarBatch: ColumnarBatch = null
-      var result_iterator: BatchIterator = _
       var data_loaded = false
       var nextBatch = true
 
@@ -260,10 +274,6 @@ class ColumnarAggregation(
           return true
         }
         if ( !nextBatch ) {
-          if (result_iterator != null) {
-            result_iterator.close()
-            result_iterator = null
-          }
           return false
         }
 
@@ -271,10 +281,6 @@ class ColumnarAggregation(
         if (data_loaded == false) {
           val beforeAgg = System.nanoTime()
           while (cbIterator.hasNext) {
-            if (cb != null) {
-              cb.close()
-              cb = null
-            }
             cb = cbIterator.next()
   
             if (cb.numRows > 0) {
@@ -282,10 +288,6 @@ class ColumnarAggregation(
               processedNumRows += cb.numRows
             }
             numInputBatches += 1
-          }
-          if (cb != null) {
-            cb.close()
-            cb = null
           }
           val elapse = System.nanoTime() - beforeAgg
           elapseTime += NANOSECONDS.toMillis(elapse)
@@ -299,6 +301,7 @@ class ColumnarAggregation(
         val eval_elapse = System.nanoTime() - beforeEval
         aggrTime += NANOSECONDS.toMillis(eval_elapse)
         if (resultColumnarBatch.numRows == 0) {
+          resultColumnarBatch.close()
           logInfo(s"Aggregation completed, total output ${numOutputRows} rows, ${numOutputBatches} batches")
           return false
         }
@@ -319,7 +322,7 @@ class ColumnarAggregation(
         //logInfo(s"result has ${resultColumnarBatch.numRows}, first row is ${(0 until numCols).map(resultColumnarBatch.column(_).getUTF8String(0))}")
         resultColumnarBatch
       }
-    }
+    }// iterator
   }
 
 }

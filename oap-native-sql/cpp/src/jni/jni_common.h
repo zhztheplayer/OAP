@@ -141,6 +141,7 @@ arrow::Status MakeSchema(JNIEnv* env, jbyteArray schema_arr,
   arrow::ipc::DictionaryMemo in_memo;
   arrow::io::BufferReader buf_reader(serialized_schema);
   *schema = arrow::ipc::ReadSchema(&buf_reader, &in_memo).ValueOrDie();
+  env->ReleaseByteArrayElements(schema_arr, schema_bytes, JNI_ABORT);
 
   return arrow::Status::OK();
 }

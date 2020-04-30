@@ -105,7 +105,7 @@ public class ParquetReader implements AutoCloseable {
    * @return One ArrowRecordBatch readed from parquet file reader
    * @throws IOException throws io exception in case of native failure
    */
-  ArrowRecordBatch readNext() throws IOException {
+  public ArrowRecordBatch readNext() throws IOException {
     ArrowRecordBatchBuilder recordBatchBuilder = jniWrapper.nativeReadNext(nativeInstanceId);
     if (recordBatchBuilder == null) {
       return null;

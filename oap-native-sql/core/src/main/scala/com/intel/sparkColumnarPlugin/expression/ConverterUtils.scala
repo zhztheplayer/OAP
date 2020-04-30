@@ -1,5 +1,6 @@
 package com.intel.sparkColumnarPlugin.expression
 
+import java.util.concurrent.atomic.AtomicLong
 import io.netty.buffer.ArrowBuf
 
 import com.intel.sparkColumnarPlugin.vectorized.ArrowWritableColumnVector
@@ -58,13 +59,14 @@ object ConverterUtils extends Logging {
   }
 
   def fromArrowRecordBatch(recordBatchSchema: Schema, recordBatch: ArrowRecordBatch): Array[ArrowWritableColumnVector] = {
-    val numRows = recordBatch.getLength();
+    val numRows = recordBatch.getLength()
     ArrowWritableColumnVector.loadColumns(numRows, recordBatchSchema, recordBatch)
   }
 
   def releaseArrowRecordBatch(recordBatch: ArrowRecordBatch): Unit = {
-    if (recordBatch != null)
+    if (recordBatch != null) {
       recordBatch.close()
+    }
   }
 
   def releaseArrowRecordBatchList(recordBatchList: Array[ArrowRecordBatch]): Unit = {
@@ -152,6 +154,10 @@ object ConverterUtils extends Logging {
      val combined_nodes = rb1_nodes.addAll(rb2_nodes)
      val combined_bufferlist = rb1_bufferlist.addAll(rb2_bufferlist)
      new ArrowRecordBatch(numRows, rb1_nodes, rb1_bufferlist)
+  }
+
+  override def toString(): String = {
+    s"ConverterUtils"
   }
 
 }
