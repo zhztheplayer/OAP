@@ -1,12 +1,10 @@
 # ArrowDataSource for Apache Spark
 A Spark DataSouce implementation for reading files into Arrow compatible columnar vectors.
 
-### Dependencies
-#### Apache Arrow with Datasets Java API
-https://github.com/Intel-bigdata/arrow/tree/native-sql-engine-clean
+## Build
+### Preparations
+#### Build and install Intel® optimized Arrow with Datasets Java API
+git clone --branch native-sql-engine-clean https://github.com/Intel-bigdata/arrow.git
 
-#### Apache Spark with Native SQL engine
-https://github.com/Intel-bigdata/spark/tree/native-sql-engine-clean
-
-### Build
+### Build This Library
 mvn clean package
