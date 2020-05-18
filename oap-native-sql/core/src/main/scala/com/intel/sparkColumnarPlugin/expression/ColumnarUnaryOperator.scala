@@ -6,6 +6,7 @@ import org.apache.arrow.gandiva.evaluator._
 import org.apache.arrow.gandiva.exceptions.GandivaException
 import org.apache.arrow.gandiva.expression._
 import org.apache.arrow.vector.types.pojo.ArrowType
+import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.Field
 import org.apache.arrow.vector.types.DateUnit
 
@@ -84,6 +85,21 @@ class ColumnarNot(child: Expression, original: Expression)
   }
 }
 
+class ColumnarAbs(child: Expression, original: Expression)
+  extends Abs(child: Expression)
+    with ColumnarExpression
+    with Logging {
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (child_node, childType): (TreeNode, ArrowType) =
+      child.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val resultType = new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)
+    val funcNode =
+      TreeBuilder.makeFunction("abs", Lists.newArrayList(child_node), resultType)
+    (funcNode, resultType)
+  }
+}
+
 object ColumnarUnaryOperator {
 
   def create(child: Expression, original: Expression): Expression = original match {
@@ -95,6 +111,8 @@ object ColumnarUnaryOperator {
       new ColumnarYear(child, y)
     case n: Not =>
       new ColumnarNot(child, n)
+    case a: Abs =>
+      new ColumnarAbs(child, a)
     case c: Cast =>
       child
     case a: KnownFloatingPointNormalized =>
