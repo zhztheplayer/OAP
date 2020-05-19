@@ -39,8 +39,12 @@ object ArrowUtils {
   def readSchema(file: FileStatus, options: CaseInsensitiveStringMap): Option[StructType] = {
     val factory: SingleFileDatasetFactory =
       makeArrowDiscovery(file.getPath.toString, new ArrowOptions(options.asScala.toMap))
-    val schema = factory.inspect() // todo mem leak?
-    Option(org.apache.spark.sql.util.ArrowUtils.fromArrowSchema(schema))
+    val schema = factory.inspect()
+    try {
+      Option(org.apache.spark.sql.util.ArrowUtils.fromArrowSchema(schema))
+    } finally {
+      factory.close()
+    }
   }
 
   def readSchema(files: Seq[FileStatus], options: CaseInsensitiveStringMap): Option[StructType] =

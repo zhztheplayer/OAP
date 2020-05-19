@@ -66,14 +66,17 @@ case class ArrowPartitionReaderFactory(
     val scanOptions = new ScanOptions(readDataSchema.map(f => f.name).toArray,
       filter, batchSize)
     val scanner = dataset.newScan(scanOptions)
-    val itrList = scanner
+
+    val taskList = scanner
       .scan()
       .iterator()
       .asScala
-      .map(task => task.scan())
       .toList
 
-    val itr = itrList
+    val vsrItrList = taskList
+      .map(task => task.scan())
+
+    val batchItr = vsrItrList
       .toIterator
       .flatMap(itr => itr.asScala)
       .map(vsr => ArrowUtils.loadVsr(vsr, partitionedFile.partitionValues,
@@ -84,19 +87,22 @@ case class ArrowPartitionReaderFactory(
 
       override def next(): Boolean = {
         holder.release()
-        itr.hasNext
+        batchItr.hasNext
       }
 
       override def get(): ColumnarBatch = {
-        val batch = itr.next()
+        val batch = batchItr.next()
         holder.retain(batch)
         batch
       }
 
       override def close(): Unit = {
         holder.release()
-        itrList.foreach(itr => itr.close())
-        scanner.close() // todo memory leak?
+        vsrItrList.foreach(itr => itr.close())
+        taskList.foreach(task => task.close())
+        scanner.close()
+        dataset.close()
+        factory.close()
       }
     }
   }
