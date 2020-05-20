@@ -18,9 +18,11 @@
 package com.intel.oap.spark.sql.execution.datasources.arrow
 
 import java.io.File
+import java.lang.management.ManagementFactory
 
 import com.intel.oap.spark.sql.DataFrameReaderImplicits._
 import com.intel.oap.spark.sql.execution.datasources.v2.arrow.ArrowOptions
+import com.sun.management.UnixOperatingSystemMXBean
 import org.apache.commons.io.FileUtils
 
 import org.apache.spark.sql.{DataFrame, QueryTest}
@@ -100,6 +102,27 @@ class ArrowDataSourceTest extends QueryTest with SharedSparkSession {
     assert(rows.length === 1)
   }
 
+  test("file descriptor leak") {
+    val path = ArrowDataSourceTest.locateResourcePath(parquetFile1)
+    val frame = spark.read
+      .option(ArrowOptions.KEY_ORIGINAL_FORMAT, "parquet")
+      .option(ArrowOptions.KEY_FILESYSTEM, "hdfs")
+      .arrow(path)
+    frame.createOrReplaceTempView("ptab")
+
+    def getFdCount: Long = {
+      ManagementFactory.getOperatingSystemMXBean
+        .asInstanceOf[UnixOperatingSystemMXBean]
+        .getOpenFileDescriptorCount
+    }
+
+    val initialFdCount = getFdCount
+    for (_ <- 0 until 100) {
+      verifyParquet(spark.sql("select * from ptab"))
+    }
+    val fdGrowth = getFdCount - initialFdCount
+    assert(fdGrowth < 100)
+  }
 
   // csv cases: not implemented
   private val csvFile = "cars.csv"
