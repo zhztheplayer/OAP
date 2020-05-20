@@ -86,6 +86,13 @@ object ColumnarExpressionConverter extends Logging {
         replaceWithColumnarExpression(i.value, attributeSeq),
         i.list,
         expr)
+    case i: InSet =>
+      logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
+      check_if_no_calculation = false
+      ColumnarInSetOperator.create(
+        replaceWithColumnarExpression(i.child, attributeSeq),
+        i.hset,
+        expr)
     case ss: Substring =>
       check_if_no_calculation = false
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
