@@ -100,6 +100,21 @@ class ColumnarAbs(child: Expression, original: Expression)
   }
 }
 
+class ColumnarUpper(child: Expression, original: Expression)
+  extends Upper(child: Expression)
+    with ColumnarExpression
+    with Logging {
+  override def doColumnarCodeGen(args: java.lang.Object): (TreeNode, ArrowType) = {
+    val (child_node, childType): (TreeNode, ArrowType) =
+      child.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val resultType = new ArrowType.Utf8()
+    val funcNode =
+      TreeBuilder.makeFunction("upper", Lists.newArrayList(child_node), resultType)
+    (funcNode, resultType)
+  }
+}
+
 object ColumnarUnaryOperator {
 
   def create(child: Expression, original: Expression): Expression = original match {
@@ -113,6 +128,8 @@ object ColumnarUnaryOperator {
       new ColumnarNot(child, n)
     case a: Abs =>
       new ColumnarAbs(child, a)
+    case u: Upper =>
+      new ColumnarUpper(child, u)
     case c: Cast =>
       child
     case a: KnownFloatingPointNormalized =>
