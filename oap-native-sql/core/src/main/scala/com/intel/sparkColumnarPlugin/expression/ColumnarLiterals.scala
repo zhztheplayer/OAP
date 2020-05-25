@@ -36,6 +36,8 @@ class ColumnarLiteral(lit: Literal)
         val origIntNode = TreeBuilder.makeLiteral(value.asInstanceOf[Integer])
         val dateNode = TreeBuilder.makeFunction("castDATE", Lists.newArrayList(origIntNode), new ArrowType.Date(DateUnit.DAY))
         (dateNode, new ArrowType.Date(DateUnit.DAY))
+      case b: BooleanType =>
+        (TreeBuilder.makeLiteral(value.asInstanceOf[java.lang.Boolean]), resultType)
     }
   }
 }

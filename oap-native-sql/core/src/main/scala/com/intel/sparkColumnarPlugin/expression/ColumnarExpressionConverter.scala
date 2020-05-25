@@ -61,6 +61,14 @@ object ColumnarExpressionConverter extends Logging {
         replaceWithColumnarExpression(sr.left, attributeSeq),
         replaceWithColumnarExpression(sr.right, attributeSeq),
         expr)
+    case i: If =>
+      check_if_no_calculation = false
+      logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
+      ColumnarIfOperator.create(
+        replaceWithColumnarExpression(i.predicate, attributeSeq),
+        replaceWithColumnarExpression(i.trueValue, attributeSeq),
+        replaceWithColumnarExpression(i.falseValue, attributeSeq),
+        expr)
     case cw: CaseWhen =>
       check_if_no_calculation = false
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
