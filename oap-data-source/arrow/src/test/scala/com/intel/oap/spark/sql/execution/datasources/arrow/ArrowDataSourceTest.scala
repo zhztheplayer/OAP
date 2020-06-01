@@ -125,13 +125,13 @@ class ArrowDataSourceTest extends QueryTest with SharedSparkSession {
   }
 
   // csv cases: not implemented
-  private val csvFile = "cars.csv"
+  private val csvFile = "people.csv"
 
   ignore("reading csv file without specifying original format") {
     verifyCsv(spark.read.format("arrow").load(csvFile))
   }
 
-  ignore("reading csv file") {
+  test("reading csv file") {
     val path = ArrowDataSourceTest.locateResourcePath(csvFile)
     verifyCsv(
       spark.read
@@ -150,6 +150,7 @@ class ArrowDataSourceTest extends QueryTest with SharedSparkSession {
 
   def verifyCsv(frame: DataFrame): Unit = {
     // todo assert something
+    assert(frame.collect().length === 2)
   }
 
   def verifyParquet(frame: DataFrame): Unit = {

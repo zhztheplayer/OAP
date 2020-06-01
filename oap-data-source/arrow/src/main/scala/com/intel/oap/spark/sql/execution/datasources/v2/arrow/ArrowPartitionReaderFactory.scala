@@ -58,13 +58,8 @@ case class ArrowPartitionReaderFactory(
     val path = partitionedFile.filePath
     val factory = ArrowUtils.makeArrowDiscovery(path, options)
     val dataset = factory.finish()
-    val filter = if (enableFilterPushDown) {
-      ArrowFilters.translateFilters(ArrowFilters.pruneWithSchema(pushedFilters, readDataSchema))
-    } else {
-      org.apache.arrow.dataset.filter.Filter.EMPTY
-    }
     val scanOptions = new ScanOptions(readDataSchema.map(f => f.name).toArray,
-      filter, batchSize)
+      batchSize)
     val scanner = dataset.newScan(scanOptions)
 
     val taskList = scanner
@@ -73,13 +68,13 @@ case class ArrowPartitionReaderFactory(
       .asScala
       .toList
 
-    val vsrItrList = taskList
-      .map(task => task.scan())
+    val rbItrList = taskList
+      .map(task => task.execute())
 
-    val batchItr = vsrItrList
+    val batchItr = rbItrList
       .toIterator
       .flatMap(itr => itr.asScala)
-      .map(vsr => ArrowUtils.loadVsr(vsr, partitionedFile.partitionValues,
+      .map(rb => ArrowUtils.loadRb(rb, partitionedFile.partitionValues,
         readPartitionSchema, readDataSchema))
 
     new PartitionReader[ColumnarBatch] {
@@ -98,7 +93,7 @@ case class ArrowPartitionReaderFactory(
 
       override def close(): Unit = {
         holder.release()
-        vsrItrList.foreach(itr => itr.close())
+        rbItrList.foreach(itr => itr.close())
         taskList.foreach(task => task.close())
         scanner.close()
         dataset.close()

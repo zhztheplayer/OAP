@@ -20,7 +20,7 @@ package com.intel.oap.spark.sql.execution.datasources.arrow
 import scala.collection.JavaConverters._
 
 import com.intel.oap.spark.sql.execution.datasources.arrow.ArrowFileFormat.UnsafeItr
-import com.intel.oap.spark.sql.execution.datasources.v2.arrow.{ArrowFilters, ArrowOptions}
+import com.intel.oap.spark.sql.execution.datasources.v2.arrow.{ArrowOptions}
 import com.intel.oap.spark.sql.execution.datasources.v2.arrow.ArrowSQLConf._
 import org.apache.arrow.dataset.scanner.ScanOptions
 import org.apache.hadoop.conf.Configuration
@@ -79,26 +79,20 @@ class ArrowFileFormat extends FileFormat with DataSourceRegister with Serializab
       // todo predicate validation / pushdown
       val dataset = factory.finish();
 
-      val filter = if (enableFilterPushDown) {
-        ArrowFilters.translateFilters(filters)
-      } else {
-        org.apache.arrow.dataset.filter.Filter.EMPTY
-      }
-
       val scanOptions = new ScanOptions(requiredSchema.map(f => f.name).toArray,
-        filter, batchSize)
+        batchSize)
       val scanner = dataset.newScan(scanOptions)
       val itrList = scanner
         .scan()
         .iterator()
         .asScala
-        .map(task => task.scan())
+        .map(task => task.execute())
         .toList
 
       val itr = itrList
         .toIterator
         .flatMap(itr => itr.asScala)
-        .map(vsr => ArrowUtils.loadVsr(vsr, file.partitionValues, partitionSchema, dataSchema))
+        .map(rb => ArrowUtils.loadRb(rb, file.partitionValues, partitionSchema, dataSchema))
       new UnsafeItr(itr).asInstanceOf[Iterator[InternalRow]]
     }
   }

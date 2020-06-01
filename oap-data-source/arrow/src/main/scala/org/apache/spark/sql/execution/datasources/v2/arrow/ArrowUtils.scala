@@ -23,9 +23,10 @@ import scala.collection.JavaConverters._
 
 import com.intel.oap.spark.sql.execution.datasources.v2.arrow.ArrowOptions
 import com.intel.sparkColumnarPlugin.vectorized.ArrowWritableColumnVector
-import org.apache.arrow.dataset.file.{FileSystem, SingleFileDatasetFactory}
+import org.apache.arrow.dataset.file.FileSystemDatasetFactory
 import org.apache.arrow.memory.BaseAllocator
 import org.apache.arrow.vector.{FieldVector, VectorSchemaRoot}
+import org.apache.arrow.vector.ipc.message.ArrowRecordBatch
 import org.apache.arrow.vector.types.pojo.Schema
 import org.apache.hadoop.fs.FileStatus
 
@@ -37,7 +38,7 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
 
 object ArrowUtils {
   def readSchema(file: FileStatus, options: CaseInsensitiveStringMap): Option[StructType] = {
-    val factory: SingleFileDatasetFactory =
+    val factory: FileSystemDatasetFactory =
       makeArrowDiscovery(file.getPath.toString, new ArrowOptions(options.asScala.toMap))
     val schema = factory.inspect()
     try {
@@ -50,15 +51,13 @@ object ArrowUtils {
   def readSchema(files: Seq[FileStatus], options: CaseInsensitiveStringMap): Option[StructType] =
     readSchema(files.toList.head, options) // todo merge schema
 
-  def makeArrowDiscovery(file: String, options: ArrowOptions): SingleFileDatasetFactory = {
+  def makeArrowDiscovery(file: String, options: ArrowOptions): FileSystemDatasetFactory = {
 
     val format = getFormat(options).getOrElse(throw new IllegalStateException)
-    val fs = getFs(options).getOrElse(throw new IllegalStateException)
 
-    val factory = new SingleFileDatasetFactory(
-      org.apache.spark.sql.util.ArrowUtils.rootAllocator,
+    val factory = new FileSystemDatasetFactory(
+      ArrowWritableColumnVector.allocator,
       format,
-      fs,
       rewriteFilePath(file))
     factory
   }
@@ -98,6 +97,20 @@ object ArrowUtils {
     batch
   }
 
+  def loadRb(cb: ArrowRecordBatch, partitionValues: InternalRow,
+             partitionSchema: StructType, dataSchema: StructType): ColumnarBatch = {
+    val rowCount = cb.getLength
+    val vectors = ArrowWritableColumnVector.loadColumns(rowCount, toArrowSchema(dataSchema), cb)
+    val partitionColumns = ArrowWritableColumnVector.allocateColumns(rowCount, partitionSchema)
+    (0 until partitionColumns.length).foreach(i => {
+      ColumnVectorUtils.populate(partitionColumns(i), partitionValues, i)
+      partitionColumns(i).setIsConstant()
+    })
+
+    val batch = new ColumnarBatch(vectors ++ partitionColumns, rowCount)
+    batch
+  }
+
   def rootAllocator(): BaseAllocator = {
     org.apache.spark.sql.util.ArrowUtils.rootAllocator
   }
@@ -119,15 +132,8 @@ object ArrowUtils {
     options: ArrowOptions): Option[org.apache.arrow.dataset.file.FileFormat] = {
     Option(options.originalFormat match {
       case "parquet" => org.apache.arrow.dataset.file.FileFormat.PARQUET
+      case "csv" => org.apache.arrow.dataset.file.FileFormat.CSV
       case _ => throw new IllegalArgumentException("Unrecognizable format")
-    })
-  }
-
-  private def getFs(options: ArrowOptions): Option[FileSystem] = {
-    Option(options.filesystem match {
-      case "local" => FileSystem.LOCAL
-      case "hdfs" => FileSystem.HDFS
-      case _ => throw new IllegalArgumentException("Unrecognizable filesystem")
     })
   }
 }
