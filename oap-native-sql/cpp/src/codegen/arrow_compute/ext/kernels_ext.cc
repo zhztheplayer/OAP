@@ -49,8 +49,6 @@
 #include "codegen/arrow_compute/ext/actions_impl.h"
 #include "codegen/arrow_compute/ext/array_item_index.h"
 #include "codegen/arrow_compute/ext/codegen_node_visitor.h"
-#include "codegen/arrow_compute/ext/item_iterator.h"
-#include "codegen/arrow_compute/ext/shuffle_v2_action.h"
 #include "utils/macros.h"
 
 namespace sparkcolumnarplugin {

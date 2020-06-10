@@ -15,15 +15,7 @@
  * limitations under the License.
  */
 
-#include <arrow/array/builder_binary.h>
-#include <arrow/array/builder_primitive.h>
-#include <arrow/buffer.h>
-#include <arrow/builder.h>
 #include <arrow/compute/context.h>
-#include <arrow/compute/expression.h>
-#include <arrow/compute/kernel.h>
-#include <arrow/compute/kernels/sort_to_indices.h>
-#include <arrow/compute/logical_type.h>
 #include <arrow/type.h>
 #include <arrow/type_fwd.h>
 #include <arrow/type_traits.h>
@@ -38,7 +30,6 @@
 #include "codegen/arrow_compute/ext/array_item_index.h"
 #include "codegen/arrow_compute/ext/code_generator_base.h"
 #include "codegen/arrow_compute/ext/codegen_common.h"
-#include "codegen/arrow_compute/ext/item_iterator.h"
 #include "codegen/arrow_compute/ext/kernels_ext.h"
 
 namespace sparkcolumnarplugin {
@@ -165,7 +156,7 @@ class SortArraysToIndicesKernel::Impl {
     signature_ss << std::hex << std::hash<std::string>{}(func_args_ss.str());
     std::string signature = signature_ss.str();
 
-    auto file_lock = FileSpinLock("/tmp");
+    auto file_lock = FileSpinLock();
     auto status = LoadLibrary(signature, ctx_, out);
     if (!status.ok()) {
       // process

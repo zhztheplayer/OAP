@@ -200,6 +200,15 @@ void JNI_OnUnload(JavaVM* vm, void* reserved) {
   batch_iterator_holder_.Clear();
 }
 
+JNIEXPORT void JNICALL
+Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeSetJavaTmpDir(
+    JNIEnv* env, jobject obj, jstring pathObj) {
+  jboolean ifCopy;
+  auto path = env->GetStringUTFChars(pathObj, &ifCopy);
+  setenv("NATIVESQL_TMP_DIR", path, 1);
+  env->ReleaseStringUTFChars(pathObj, path);
+}
+
 JNIEXPORT jlong JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeBuild(
     JNIEnv* env, jobject obj, jbyteArray schema_arr, jbyteArray exprs_arr,

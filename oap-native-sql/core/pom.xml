@@ -157,9 +157,6 @@
     <resources>
       <resource>
         <directory>${cpp.build.dir}</directory>
-        <includes>
-          <include>**/libspark_columnar_jni.so</include>
-        </includes>
       </resource>
     </resources>
     <outputDirectory>target/scala-${scala.binary.version}/classes</outputDirectory>

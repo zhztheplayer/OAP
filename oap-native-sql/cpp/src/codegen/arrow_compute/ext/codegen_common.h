@@ -30,11 +30,14 @@ namespace extra {
 
 std::string BaseCodes();
 
-int FileSpinLock(std::string path);
+int FileSpinLock();
 
 void FileSpinUnLock(int fd);
 
-std::string GetTypeString(std::shared_ptr<arrow::DataType> type);
+std::string GetArrowTypeDefString(std::shared_ptr<arrow::DataType> type);
+std::string GetCTypeString(std::shared_ptr<arrow::DataType> type);
+std::string GetTypeString(std::shared_ptr<arrow::DataType> type,
+                          std::string tail = "Type");
 
 arrow::Status CompileCodes(std::string codes, std::string signature);
 
