@@ -144,6 +144,15 @@ object ColumnarExpressionConverter extends Logging {
     case s: org.apache.spark.sql.execution.ScalarSubquery =>
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
       new ColumnarScalarSubquery(s)
+    case c: Concat =>
+      check_if_no_calculation = false
+      logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
+      val exps = c.children.map{ expr =>
+        replaceWithColumnarExpression(expr, attributeSeq)
+      }
+      ColumnarConcatOperator.create(
+        exps,
+        expr)
     case expr =>
       logWarning(s"${expr.getClass} ${expr} is not currently supported.")
       expr
