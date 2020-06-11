@@ -115,6 +115,14 @@ object ConverterUtils extends Logging {
         getAttrFromExpr(c.children(0))
       case i: IsNull =>
         getAttrFromExpr(i.child)
+      case a: Add =>
+        getAttrFromExpr(a.left)
+      case s: Subtract =>
+        getAttrFromExpr(s.left)
+      case u: Upper =>
+        getAttrFromExpr(u.child)
+      case ss: Substring =>
+        getAttrFromExpr(ss.children(0))
       case other =>
         throw new UnsupportedOperationException(s"makeStructField is unable to parse from $other (${other.getClass}).")
     }
@@ -147,6 +155,10 @@ object ConverterUtils extends Logging {
             a.toAttribute.asInstanceOf[AttributeReference]
           }
         }
+      case d: ColumnarDivide =>
+        new AttributeReference(name, DoubleType, d.nullable)()
+      case m: ColumnarMultiply =>
+        new AttributeReference(name, m.dataType, m.nullable)()
       case other =>
         val a = if (name != "None") {
           new Alias(other, name)()
