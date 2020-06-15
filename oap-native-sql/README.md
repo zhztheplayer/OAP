@@ -139,6 +139,10 @@ spark.sql.extensions com.intel.sparkColumnarPlugin.ColumnarPlugin
 spark.driver.extraClassPath ${PATH_TO_OAP_NATIVE_SQL}/core/target/spark-columnar-core-1.0-jar-with-dependencies.jar
 spark.executor.extraClassPath ${PATH_TO_OAP_NATIVE_SQL}/core/target/spark-columnar-core-1.0-jar-with-dependencies.jar
 
+# Extra configuration to enable columnar shuffle
+spark.shuffle.manager org.apache.spark.shuffle.sort.ColumnarShuffleManager
+spark.shuffle.compress false
+
 ######
 ```
 ## Benchmark

@@ -18,6 +18,11 @@ option(TESTS "Build the tests" OFF)
 option(BENCHMARKS "Build the benchmarks" OFF)
 option(DEBUG "Enable Debug Info" OFF)
 
+# same as the version required in arrow/ci/conda_env_cpp.yml
+set(BOOST_MIN_VERSION "1.42.0")
+find_package(Boost REQUIRED)
+INCLUDE_DIRECTORIES(${Boost_INCLUDE_DIRS})
+
 find_package(JNI REQUIRED)
 set(source_root_directory ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -195,6 +200,8 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
         codegen/arrow_compute/ext/kernels_ext.cc
         codegen/arrow_compute/ext/codegen_common.cc
         codegen/arrow_compute/ext/codegen_node_visitor.cc
+        shuffle/splitter.cc
+        shuffle/partition_writer.cc
         )
 
 file(MAKE_DIRECTORY ${root_directory}/releases)
