@@ -306,7 +306,9 @@ class TypedSorterImpl : public CodeGenBase {
     }
 
     arrow::Status Next(std::shared_ptr<arrow::RecordBatch>* out) {
-      auto length = (total_length_ - offset_) > 4096 ? 4096 : (total_length_ - offset_);
+      auto length = (total_length_ - offset_) > )" +
+           std::to_string(GetBatchSize()) + R"( ? )" + std::to_string(GetBatchSize()) +
+           R"( : (total_length_ - offset_);
       uint64_t count = 0;
       while (count < length) {
         auto item = indices_begin_ + offset_ + count++;

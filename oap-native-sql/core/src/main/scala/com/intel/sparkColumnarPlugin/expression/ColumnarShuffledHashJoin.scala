@@ -19,6 +19,7 @@ package com.intel.sparkColumnarPlugin.expression
 
 import java.util.concurrent.TimeUnit._
 
+import com.intel.sparkColumnarPlugin.ColumnarPluginConfig
 import com.intel.sparkColumnarPlugin.vectorized.ArrowWritableColumnVector
 
 import org.apache.spark.TaskContext
@@ -34,6 +35,7 @@ import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.joins.{BuildLeft, BuildRight, BuildSide}
 
 import scala.collection.JavaConverters._
+import org.apache.spark.SparkConf
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 import scala.collection.mutable.ListBuffer
@@ -66,8 +68,10 @@ class ColumnarShuffledHashJoin(
     right: SparkPlan,
     buildTime: SQLMetric,
     joinTime: SQLMetric,
-    totalOutputNumRows: SQLMetric)
+    totalOutputNumRows: SQLMetric,
+    sparkConf: SparkConf)
     extends Logging {
+  ColumnarPluginConfig.getConf(sparkConf)
 
   var build_cb: ColumnarBatch = null
   var last_cb: ColumnarBatch = null
@@ -346,7 +350,8 @@ object ColumnarShuffledHashJoin {
       right: SparkPlan,
       buildTime: SQLMetric,
       joinTime: SQLMetric,
-      numOutputRows: SQLMetric): ColumnarShuffledHashJoin = synchronized {
+      numOutputRows: SQLMetric,
+      sparkConf: SparkConf): ColumnarShuffledHashJoin = synchronized {
     columnarShuffedHahsJoin = new ColumnarShuffledHashJoin(
       leftKeys,
       rightKeys,
@@ -358,7 +363,8 @@ object ColumnarShuffledHashJoin {
       right,
       buildTime,
       joinTime,
-      numOutputRows)
+      numOutputRows,
+      sparkConf)
     columnarShuffedHahsJoin
   }
 

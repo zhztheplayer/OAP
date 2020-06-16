@@ -38,7 +38,6 @@
 #include <gandiva/node.h>
 #include <gandiva/projector.h>
 #include <gandiva/tree_expr_builder.h>
-#include "third_party/arrow/utils/hashing.h"
 
 #include <chrono>
 #include <cstring>
@@ -48,7 +47,9 @@
 
 #include "codegen/arrow_compute/ext/actions_impl.h"
 #include "codegen/arrow_compute/ext/array_item_index.h"
+#include "codegen/arrow_compute/ext/codegen_common.h"
 #include "codegen/arrow_compute/ext/codegen_node_visitor.h"
+#include "third_party/arrow/utils/hashing.h"
 #include "utils/macros.h"
 
 namespace sparkcolumnarplugin {
@@ -56,7 +57,6 @@ namespace codegen {
 namespace arrowcompute {
 namespace extra {
 
-#define MAXBATCHNUMROWS 10000
 using ArrayList = std::vector<std::shared_ptr<arrow::Array>>;
 
 ///////////////  SplitArrayListWithAction  ////////////////
@@ -215,7 +215,9 @@ class SplitArrayListWithActionKernel::Impl {
         *out = nullptr;
         return arrow::Status::OK();
       }
-      auto length = (total_length_ - offset_) > 4096 ? 4096 : (total_length_ - offset_);
+      auto length = (total_length_ - offset_) > GetBatchSize()
+                        ? GetBatchSize()
+                        : (total_length_ - offset_);
       TIME_MICRO_OR_RAISE(elapse_time_, eval_func_(offset_, length, out));
       offset_ += length;
       // arrow::PrettyPrint(*(*out).get(), 2, &std::cout);

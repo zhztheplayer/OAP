@@ -25,13 +25,25 @@ import java.io.IOException;
  * jni. Avoid all external dependencies in this file.
  */
 public class ExpressionEvaluatorJniWrapper {
-
   /** Wrapper for native API. */
-  public ExpressionEvaluatorJniWrapper() throws IOException {
-    JniUtils.getInstance();
+  public ExpressionEvaluatorJniWrapper(String tmp_dir) throws IOException {
+    JniUtils.getInstance(tmp_dir);
   }
 
+  /**
+   * Set native env variables NATIVE_TMP_DIR
+   *
+   * @param path  tmp path for native codes, use java.io.tmpdir
+   */
   native void nativeSetJavaTmpDir(String path);
+
+  /**
+   * Set native env variables NATIVE_BATCH_SIZE
+   *
+   * @param batch_size  numRows of one batch, use
+   *     spark.sql.execution.arrow.maxRecordsPerBatch
+   */
+  native void nativeSetBatchSize(int batch_size);
 
   /**
    * Generates the projector module to evaluate the expressions with custom
@@ -48,8 +60,8 @@ public class ExpressionEvaluatorJniWrapper {
    * @return A nativeHandler that is passed to the evaluateProjector() and
    *         closeProjector() methods
    */
-  native long nativeBuild(byte[] schemaBuf, byte[] exprListBuf, byte[] resSchemaBuf, boolean finishReturn)
-      throws RuntimeException;
+  native long nativeBuild(byte[] schemaBuf, byte[] exprListBuf, byte[] resSchemaBuf,
+      boolean finishReturn) throws RuntimeException;
 
   /**
    * Generates the projector module to evaluate the expressions with custom
@@ -66,8 +78,8 @@ public class ExpressionEvaluatorJniWrapper {
    * @return A nativeHandler that is passed to the evaluateProjector() and
    *         closeProjector() methods
    */
-  native long nativeBuildWithFinish(byte[] schemaBuf, byte[] exprListBuf, byte[] finishExprListBuf)
-      throws RuntimeException;
+  native long nativeBuildWithFinish(byte[] schemaBuf, byte[] exprListBuf,
+      byte[] finishExprListBuf) throws RuntimeException;
 
   /**
    * Set return schema for this expressionTree.
@@ -77,7 +89,8 @@ public class ExpressionEvaluatorJniWrapper {
    * @param schemaBuf     The schema serialized as a protobuf. See Types.proto to
    *                      see the protobuf specification
    */
-  native void nativeSetReturnFields(long nativeHandler, byte[] schemaBuf) throws RuntimeException;
+  native void nativeSetReturnFields(long nativeHandler, byte[] schemaBuf)
+      throws RuntimeException;
 
   /**
    * Evaluate the expressions represented by the nativeHandler on a record batch
@@ -94,8 +107,8 @@ public class ExpressionEvaluatorJniWrapper {
    * @return A list of ArrowRecordBatchBuilder which can be used to build a List
    *         of ArrowRecordBatch
    */
-  native ArrowRecordBatchBuilder[] nativeEvaluate(long nativeHandler, int numRows, long[] bufAddrs, long[] bufSizes)
-      throws RuntimeException;
+  native ArrowRecordBatchBuilder[] nativeEvaluate(long nativeHandler, int numRows,
+      long[] bufAddrs, long[] bufSizes) throws RuntimeException;
 
   /**
    * Evaluate the expressions represented by the nativeHandler on a record batch
@@ -116,11 +129,12 @@ public class ExpressionEvaluatorJniWrapper {
    * @return A list of ArrowRecordBatchBuilder which can be used to build a List
    *         of ArrowRecordBatch
    */
-  native ArrowRecordBatchBuilder[] nativeEvaluateWithSelection(long nativeHandler, int numRows, long[] bufAddrs,
-      long[] bufSizes, int selectionVectorRecordCount, long selectionVectorAddr, long selectionVectorSize)
-      throws RuntimeException;
+  native ArrowRecordBatchBuilder[] nativeEvaluateWithSelection(long nativeHandler,
+      int numRows, long[] bufAddrs, long[] bufSizes, int selectionVectorRecordCount,
+      long selectionVectorAddr, long selectionVectorSize) throws RuntimeException;
 
-  native void nativeSetMember(long nativeHandler, int numRows, long[] bufAddrs, long[] bufSizes);
+  native void nativeSetMember(
+      long nativeHandler, int numRows, long[] bufAddrs, long[] bufSizes);
 
   /**
    * Evaluate the expressions represented by the nativeHandler on a record batch
@@ -131,7 +145,8 @@ public class ExpressionEvaluatorJniWrapper {
    * @return A list of ArrowRecordBatchBuilder which can be used to build a List
    *         of ArrowRecordBatch
    */
-  native ArrowRecordBatchBuilder[] nativeFinish(long nativeHandler) throws RuntimeException;
+  native ArrowRecordBatchBuilder[] nativeFinish(long nativeHandler)
+      throws RuntimeException;
 
   /**
    * Call Finish to get result, result will be as a iterator.
@@ -148,7 +163,8 @@ public class ExpressionEvaluatorJniWrapper {
    * @param childInstanceId childInstanceId of a child BatchIterator
    * @param index           exptected index of the output of BatchIterator
    */
-  native void nativeSetDependency(long nativeHandler, long childInstanceId, int index) throws RuntimeException;
+  native void nativeSetDependency(long nativeHandler, long childInstanceId, int index)
+      throws RuntimeException;
 
   /**
    * Closes the projector referenced by nativeHandler.

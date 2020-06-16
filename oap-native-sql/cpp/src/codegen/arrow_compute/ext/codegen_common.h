@@ -34,6 +34,7 @@ int FileSpinLock();
 
 void FileSpinUnLock(int fd);
 
+int GetBatchSize();
 std::string GetArrowTypeDefString(std::shared_ptr<arrow::DataType> type);
 std::string GetCTypeString(std::shared_ptr<arrow::DataType> type);
 std::string GetTypeString(std::shared_ptr<arrow::DataType> type,

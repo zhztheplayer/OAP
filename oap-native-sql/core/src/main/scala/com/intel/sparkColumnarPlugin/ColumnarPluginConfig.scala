@@ -25,6 +25,10 @@ class ColumnarPluginConfig(conf: SparkConf) {
   val enableColumnarShuffle: Boolean = conf
     .get("spark.shuffle.manager", "sort")
     .equals("org.apache.spark.shuffle.sort.ColumnarShuffleManager")
+  val batchSize: Int =
+    conf.getInt("spark.sql.execution.arrow.maxRecordsPerBatch", defaultValue = 10000)
+  val tmpFile: String =
+    conf.getOption("spark.sql.columnar.tmp_dir").getOrElse(null)
 }
 
 object ColumnarPluginConfig {
@@ -42,6 +46,20 @@ object ColumnarPluginConfig {
       throw new IllegalStateException("ColumnarPluginConfig is not initialized yet")
     } else {
       ins
+    }
+  }
+  def getBatchSize: Int = synchronized {
+    if (ins == null) {
+      10000
+    } else {
+      ins.batchSize
+    }
+  }
+  def getTempFile: String = synchronized {
+    if (ins != null) {
+      ins.tmpFile
+    } else {
+      System.getProperty("java.io.tmpdir")
     }
   }
 }

@@ -171,6 +171,17 @@ std::string GetTempPath() {
   return tmp_dir_;
 }
 
+int GetBatchSize() {
+  int batch_size;
+  const char* env_batch_size = std::getenv("NATIVESQL_BATCH_SIZE");
+  if (env_batch_size != nullptr) {
+    batch_size = atoi(env_batch_size);
+  } else {
+    batch_size = 10000;
+  }
+  return batch_size;
+}
+
 int FileSpinLock() {
   std::string lockfile = GetTempPath() + "/nativesql_compile.lock";
 
@@ -202,6 +213,10 @@ arrow::Status CompileCodes(std::string codes, std::string signature) {
     exit(EXIT_FAILURE);
   }
   out << codes;
+#ifdef DEBUG
+  std::cout << "BatchSize is " << GetBatchSize() << std::endl;
+  std::cout << codes << std::endl;
+#endif
   out.flush();
   out.close();
 

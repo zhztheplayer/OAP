@@ -237,6 +237,12 @@ Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nati
   env->ReleaseStringUTFChars(pathObj, path);
 }
 
+JNIEXPORT void JNICALL
+Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeSetBatchSize(
+    JNIEnv* env, jobject obj, jint batch_size) {
+  setenv("NATIVESQL_BATCH_SIZE", std::to_string(batch_size).c_str(), 1);
+}
+
 JNIEXPORT jlong JNICALL
 Java_com_intel_sparkColumnarPlugin_vectorized_ExpressionEvaluatorJniWrapper_nativeBuild(
     JNIEnv* env, jobject obj, jbyteArray schema_arr, jbyteArray exprs_arr,
