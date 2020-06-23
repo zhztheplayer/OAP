@@ -19,6 +19,7 @@ package org.apache.spark.sql.execution
 
 import java.util.Random
 
+import com.intel.sparkColumnarPlugin.expression.ConverterUtils
 import com.intel.sparkColumnarPlugin.vectorized.{
   ArrowColumnarBatchSerializer,
   ArrowWritableColumnVector
@@ -49,7 +50,6 @@ import org.apache.spark.sql.execution.metric.{
 }
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
-import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.MutablePair
 
@@ -66,8 +66,8 @@ class ColumnarShuffleExchangeExec(
   override private[sql] lazy val readMetrics =
     SQLShuffleReadMetricsReporter.createShuffleReadMetrics(sparkContext)
   override lazy val metrics: Map[String, SQLMetric] = Map(
-    "dataSize" -> SQLMetrics
-      .createSizeMetric(sparkContext, "data size"),
+    "dataSize" -> SQLMetrics.createSizeMetric(sparkContext, "data size"),
+    "splitTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "split time"),
     "avgReadBatchNumRows" -> SQLMetrics
       .createAverageMetric(sparkContext, "avg read batch num rows")) ++ readMetrics ++ writeMetrics
 
@@ -88,7 +88,8 @@ class ColumnarShuffleExchangeExec(
       outputPartitioning,
       serializer,
       writeMetrics,
-      longMetric("dataSize"))
+      longMetric("dataSize"),
+      longMetric("splitTime"))
   }
 
   def createColumnarShuffledRDD(
@@ -96,7 +97,7 @@ class ColumnarShuffleExchangeExec(
     new ShuffledColumnarBatchRDD(columnarShuffleDependency, readMetrics, partitionStartIndices)
   }
 
-  private var cachedShuffleRDD: ShuffledColumnarBatchRDD = null
+  private var cachedShuffleRDD: ShuffledColumnarBatchRDD = _
 
   override def doExecuteColumnar(): RDD[ColumnarBatch] = {
     if (cachedShuffleRDD == null) {
@@ -108,22 +109,18 @@ class ColumnarShuffleExchangeExec(
 
 object ColumnarShuffleExchangeExec extends Logging {
 
-  private def fromAttributes(attributes: Seq[Attribute]): StructType =
-    StructType(attributes.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
-
   def prepareShuffleDependency(
       rdd: RDD[ColumnarBatch],
       outputAttributes: Seq[Attribute],
       newPartitioning: Partitioning,
       serializer: Serializer,
       writeMetrics: Map[String, SQLMetric],
-      dataSize: SQLMetric): ShuffleDependency[Int, ColumnarBatch, ColumnarBatch] = {
+      dataSize: SQLMetric,
+      splitTime: SQLMetric): ShuffleDependency[Int, ColumnarBatch, ColumnarBatch] = {
 
     val arrowSchema: Schema =
-      ArrowUtils.toArrowSchema(
-        fromAttributes(
-          AttributeReference("pid", IntegerType, nullable = false)() +: outputAttributes),
-        SQLConf.get.sessionLocalTimeZone)
+      ConverterUtils.toArrowSchema(
+        AttributeReference("pid", IntegerType, nullable = false)() +: outputAttributes)
 
     val part: Partitioner = newPartitioning match {
       case RoundRobinPartitioning(numPartitions) => new HashPartitioner(numPartitions)
@@ -182,7 +179,7 @@ object ColumnarShuffleExchangeExec extends Logging {
         (_, cbIterator) => {
           newPartitioning match {
             case SinglePartition =>
-              ClosablePairedColumnarBatchIterator(
+              CloseablePairedColumnarBatchIterator(
                 cbIterator
                   .filter(cb => cb.numRows != 0 && cb.numCols != 0)
                   .map(cb => {
@@ -192,7 +189,7 @@ object ColumnarShuffleExchangeExec extends Logging {
             case RoundRobinPartitioning(numPartitions) =>
               // Distributes elements evenly across output partitions, starting from a random partition.
               var position = new Random(TaskContext.get().partitionId()).nextInt(numPartitions)
-              ClosablePairedColumnarBatchIterator(
+              CloseablePairedColumnarBatchIterator(
                 cbIterator
                   .filter(cb => cb.numRows != 0 && cb.numCols != 0)
                   .map(cb => {
@@ -205,7 +202,7 @@ object ColumnarShuffleExchangeExec extends Logging {
             case h: HashPartitioning =>
               val projection =
                 UnsafeProjection.create(h.partitionIdExpression :: Nil, outputAttributes)
-              ClosablePairedColumnarBatchIterator(
+              CloseablePairedColumnarBatchIterator(
                 cbIterator
                   .filter(cb => cb.numRows != 0 && cb.numCols != 0)
                   .map(cb => {
@@ -217,7 +214,7 @@ object ColumnarShuffleExchangeExec extends Logging {
             case RangePartitioning(sortingExpressions, _) =>
               val projection =
                 UnsafeProjection.create(sortingExpressions.map(_.child), outputAttributes)
-              ClosablePairedColumnarBatchIterator(
+              CloseablePairedColumnarBatchIterator(
                 cbIterator
                   .filter(cb => cb.numRows != 0 && cb.numCols != 0)
                   .map(cb => {
@@ -239,7 +236,8 @@ object ColumnarShuffleExchangeExec extends Logging {
         serializer,
         shuffleWriterProcessor = createShuffleWriteProcessor(writeMetrics),
         serializedSchema = arrowSchema.toByteArray,
-        dataSize = dataSize)
+        dataSize = dataSize,
+        splitTime = splitTime)
 
     dependency
   }
@@ -269,7 +267,7 @@ object ColumnarShuffleExchangeExec extends Logging {
   }
 }
 
-case class ClosablePairedColumnarBatchIterator(iter: Iterator[(Int, ColumnarBatch)])
+case class CloseablePairedColumnarBatchIterator(iter: Iterator[(Int, ColumnarBatch)])
     extends Iterator[(Int, ColumnarBatch)]
     with Logging {
 
@@ -281,7 +279,7 @@ case class ClosablePairedColumnarBatchIterator(iter: Iterator[(Int, ColumnarBatc
 
   private def closeAppendedVector(): Unit = {
     if (cur != null) {
-      logDebug("Appended partition id vector closed")
+      logDebug("Close appended partition id vector")
       cur match {
         case (_, cb: ColumnarBatch) =>
           cb.column(0).asInstanceOf[ArrowWritableColumnVector].close()
