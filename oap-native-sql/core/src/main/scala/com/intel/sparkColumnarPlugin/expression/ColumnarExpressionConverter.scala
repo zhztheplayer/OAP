@@ -25,10 +25,10 @@ object ColumnarExpressionConverter extends Logging {
 
   var check_if_no_calculation = true
 
-  def replaceWithColumnarExpression(expr: Expression, attributeSeq: Seq[Attribute] = null): Expression = expr match {
+  def replaceWithColumnarExpression(expr: Expression, attributeSeq: Seq[Attribute] = null, expIdx : Int = -1): Expression = expr match {
     case a: Alias =>
       logInfo(s"${expr.getClass} ${expr} is supported, no_cal is $check_if_no_calculation.")
-      new ColumnarAlias(replaceWithColumnarExpression(a.child, attributeSeq), a.name)(
+      new ColumnarAlias(replaceWithColumnarExpression(a.child, attributeSeq, expIdx), a.name)(
         a.exprId,
         a.qualifier,
         a.explicitMetadata)
@@ -37,7 +37,11 @@ object ColumnarExpressionConverter extends Logging {
       if (attributeSeq != null) {
         val bindReference = BindReferences.bindReference(expr, attributeSeq, true)
         if (bindReference == expr) {
-          return new ColumnarAttributeReference(a.name, a.dataType, a.nullable, a.metadata)(a.exprId, a.qualifier) 
+          if (expIdx == -1) {
+            return new ColumnarAttributeReference(a.name, a.dataType, a.nullable, a.metadata)(a.exprId, a.qualifier)
+          } else {
+            return new ColumnarBoundReference(expIdx, a.dataType, a.nullable)
+          }
         }
         val b = bindReference.asInstanceOf[BoundReference]
         new ColumnarBoundReference(b.ordinal, b.dataType, b.nullable)

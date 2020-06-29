@@ -123,7 +123,7 @@ class ColumnarAggregation(
         projectOrdinalList = beforeAggregateProjector.getOrdinalList
         aggregateInputAttributes = beforeAggregateProjector.output
       }
-      case Final => {
+      case Final | PartialMerge => {
         val ordinal_attr_list = originalInputAttributes.toList.zipWithIndex
           .filter{case(expr, i) => !groupingOrdinalList.contains(i)}
           .map{case(expr, i) => {
@@ -164,7 +164,14 @@ class ColumnarAggregation(
   // 5. create nativeAggregate evaluator
   val allNativeExpressions = groupingNativeExpression ::: aggregateNativeExpressions
   val allAggregateInputFieldList = groupingFieldList ::: aggregateFieldList
-  val allAggregateResultAttributes = groupingAttributes ::: aggregateAttributes.toList
+  var allAggregateResultAttributes : List[Attribute] = _
+  mode match {
+    case Partial | PartialMerge =>
+      val aggregateResultAttributes = getAttrForAggregateExpr(aggregateExpressions)
+      allAggregateResultAttributes = groupingAttributes ::: aggregateResultAttributes
+    case _ =>
+      allAggregateResultAttributes = groupingAttributes ::: aggregateAttributes.toList
+  }
   val aggregateResultFieldList = allAggregateResultAttributes.map(attr => {
     Field.nullable(s"${attr.name}#${attr.exprId.id}", CodeGeneration.getResultType(attr.dataType))
   })
@@ -203,6 +210,47 @@ class ColumnarAggregation(
       result_iterator.close()
       result_iterator = null
     }
+  }
+
+  def getAttrForAggregateExpr(aggregateExpressions: Seq[AggregateExpression]): List[Attribute] = {
+    var aggregateAttr = new ListBuffer[Attribute]()
+    val size = aggregateExpressions.size
+    for (expIdx <- 0 until size) {
+      val exp: AggregateExpression = aggregateExpressions(expIdx)
+      val aggregateFunc = exp.aggregateFunction
+      aggregateFunc match {
+        case Average(_) =>
+          val avg = aggregateFunc.asInstanceOf[Average]
+          val aggBufferAttr = avg.inputAggBufferAttributes
+          for (index <- 0 until aggBufferAttr.size) {
+            val attr = ConverterUtils.getAttrFromExpr(aggBufferAttr(index))
+            aggregateAttr += attr
+          }
+        case Sum(_) =>
+          val sum = aggregateFunc.asInstanceOf[Sum]
+          val aggBufferAttr = sum.inputAggBufferAttributes
+          val attr = ConverterUtils.getAttrFromExpr(aggBufferAttr(0))
+          aggregateAttr += attr
+        case Count(_) =>
+          val count = aggregateFunc.asInstanceOf[Count]
+          val aggBufferAttr = count.inputAggBufferAttributes
+          val attr = ConverterUtils.getAttrFromExpr(aggBufferAttr(0))
+          aggregateAttr += attr
+        case Max(_) =>
+          val max = aggregateFunc.asInstanceOf[Max]
+          val aggBufferAttr = max.inputAggBufferAttributes
+          val attr = ConverterUtils.getAttrFromExpr(aggBufferAttr(0))
+          aggregateAttr += attr
+        case Min(_) =>
+          val min = aggregateFunc.asInstanceOf[Min]
+          val aggBufferAttr = min.inputAggBufferAttributes
+          val attr = ConverterUtils.getAttrFromExpr(aggBufferAttr(0))
+          aggregateAttr += attr
+        case other =>
+          throw new UnsupportedOperationException(s"not currently supported: $other.")
+      }
+    }
+    aggregateAttr.toList
   }
 
   def updateAggregationResult(columnarBatch: ColumnarBatch): Unit = {
