@@ -148,6 +148,97 @@ class ColumnarDivide(left: Expression, right: Expression, original: Expression)
   }
 }
 
+class ColumnarBitwiseAnd(left: Expression, right: Expression, original: Expression)
+    extends BitwiseAnd(left: Expression, right: Expression)
+        with ColumnarExpression
+        with Logging {
+  override def doColumnarCodeGen(args: Object): (TreeNode, ArrowType) = {
+    var (left_node, left_type): (TreeNode, ArrowType) =
+      left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    var (right_node, right_type): (TreeNode, ArrowType) =
+      right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val unifiedType = CodeGeneration.getResultType(left_type, right_type)
+    if (!left_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      left_node =
+          TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), unifiedType),
+    }
+    if (!right_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      right_node =
+          TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), unifiedType),
+    }
+
+    val funcNode = TreeBuilder.makeFunction(
+      "bitwise_and",
+      Lists.newArrayList(left_node, right_node),
+      unifiedType)
+    (funcNode, unifiedType)
+  }
+}
+
+
+class ColumnarBitwiseOr(left: Expression, right: Expression, original: Expression)
+    extends BitwiseOr(left: Expression, right: Expression)
+        with ColumnarExpression
+        with Logging {
+  override def doColumnarCodeGen(args: Object): (TreeNode, ArrowType) = {
+    var (left_node, left_type): (TreeNode, ArrowType) =
+      left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    var (right_node, right_type): (TreeNode, ArrowType) =
+      right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val unifiedType = CodeGeneration.getResultType(left_type, right_type)
+    if (!left_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      left_node =
+          TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), unifiedType),
+    }
+    if (!right_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      right_node =
+          TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), unifiedType),
+    }
+
+    val funcNode = TreeBuilder.makeFunction(
+      "bitwise_or",
+      Lists.newArrayList(left_node, right_node),
+      unifiedType)
+    (funcNode, unifiedType)
+  }
+}
+
+class ColumnarBitwiseXor(left: Expression, right: Expression, original: Expression)
+    extends BitwiseXor(left: Expression, right: Expression)
+        with ColumnarExpression
+        with Logging {
+  override def doColumnarCodeGen(args: Object): (TreeNode, ArrowType) = {
+    var (left_node, left_type): (TreeNode, ArrowType) =
+      left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+    var (right_node, right_type): (TreeNode, ArrowType) =
+      right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
+
+    val unifiedType = CodeGeneration.getResultType(left_type, right_type)
+    if (!left_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      left_node =
+          TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), unifiedType),
+    }
+    if (!right_type.equals(unifiedType)) {
+      val func_name = CodeGeneration.getCastFuncName(unifiedType)
+      right_node =
+          TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), unifiedType),
+    }
+
+    val funcNode = TreeBuilder.makeFunction(
+      "bitwise_xor",
+      Lists.newArrayList(left_node, right_node),
+      unifiedType)
+    (funcNode, unifiedType)
+  }
+}
+
 object ColumnarBinaryArithmetic {
 
   def create(left: Expression, right: Expression, original: Expression): Expression =
@@ -160,6 +251,12 @@ object ColumnarBinaryArithmetic {
         new ColumnarMultiply(left, right, m)
       case d: Divide =>
         new ColumnarDivide(left, right, d)
+      case a: BitwiseAnd =>
+        new ColumnarBitwiseAnd(left, right, a)
+      case o: BitwiseOr =>
+        new ColumnarBitwiseOr(left, right, o)
+      case x: BitwiseXor =>
+        new ColumnarBitwiseXor(left, right, x)
       case other =>
         throw new UnsupportedOperationException(s"not currently supported: $other.")
     }
