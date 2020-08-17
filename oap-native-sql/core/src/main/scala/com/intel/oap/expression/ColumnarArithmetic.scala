@@ -193,22 +193,12 @@ class ColumnarBitwiseXor(left: Expression, right: Expression, original: Expressi
         with ColumnarExpression
         with Logging {
   override def doColumnarCodeGen(args: Object): (TreeNode, ArrowType) = {
-    var (left_node, left_type): (TreeNode, ArrowType) =
+    val (left_node, left_type): (TreeNode, ArrowType) =
       left.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
-    var (right_node, right_type): (TreeNode, ArrowType) =
+    val (right_node, right_type): (TreeNode, ArrowType) =
       right.asInstanceOf[ColumnarExpression].doColumnarCodeGen(args)
 
     val unifiedType = CodeGeneration.getResultType(left_type, right_type)
-    if (!left_type.equals(unifiedType)) {
-      val func_name = CodeGeneration.getCastFuncName(unifiedType)
-      left_node =
-          TreeBuilder.makeFunction(func_name, Lists.newArrayList(left_node), unifiedType),
-    }
-    if (!right_type.equals(unifiedType)) {
-      val func_name = CodeGeneration.getCastFuncName(unifiedType)
-      right_node =
-          TreeBuilder.makeFunction(func_name, Lists.newArrayList(right_node), unifiedType),
-    }
 
     val funcNode = TreeBuilder.makeFunction(
       "bitwise_xor",
