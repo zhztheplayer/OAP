@@ -69,7 +69,7 @@ class ColumnarShuffledHashJoin(
   var build_cb: ColumnarBatch = null
   var last_cb: ColumnarBatch = null
 
-  val inputBatchHolder = new ListBuffer[ColumnarBatch]()
+  val inputRecordBatchHolder = new ListBuffer[ArrowRecordBatch]()
 
   def columnarJoin(
       streamIter: Iterator[ColumnarBatch],
@@ -99,12 +99,9 @@ class ColumnarShuffledHashJoin(
       }
       val beforeBuild = System.nanoTime()
       val build_rb = ConverterUtils.createArrowRecordBatch(build_cb)
-      (0 until build_cb.numCols).toList.foreach(i =>
-        build_cb.column(i).asInstanceOf[ArrowWritableColumnVector].retain())
-      inputBatchHolder += build_cb
+      inputRecordBatchHolder += build_rb
       prober.evaluate(build_rb)
       _buildTime += NANOSECONDS.toMillis(System.nanoTime() - beforeBuild)
-      ConverterUtils.releaseArrowRecordBatch(build_rb)
     }
     if (build_cb != null) {
       build_cb = null
@@ -135,7 +132,16 @@ class ColumnarShuffledHashJoin(
         if (streamIter.hasNext) {
           true
         } else {
-          inputBatchHolder.foreach(cb => cb.close())
+          // FIXME: dealing with stream stopping: e.g. if LIMIT clause is used
+          try {
+            inputRecordBatchHolder
+                .foreach(rb => {
+                  rb.close()
+                })
+          } catch {
+            case e: Throwable => logWarning("Error when closing probe recode batch", e)
+            case other => throw other
+          }
           false
         }
       }
