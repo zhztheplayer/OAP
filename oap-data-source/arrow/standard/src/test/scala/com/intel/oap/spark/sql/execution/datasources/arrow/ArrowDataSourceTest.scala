@@ -117,6 +117,7 @@ class ArrowDataSourceTest extends QueryTest with SharedSparkSession {
     val sql = "select * from ptab"
     spark.sql(sql).explain()
     verifyParquet(spark.sql(sql))
+    Thread.sleep(1000000L)
   }
 
   test("create table statement") {
