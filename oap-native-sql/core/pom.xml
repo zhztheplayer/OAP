@@ -166,7 +166,7 @@
     <dependency>
       <groupId>org.scalatest</groupId>
       <artifactId>scalatest_${scala.binary.version}</artifactId>
-      <version>3.0.6</version>
+      <version>3.0.8</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -221,6 +221,11 @@
       <groupId>org.apache.parquet</groupId>
       <artifactId>parquet-avro</artifactId>
       <version>1.11.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.intel.oap</groupId>
+      <artifactId>spark-arrow-datasource-standard</artifactId>
+      <version>0.9.0</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -313,29 +318,29 @@
           </execution>
         </executions>
       </plugin>
-      <plugin>
-        <groupId>org.scalastyle</groupId>
-        <artifactId>scalastyle-maven-plugin</artifactId>
-        <version>1.0.0</version>
-        <configuration>
-          <verbose>false</verbose>
-          <failOnViolation>true</failOnViolation>
-          <includeTestSourceDirectory>true</includeTestSourceDirectory>
-          <failOnWarning>false</failOnWarning>
-          <sourceDirectory>${project.basedir}/src/main/scala</sourceDirectory>
-          <testSourceDirectory>${project.basedir}/src/test/scala</testSourceDirectory>
-          <configLocation>${project.basedir}/lib/scalastyle_config.xml</configLocation>
-          <outputFile>${project.basedir}/scalastyle-output.xml</outputFile>
-          <outputEncoding>UTF-8</outputEncoding>
-        </configuration>
-        <executions>
-          <execution>
-            <goals>
-              <goal>check</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
+<!--      <plugin>-->
+<!--        <groupId>org.scalastyle</groupId>-->
+<!--        <artifactId>scalastyle-maven-plugin</artifactId>-->
+<!--        <version>1.0.0</version>-->
+<!--        <configuration>-->
+<!--          <verbose>false</verbose>-->
+<!--          <failOnViolation>true</failOnViolation>-->
+<!--          <includeTestSourceDirectory>true</includeTestSourceDirectory>-->
+<!--          <failOnWarning>false</failOnWarning>-->
+<!--          <sourceDirectory>${project.basedir}/src/main/scala</sourceDirectory>-->
+<!--          <testSourceDirectory>${project.basedir}/src/test/scala</testSourceDirectory>-->
+<!--          <configLocation>${project.basedir}/lib/scalastyle_config.xml</configLocation>-->
+<!--          <outputFile>${project.basedir}/scalastyle-output.xml</outputFile>-->
+<!--          <outputEncoding>UTF-8</outputEncoding>-->
+<!--        </configuration>-->
+<!--        <executions>-->
+<!--          <execution>-->
+<!--            <goals>-->
+<!--              <goal>check</goal>-->
+<!--            </goals>-->
+<!--          </execution>-->
+<!--        </executions>-->
+<!--      </plugin>-->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-checkstyle-plugin</artifactId>
