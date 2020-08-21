@@ -17,6 +17,7 @@
 
 package com.intel.oap.vectorized;
 
+import org.apache.commons.io.FileUtils;
 import sun.net.www.protocol.file.FileURLConnection;
 
 import java.io.File;
@@ -59,7 +60,7 @@ public class JniUtils {
           try {
             INSTANCE = new JniUtils(tmp_dir);
           } catch (IllegalAccessException ex) {
-            throw new IOException("IllegalAccess");
+            throw new IOException("IllegalAccess", ex);
           }
         }
       }
@@ -149,7 +150,9 @@ public class JniUtils {
         tmp_dir = System.getProperty("java.io.tmpdir");
       }
       final String folderToLoad = "include";
-      final URLConnection urlConnection = JniUtils.class.getClassLoader().getResource("include").openConnection();
+      URL url = JniUtils.class.getClassLoader().getResource(folderToLoad);
+      final URLConnection urlConnection = url.openConnection();
+      final String destDir = tmp_dir + "/" + "nativesql_include";
       if (urlConnection instanceof JarURLConnection) {
         final JarFile jarFile = ((JarURLConnection) urlConnection).getJarFile();
         extractResourcesToDirectory(jarFile, folderToLoad, tmp_dir + "/" + "nativesql_include");
