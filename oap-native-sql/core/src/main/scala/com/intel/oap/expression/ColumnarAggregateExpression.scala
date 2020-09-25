@@ -106,6 +106,12 @@ class ColumnarAggregateExpression(
         case "stddev_samp" => ("stddev_samp_final", 3, 1)
         case other => (aggregateFunction.prettyName, 1, 1)
       }
+    case Complete =>
+      aggregateFunction.prettyName match {
+        case "sum" => ("sum", 1, 1)
+        case other => throw new UnsupportedOperationException(
+          "function not supported in Complete mode: " + other)
+      }
     case _ =>
       throw new UnsupportedOperationException("doesn't support this mode")
   }
