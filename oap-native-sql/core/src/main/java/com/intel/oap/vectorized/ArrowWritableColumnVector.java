@@ -66,7 +66,7 @@ public final class ArrowWritableColumnVector extends WritableColumnVector {
   private ValueVector vector;
   private ValueVector dictionaryVector;
 
-  public static BufferAllocator getNewAllocator() {
+  public static BufferAllocator getAllocator() {
     return SparkMemoryUtils.arrowAllocator();
   }
   public static AtomicLong vectorCount = new AtomicLong(0);
