@@ -17,13 +17,13 @@
 
 package org.apache.spark.sql.execution.datasources.v2.arrow
 
-import java.util.IdentityHashMap
 import java.util.UUID
 
 import org.apache.arrow.memory.{AllocationListener, BaseAllocator, BufferAllocator, OutOfMemoryException}
 
-import org.apache.spark.TaskContext
+import org.apache.spark.{SparkContext, TaskContext}
 import org.apache.spark.memory.{MemoryConsumer, MemoryMode, TaskMemoryManager}
+import org.apache.spark.util.TaskCompletionListener
 
 object SparkMemoryUtils {
   private val taskToAllocatorMap = new java.util.IdentityHashMap[TaskContext, BufferAllocator]()
@@ -78,11 +78,28 @@ object SparkMemoryUtils {
         val newInstance = parent.newChildAllocator("Spark Managed Allocator - " +
           UUID.randomUUID().toString, al, 0, parent.getLimit).asInstanceOf[BaseAllocator]
         taskToAllocatorMap.put(tc, newInstance)
-        getLocalTaskContext.addTaskCompletionListener(_ => {
-          taskToAllocatorMap.synchronized {
-            if (taskToAllocatorMap.containsKey(tc)) {
-              taskToAllocatorMap.get(tc).close()
-              taskToAllocatorMap.remove(tc)
+        getLocalTaskContext.addTaskCompletionListener(new TaskCompletionListener {
+          override def onTaskCompletion(context: TaskContext): Unit = {
+            taskToAllocatorMap.synchronized {
+              if (taskToAllocatorMap.containsKey(context)) {
+                try {
+                  taskToAllocatorMap.get(context).close()
+                } catch {
+                  case t: Throwable =>
+                    SparkContext.getActive.foreach {
+                      sc =>
+                        val conf = sc.getConf
+                        if (conf.get("spark.unsafe.exceptionOnMemoryLeak").toBoolean) {
+                          throw t
+                        } else {
+                          return
+                        }
+                    }
+                    throw t
+                } finally {
+                  taskToAllocatorMap.remove(context)
+                }
+              }
             }
           }
         })
