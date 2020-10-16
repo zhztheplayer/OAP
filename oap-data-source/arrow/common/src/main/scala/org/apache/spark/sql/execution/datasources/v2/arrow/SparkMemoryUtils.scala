@@ -82,10 +82,13 @@ object SparkMemoryUtils {
           override def onTaskCompletion(context: TaskContext): Unit = {
             taskToAllocatorMap.synchronized {
               if (taskToAllocatorMap.containsKey(context)) {
-                try {
-                  softClose(taskToAllocatorMap.get(context))
-                } finally {
+                val allocator = taskToAllocatorMap.get(context)
+                val allocated = allocator.getAllocatedMemory
+                if (allocated == 0L) {
+                  allocator.close()
                   taskToAllocatorMap.remove(context)
+                } else {
+                  softClose(allocator)
                 }
               }
             }
@@ -99,13 +102,15 @@ object SparkMemoryUtils {
 
   /**
    * Close the allocator quietly without having any OOM errors thrown. We rely on Spark's memory
-   * management system to detect possible memory leaks after the task get successfully down.
+   * management system to detect possible memory leaks after the task get successfully down. The
+   * possible leak shown right here is possibly not actual because buffers may be cleaned up after
+   * this check code is executed. Having said that developers should manage to make sure
+   * the specific clean up logic of operators are registered earlier which means it will be
+   * executed in later order.
    *
    * @see org.apache.spark.executor.Executor.TaskRunner#run()
    */
   private def softClose(allocator: BufferAllocator): Unit = {
-    val allocated = allocator.getAllocatedMemory
-    allocator.asInstanceOf[BaseAllocator].releaseBytes(allocated)
-    allocator.close()
+    // do nothing
   }
 }
