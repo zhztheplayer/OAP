@@ -21,7 +21,7 @@ import java.util.UUID
 
 import org.apache.arrow.memory.{AllocationListener, BaseAllocator, BufferAllocator, OutOfMemoryException}
 
-import org.apache.spark.{SparkContext, TaskContext}
+import org.apache.spark.{TaskContext}
 import org.apache.spark.memory.{MemoryConsumer, MemoryMode, TaskMemoryManager}
 import org.apache.spark.util.TaskCompletionListener
 
@@ -83,19 +83,7 @@ object SparkMemoryUtils {
             taskToAllocatorMap.synchronized {
               if (taskToAllocatorMap.containsKey(context)) {
                 try {
-                  taskToAllocatorMap.get(context).close()
-                } catch {
-                  case t: Throwable =>
-                    SparkContext.getActive.foreach {
-                      sc =>
-                        val conf = sc.getConf
-                        if (conf.get("spark.unsafe.exceptionOnMemoryLeak").toBoolean) {
-                          throw t
-                        } else {
-                          return
-                        }
-                    }
-                    throw t
+                  softClose(taskToAllocatorMap.get(context))
                 } finally {
                   taskToAllocatorMap.remove(context)
                 }
@@ -107,5 +95,17 @@ object SparkMemoryUtils {
       }
     }
     allocator
+  }
+
+  /**
+   * Close the allocator quietly without having any OOM errors thrown. We rely on Spark's memory
+   * management system to detect possible memory leaks after the task get successfully down.
+   *
+   * @see org.apache.spark.executor.Executor.TaskRunner#run()
+   */
+  private def softClose(allocator: BufferAllocator): Unit = {
+    val allocated = allocator.getAllocatedMemory
+    allocator.asInstanceOf[BaseAllocator].releaseBytes(allocated)
+    allocator.close()
   }
 }
