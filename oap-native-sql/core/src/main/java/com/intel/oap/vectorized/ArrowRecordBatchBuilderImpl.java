@@ -68,7 +68,11 @@ public class ArrowRecordBatchBuilderImpl {
       BufferLedger ledger = am.associate(allocator);
       buffers.add(new ArrowBuf(ledger, null, tmp.size, tmp.memoryAddress, false));
     }
-    return new ArrowRecordBatch(recordBatchBuilder.length, nodes, buffers);
+    try {
+      return new ArrowRecordBatch(recordBatchBuilder.length, nodes, buffers);
+    } finally {
+      buffers.forEach(ArrowBuf::close);
+    }
   }
 
   private static class Underlying extends NativeUnderlingMemory { // fixme typo
