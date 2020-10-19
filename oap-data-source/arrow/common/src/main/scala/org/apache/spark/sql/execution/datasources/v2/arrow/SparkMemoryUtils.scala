@@ -64,6 +64,11 @@ object SparkMemoryUtils {
     getLocalTaskContext != null
   }
 
+  def addLeakSafeTaskCompletionListener[U](f: TaskContext => U): TaskContext = {
+    arrowAllocator()
+    getLocalTaskContext.addTaskCompletionListener(f)
+  }
+
   def arrowAllocator(): BaseAllocator = {
     if (!inSparkTask()) {
       return org.apache.spark.sql.util.ArrowUtils.rootAllocator
