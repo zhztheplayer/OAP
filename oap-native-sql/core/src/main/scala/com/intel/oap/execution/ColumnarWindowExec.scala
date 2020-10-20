@@ -163,15 +163,16 @@ class ColumnarWindowExec(windowExpression: Seq[NamedExpression],
 
         val prev3 = System.nanoTime()
         val batches = evaluator.finish()
-        SparkMemoryUtils.addLeakSafeTaskCompletionListener(_ => {
-          batches.foreach(_.close())
-        })
         val windowFinishCost = System.nanoTime() - prev3
         totalTime += TimeUnit.NANOSECONDS.toMillis(windowFinishCost)
         val itr = batches.zipWithIndex.map { case (recordBatch, i) => {
           val prev4 = System.nanoTime()
           val length = recordBatch.getLength
-          val vectors = ArrowWritableColumnVector.loadColumns(length, resultSchema, recordBatch)
+          val vectors = try {
+             ArrowWritableColumnVector.loadColumns(length, resultSchema, recordBatch)
+          } finally {
+            recordBatch.close()
+          }
           if (vectors.size != 1) {
             throw new IllegalStateException("illegal vector width returned by native, this should not happen")
           }
