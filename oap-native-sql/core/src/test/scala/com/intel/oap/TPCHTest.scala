@@ -17,8 +17,14 @@
 
 package com.intel.oap
 
-import java.io.File
+import java.io.{File, FileOutputStream, InputStreamReader, OutputStreamWriter}
+import java.lang.management.ManagementFactory
 import java.nio.charset.StandardCharsets
+import java.util.{Scanner, StringTokenizer}
+import java.util
+import java.util.concurrent.{Executors, TimeUnit}
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.function.Consumer
 
 import io.netty.util.internal.PlatformDependent
 import org.apache.arrow.dataset.jni.NativeMemoryPool
@@ -27,6 +33,7 @@ import org.apache.log4j.{Level, LogManager}
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.test.{ColumnarPluginTest, SharedSparkSession}
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.execution.datasources.v2.arrow.SparkMemoryUtils
 
 class TPCHTest extends QueryTest with SharedSparkSession {
   object Mode extends Enumeration {
@@ -113,6 +120,7 @@ class TPCHTest extends QueryTest with SharedSparkSession {
           .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
 //          .set("spark.sql.autoBroadcastJoinThreshold", "1")
           .set("spark.unsafe.exceptionOnMemoryLeak", "false")
+          .set("spark.sql.columnar.sort.broadcast.cache.timeout", "600")
       return conf
     }
     throw new IllegalStateException()
@@ -141,12 +149,18 @@ class TPCHTest extends QueryTest with SharedSparkSession {
   }
 
   test("tpc-ds single run") {
-    println(NativeMemoryPool.getDefault.getBytesAllocated)
-    println(NativeMemoryPool.getDefault.getNativeInstanceId.toHexString)
-    LogManager.getRootLogger.setLevel(Level.WARN)
-    runTPCHQuery(1)
+    TPCHTest.startRAMMonitorDaemon()
+    println(TPCHTest.getCurrentPIDRAMUsage())
     println(PlatformDependent.usedDirectMemory())
-    println(NativeMemoryPool.getDefault.getBytesAllocated)
+    println(SparkMemoryUtils.globalMemoryPool().getBytesAllocated)
+    println(SparkMemoryUtils.globalAllocator().getAllocatedMemory)
+    LogManager.getRootLogger.setLevel(Level.WARN)
+    (1 to 10).foreach { _ =>
+      (1 to 22).foreach(i => runTPCHQuery(i))
+    }
+    println(PlatformDependent.usedDirectMemory())
+    println(SparkMemoryUtils.globalMemoryPool().getBytesAllocated)
+    println(SparkMemoryUtils.globalAllocator().getAllocatedMemory)
     Thread.sleep(3600000L)
   }
 
@@ -248,6 +262,84 @@ object TPCHTest {
 
   private def delete(path: String): Unit = {
     FileUtils.forceDelete(new File(path))
+  }
+
+  private def getCurrentPIDRAMUsage(): Long = {
+    val proc = Runtime.getRuntime.exec("ps -p " + getPID() + " -o rss")
+    val in = new InputStreamReader(proc.getInputStream)
+    val buff = new StringBuilder
+
+    def scan: Unit = {
+      while (true) {
+        val ch = in.read()
+        if (ch == -1) {
+          return;
+        }
+        buff.append(ch.asInstanceOf[Char])
+      }
+    }
+    scan
+    in.close()
+    val output = buff.toString()
+    val scanner = new Scanner(output)
+    scanner.nextLine()
+    scanner.nextLine().toLong
+  }
+
+  private def getOSRAMUsage(): Long = {
+    val proc = Runtime.getRuntime.exec("free")
+    val in = new InputStreamReader(proc.getInputStream)
+    val buff = new StringBuilder
+
+    def scan: Unit = {
+      while (true) {
+        val ch = in.read()
+        if (ch == -1) {
+          return;
+        }
+        buff.append(ch.asInstanceOf[Char])
+      }
+    }
+    scan
+    in.close()
+    val output = buff.toString()
+    val scanner = new Scanner(output)
+    scanner.nextLine()
+    val memLine = scanner.nextLine()
+    val tok = new StringTokenizer(memLine)
+    tok.nextToken()
+    tok.nextToken()
+    return tok.nextToken().toLong
+  }
+
+  private def getPID(): String = {
+    val beanName = ManagementFactory.getRuntimeMXBean.getName
+    return beanName.substring(0, beanName.indexOf('@'))
+  }
+
+  private def startRAMMonitorDaemon(): Unit = {
+    val osw = new OutputStreamWriter(new FileOutputStream(getPID() + ".mem.log"))
+    val counter = new AtomicInteger(0)
+    Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(new Runnable {
+      override def run(): Unit = {
+        osw.write(counter.getAndIncrement().toString)
+        osw.write('\t')
+        val heapTotal = Runtime.getRuntime.totalMemory()
+        osw.write(((heapTotal - Runtime.getRuntime.freeMemory()) / 1024L).toString) // on-heap
+        osw.write('\t')
+        osw.write((heapTotal / 1024L).toString) // heap total
+        osw.write('\t')
+        osw.write(getCurrentPIDRAMUsage().toString)
+        osw.write('\t')
+        osw.write(getOSRAMUsage().toString)
+        osw.write(System.lineSeparator())
+        osw.flush()
+      }
+    }, 0L, 1000L, TimeUnit.MILLISECONDS)
+  }
+
+  def main(args: Array[String]): Unit = {
+    startRAMMonitorDaemon()
   }
 }
 

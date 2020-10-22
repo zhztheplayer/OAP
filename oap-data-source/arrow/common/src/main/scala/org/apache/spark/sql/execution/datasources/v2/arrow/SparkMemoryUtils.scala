@@ -21,13 +21,19 @@ import java.util.UUID
 
 import com.intel.oap.spark.sql.execution.datasources.v2.arrow.SparkManagedReservationListener
 import org.apache.arrow.dataset.jni.NativeMemoryPool
-import org.apache.arrow.memory.{AllocationListener, BaseAllocator, BufferAllocator, DirectReservationListener, OutOfMemoryException, ReservationListener}
+import org.apache.arrow.memory.{AllocationListener, BaseAllocator, BufferAllocator, DirectReservationListener, OutOfMemoryException, ReservationListener, RootAllocator}
 
 import org.apache.spark.TaskContext
 import org.apache.spark.memory.{MemoryConsumer, MemoryMode, TaskMemoryManager}
 import org.apache.spark.util.TaskCompletionListener
 
 object SparkMemoryUtils {
+
+  private val rootAllocator = new RootAllocator(
+    BaseAllocator.configBuilder()
+      .allocationManagerFactory(UnsafeAllocationManager1.FACTORY)
+      .build())
+
   private val taskToAllocatorMap = new java.util.IdentityHashMap[TaskContext, BufferAllocator]()
   private val taskToMemoryPoolMap =
     new java.util.IdentityHashMap[TaskContext, NativeMemoryPool]()
@@ -75,7 +81,7 @@ object SparkMemoryUtils {
   }
 
   def globalAllocator(): BaseAllocator = {
-    org.apache.spark.sql.util.ArrowUtils.rootAllocator
+    rootAllocator
   }
 
   def contextAllocator(): BaseAllocator = {
