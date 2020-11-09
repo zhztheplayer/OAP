@@ -347,6 +347,7 @@ JNIEXPORT void JNICALL Java_com_intel_oap_vectorized_ExpressionMemoryPool_releas
     return;
   }
   env->DeleteGlobalRef(rm->GetMemoryReservation());
+//  delete pool; // fixme
   memory_pool_holder.Erase(memory_pool_id);
 }
 
@@ -367,7 +368,7 @@ Java_com_intel_oap_vectorized_ExpressionEvaluatorJniWrapper_nativeSetBatchSize(
 
 JNIEXPORT jlong JNICALL
 Java_com_intel_oap_vectorized_ExpressionEvaluatorJniWrapper_nativeBuild(
-    JNIEnv* env, jobject obj, jbyteArray schema_arr, jbyteArray exprs_arr,
+    JNIEnv* env, jobject obj, jlong memory_pool_id, jbyteArray schema_arr, jbyteArray exprs_arr,
     jbyteArray res_schema_arr, jboolean return_when_finish = false) {
   arrow::Status status;
 
@@ -405,8 +406,14 @@ Java_com_intel_oap_vectorized_ExpressionEvaluatorJniWrapper_nativeBuild(
 
   std::shared_ptr<CodeGenerator> handler;
   try {
+    arrow::MemoryPool* pool = memory_pool_holder.Lookup(memory_pool_id);
+    if (pool == nullptr) {
+      env->ThrowNew(illegal_argument_exception_class,
+                    "Memory pool does not exist or has been closed");
+      return -1;
+    }
     msg = sparkcolumnarplugin::codegen::CreateCodeGenerator(
-        schema, expr_vector, ret_types, &handler, return_when_finish);
+        pool, schema, expr_vector, ret_types, &handler, return_when_finish);
   } catch (const std::runtime_error& error) {
     env->ThrowNew(unsupportedoperation_exception_class, error.what());
   } catch (const std::exception& error) {
@@ -433,7 +440,7 @@ Java_com_intel_oap_vectorized_ExpressionEvaluatorJniWrapper_nativeBuild(
 
 JNIEXPORT jlong JNICALL
 Java_com_intel_oap_vectorized_ExpressionEvaluatorJniWrapper_nativeBuildWithFinish(
-    JNIEnv* env, jobject obj, jbyteArray schema_arr, jbyteArray exprs_arr,
+    JNIEnv* env, jobject obj, jlong memory_pool_id, jbyteArray schema_arr, jbyteArray exprs_arr,
     jbyteArray finish_exprs_arr) {
   arrow::Status status;
 
@@ -464,8 +471,14 @@ Java_com_intel_oap_vectorized_ExpressionEvaluatorJniWrapper_nativeBuildWithFinis
 
   std::shared_ptr<CodeGenerator> handler;
   try {
+    arrow::MemoryPool* pool = memory_pool_holder.Lookup(memory_pool_id);
+    if (pool == nullptr) {
+      env->ThrowNew(illegal_argument_exception_class,
+                    "Memory pool does not exist or has been closed");
+      return -1;
+    }
     msg = sparkcolumnarplugin::codegen::CreateCodeGenerator(
-        schema, expr_vector, ret_types, &handler, true, finish_expr_vector);
+        pool, schema, expr_vector, ret_types, &handler, true, finish_expr_vector);
   } catch (const std::runtime_error& error) {
     env->ThrowNew(unsupportedoperation_exception_class, error.what());
   } catch (const std::exception& error) {
