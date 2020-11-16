@@ -251,18 +251,11 @@ arrow::Status ExprVisitor::Make(arrow::MemoryPool* memory_pool,
   return arrow::Status::OK();
 }
 
-<<<<<<< HEAD
-arrow::Status ExprVisitor::MakeWindow(
-    std::shared_ptr<arrow::Schema> schema_ptr,
-    std::vector<std::shared_ptr<arrow::Field>> ret_fields,
-    const gandiva::FunctionNode& node, std::shared_ptr<ExprVisitor>* out) {
-=======
 arrow::Status ExprVisitor::MakeWindow(arrow::MemoryPool* memory_pool,
                                       std::shared_ptr<arrow::Schema> schema_ptr,
                                       std::vector<std::shared_ptr<arrow::Field>> ret_fields,
                                       const gandiva::FunctionNode& node,
                                       std::shared_ptr<ExprVisitor>* out) {
->>>>>>> a91aa9a5ac... [OAP-1852][oap-native-sql] Memory Management: Pass Spark managed memory pool to code generators
   auto func_name = node.descriptor()->name();
   if (func_name != "window") {
     return arrow::Status::Invalid("window's Gandiva function name mismatch");
