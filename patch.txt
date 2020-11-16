@@ -1,0 +1,36 @@
+diff --git a/oap-native-sql/cpp/src/jni/jni_wrapper.cc b/oap-native-sql/cpp/src/jni/jni_wrapper.cc
+index e5fd2ef42a..20daf151fe 100644
+--- a/oap-native-sql/cpp/src/jni/jni_wrapper.cc
++++ b/oap-native-sql/cpp/src/jni/jni_wrapper.cc
+@@ -295,13 +295,14 @@ Java_com_intel_oap_vectorized_ExpressionEvaluatorJniWrapper_nativeBuild(
+   std::shared_ptr<CodeGenerator> handler;
+   try {
+     arrow::MemoryPool* pool = reinterpret_cast<arrow::MemoryPool*>(memory_pool_id);
++    arrow::MemoryPool* pool2 = arrow::default_memory_pool();
+     if (pool == nullptr) {
+       env->ThrowNew(illegal_argument_exception_class,
+                     "Memory pool does not exist or has been closed");
+       return -1;
+     }
+     msg = sparkcolumnarplugin::codegen::CreateCodeGenerator(
+-        pool, schema, expr_vector, ret_types, &handler, return_when_finish);
++        pool2, schema, expr_vector, ret_types, &handler, return_when_finish);
+   } catch (const std::runtime_error& error) {
+     env->ThrowNew(unsupportedoperation_exception_class, error.what());
+   } catch (const std::exception& error) {
+@@ -360,13 +361,14 @@ Java_com_intel_oap_vectorized_ExpressionEvaluatorJniWrapper_nativeBuildWithFinis
+   std::shared_ptr<CodeGenerator> handler;
+   try {
+     arrow::MemoryPool* pool = reinterpret_cast<arrow::MemoryPool*>(memory_pool_id);
++    arrow::MemoryPool* pool2 = arrow::default_memory_pool();
+     if (pool == nullptr) {
+       env->ThrowNew(illegal_argument_exception_class,
+                     "Memory pool does not exist or has been closed");
+       return -1;
+     }
+     msg = sparkcolumnarplugin::codegen::CreateCodeGenerator(
+-        pool, schema, expr_vector, ret_types, &handler, true, finish_expr_vector);
++        pool2, schema, expr_vector, ret_types, &handler, true, finish_expr_vector);
+   } catch (const std::runtime_error& error) {
+     env->ThrowNew(unsupportedoperation_exception_class, error.what());
+   } catch (const std::exception& error) {
