@@ -91,7 +91,7 @@ class ColumnarShuffleWriter[K, V](
         dataTmp.getAbsolutePath,
         blockManager.subDirsPerLocalDir,
         localDirs,
-        SparkMemoryUtils.memoryPool().getNativeInstanceId)
+        SparkMemoryUtils.contextMemoryPool().getNativeInstanceId)
     }
 
     while (records.hasNext) {

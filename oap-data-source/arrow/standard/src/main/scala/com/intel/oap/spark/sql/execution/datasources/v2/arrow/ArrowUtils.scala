@@ -59,9 +59,9 @@ object ArrowUtils {
 
     val format = getFormat(options).getOrElse(throw new IllegalStateException)
     val fs = getFs(options).getOrElse(throw new IllegalStateException)
-    val allocator = SparkMemoryUtils.arrowAllocator()
+    val allocator = SparkMemoryUtils.contextAllocator()
     val factory = new SingleFileDatasetFactory(allocator,
-      SparkMemoryUtils.memoryPool(),
+      SparkMemoryUtils.contextMemoryPool(),
       format,
       fs,
       rewriteFilePath(file))

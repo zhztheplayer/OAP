@@ -69,14 +69,19 @@ object SparkMemoryUtils {
   }
 
   def addLeakSafeTaskCompletionListener[U](f: TaskContext => U): TaskContext = {
-    memoryPool()
-    arrowAllocator()
+    contextMemoryPool()
+    contextAllocator()
     getLocalTaskContext.addTaskCompletionListener(f)
   }
 
-  def arrowAllocator(): BaseAllocator = {
+  def globalAllocator(): BaseAllocator = {
+    org.apache.spark.sql.util.ArrowUtils.rootAllocator
+  }
+
+  def contextAllocator(): BaseAllocator = {
+    val globalAlloc = globalAllocator()
     if (!inSparkTask()) {
-      return org.apache.spark.sql.util.ArrowUtils.rootAllocator
+      return globalAlloc
     }
     val tc = getLocalTaskContext
     val allocator = taskToAllocatorMap.synchronized {
@@ -84,7 +89,7 @@ object SparkMemoryUtils {
         taskToAllocatorMap.get(tc).asInstanceOf[BaseAllocator]
       } else {
         val al = new ExecutionMemoryAllocationListener(getTaskMemoryManager())
-        val parent = org.apache.spark.sql.util.ArrowUtils.rootAllocator
+        val parent = globalAlloc
         val newInstance = parent.newChildAllocator("Spark Managed Allocator - " +
           UUID.randomUUID().toString, al, 0, parent.getLimit).asInstanceOf[BaseAllocator]
         taskToAllocatorMap.put(tc, newInstance)
@@ -130,9 +135,13 @@ object SparkMemoryUtils {
     // do nothing
   }
 
-  def memoryPool(): NativeMemoryPool = {
+  def globalMemoryPool(): NativeMemoryPool = {
+    NativeMemoryPool.getDefault
+  }
+
+  def contextMemoryPool(): NativeMemoryPool = {
     if (!inSparkTask()) {
-      return NativeMemoryPool.getDefault
+      return globalMemoryPool()
     }
     val tc = getLocalTaskContext
     val pool = taskToMemoryPoolMap.synchronized {
