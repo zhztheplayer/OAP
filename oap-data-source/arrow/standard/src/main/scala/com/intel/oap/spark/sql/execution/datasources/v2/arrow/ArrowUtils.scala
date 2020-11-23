@@ -65,6 +65,7 @@ object ArrowUtils {
         false
     }
   }
+
   def makeArrowDiscovery(file: String, startOffset: Long, length: Long,
                          options: ArrowOptions): SingleFileDatasetFactory = {
 
@@ -75,7 +76,9 @@ object ArrowUtils {
       memoryPool(),
       format,
       fs,
-      rewriteFilePath(file))
+      rewriteFilePath(file),
+      startOffset,
+      length)
     factory
   }
 
