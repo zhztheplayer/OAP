@@ -159,7 +159,7 @@ object SparkMemoryUtils {
                   val pool = taskToMemoryPoolMap.get(context)
                   val allocated = pool.getBytesAllocated()
                   if (allocated == 0L) {
-                    taskToMemoryPoolMap.remove(context)
+                    taskToMemoryPoolMap.remove(context).close()
                   } else {
                     // do nothing
                   }
