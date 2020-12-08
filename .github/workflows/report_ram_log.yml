@@ -11,7 +11,7 @@ on:
 
 jobs:
   comment-on-pr:
-    if {{ contains(github.event.pull_request.title, '[oap-native-sql]') || contains(github.event.pull_request.title, '[oap-data-source]') }}
+    if ${{ contains(github.event.pull_request.title, '[oap-native-sql]') || contains(github.event.pull_request.title, '[oap-data-source]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -29,14 +29,14 @@ jobs:
         uses: dawidd6/action-download-artifact@v2
         with:
           workflow: tpch.yml
-          run_id: {{ github.event.workflow_run.id }}
+          run_id: ${{ github.event.workflow_run.id }}
           name: memory_usage_log
           path: /tmp/ram.log
       - name: Download previous event payload
         uses: dawidd6/action-download-artifact@v2
         with:
           workflow: tpch.yml
-          run_id: {{ github.event.workflow_run.id }}
+          run_id: ${{ github.event.workflow_run.id }}
           name: pr_event_path
           path: /tmp/previous_event.json
       - run: mvn test -DmembersOnlySuites=com.intel.oap.tpch -DtagsToInclude=com.intel.oap.tags.CommentOnContextPR -pl oap-native-sql/core -am -Dexec.skip=true
