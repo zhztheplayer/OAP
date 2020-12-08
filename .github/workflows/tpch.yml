@@ -20,6 +20,7 @@ jobs:
       - uses: iterative/setup-cml@v1
         with:
           version: latest
+      - run: sudo swapoff -a
       - run: sudo apt-get install cmake
       - run: sudo apt-get install libboost-all-dev
       - name: Install OAP optimized Arrow
