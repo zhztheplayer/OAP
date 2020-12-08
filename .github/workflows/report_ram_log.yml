@@ -25,14 +25,14 @@ jobs:
           workflow: tpch.yml
           run_id: ${{ github.event.workflow_run.id }}
           name: memory_usage_log
-          path: /tmp/ram.log
+          path: /tmp/
       - name: Download previous event payload
         uses: dawidd6/action-download-artifact@v2
         with:
           workflow: tpch.yml
           run_id: ${{ github.event.workflow_run.id }}
           name: pr_event
-          path: /tmp/previous_event.json
+          path: /tmp/
       - name: Install OAP optimized Arrow
         run: |
           cd /tmp
@@ -43,6 +43,6 @@ jobs:
         env:
           MAVEN_OPTS: "-Xmx2048m"
           RAM_USAGE_LOG_PATH: "/tmp/ram.log"
-          PREVIOUS_EVENT_PATH: "/tmp/previous_event.json"
+          PREVIOUS_EVENT_PATH: "/tmp/event.json"
           GITHUB_TOKEN: ${{ github.token }}
 
