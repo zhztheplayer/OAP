@@ -69,7 +69,13 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
 
   override def beforeAll(): Unit = {
     super.beforeAll()
-    LogManager.getRootLogger.setLevel(Level.WARN)
+  }
+
+  override def afterAll(): Unit = {
+    super.afterAll()
+  }
+
+  def createTPCHTables(): Unit = {
     // gen tpc-h data
     val scale = 0.1D
     val dateFormat = new SimpleDateFormat("yyyy-MM-dd")
@@ -365,11 +371,6 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
     })
   }
 
-  override def afterAll(): Unit = {
-    super.afterAll()
-  }
-
-
   test("comment on context pr", CommentOnContextPR) {
     val logPath = System.getenv("RAM_USAGE_LOG_PATH")
     if (StringUtils.isEmpty(logPath)) {
@@ -450,6 +451,7 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
     }
 
     try {
+      createTPCHTables()
       writeLog("Before suite starts: %s".format(genReportLine()))
       (1 to 5).foreach { executionId =>
         writeLog("Iteration %d:".format(executionId))
