@@ -11,7 +11,7 @@ on:
 
 jobs:
   comment-on-pr:
-    if ${{ contains(github.event.pull_request.title, '[oap-native-sql]') || contains(github.event.pull_request.title, '[oap-data-source]') }}
+    if: ${{ contains(github.event.pull_request.title, '[oap-native-sql]') || contains(github.event.pull_request.title, '[oap-data-source]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
