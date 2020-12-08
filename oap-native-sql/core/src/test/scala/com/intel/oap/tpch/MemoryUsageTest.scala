@@ -23,7 +23,6 @@ import java.nio.charset.StandardCharsets
 import java.sql.Date
 import java.text.SimpleDateFormat
 import java.util.{Scanner, StringTokenizer}
-import java.util
 
 import com.intel.oap.tags.{CommentOnContextPR, TestAndWriteLogs}
 import com.intel.oap.tpch.MemoryUsageTest.{commentOnContextPR, stdoutLog, RAMMonitor}
@@ -37,8 +36,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.types._
 import org.codehaus.jackson.map.ObjectMapper
-import org.kohsuke.github.{GHIssueComment, GHPermissionType, GitHubBuilder}
-import org.scalatest.Tag
+import org.kohsuke.github.{GHIssueComment, GitHubBuilder}
 
 class MemoryUsageTest extends QueryTest with SharedSparkSession {
 
