@@ -42,7 +42,7 @@ jobs:
       - run: mvn test -DmembersOnlySuites=com.intel.oap.tpch -DtagsToInclude=com.intel.oap.tags.CommentOnContextPR -pl oap-native-sql/core -am -Dexec.skip=true
         env:
           MAVEN_OPTS: "-Xmx2048m"
-          COMMENT_CONTENT_PATH: "/tmp/comment.txt"
+          COMMENT_CONTENT_PATH: "/tmp/comment.md"
           PREVIOUS_EVENT_PATH: "/tmp/event.json"
           GITHUB_TOKEN: ${{ github.token }}
 

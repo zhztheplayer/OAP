@@ -23,10 +23,13 @@ import java.nio.charset.StandardCharsets
 import java.sql.Date
 import java.text.SimpleDateFormat
 import java.util.{Scanner, StringTokenizer}
+import java.util.concurrent.{Executors, ScheduledFuture, TimeUnit}
+import java.util.concurrent.atomic.AtomicInteger
 
 import com.intel.oap.tags.{CommentOnContextPR, TestAndWriteLogs}
 import com.intel.oap.tpch.MemoryUsageTest.{commentOnContextPR, stdoutLog, RAMMonitor}
 import io.prestosql.tpch._
+import javax.imageio.ImageIO
 import org.apache.commons.io.FileUtils
 import org.apache.commons.lang.StringUtils
 import org.apache.log4j.{Level, LogManager}
@@ -36,7 +39,13 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.types._
 import org.codehaus.jackson.map.ObjectMapper
+import org.knowm.xchart.{BitmapEncoder, XYChartBuilder}
+import org.knowm.xchart.BitmapEncoder.BitmapFormat
+import org.knowm.xchart.XYSeries.XYSeriesRenderStyle
+import org.knowm.xchart.style.Styler.ChartTheme
 import org.kohsuke.github.{GHIssueComment, GitHubBuilder}
+
+import scala.collection.mutable.ArrayBuffer
 
 class MemoryUsageTest extends QueryTest with SharedSparkSession {
 
@@ -374,8 +383,8 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
   test("comment on context pr", CommentOnContextPR) {
     val commentContentPath = System.getenv("COMMENT_CONTENT_PATH")
     if (StringUtils.isEmpty(commentContentPath)) {
-      MemoryUsageTest.stdoutLog("No RAM_USAGE_LOG_PATH set. Aborting... ")
-      throw new IllegalArgumentException("No RAM_USAGE_LOG_PATH set")
+      MemoryUsageTest.stdoutLog("No COMMENT_CONTENT_PATH set. Aborting... ")
+      throw new IllegalArgumentException("No COMMENT_CONTENT_PATH set")
     }
 
     val repoSlug = System.getenv("GITHUB_REPOSITORY")
@@ -408,15 +417,21 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
 
   test("memory usage test long-run", TestAndWriteLogs) {
     LogManager.getRootLogger.setLevel(Level.WARN)
-    val commentContentPath = System.getenv("COMMENT_CONTENT_PATH")
-    if (StringUtils.isEmpty(commentContentPath)) {
-      MemoryUsageTest.stdoutLog("No RAM_USAGE_LOG_PATH set. Aborting... ")
-      throw new IllegalArgumentException("No RAM_USAGE_LOG_PATH set")
+    val commentTextOutputPath = System.getenv("COMMENT_TEXT_OUTPUT_PATH")
+    if (StringUtils.isEmpty(commentTextOutputPath)) {
+      MemoryUsageTest.stdoutLog("No COMMENT_TEXT_OUTPUT_PATH set. Aborting... ")
+      throw new IllegalArgumentException("No COMMENT_TEXT_OUTPUT_PATH set")
     }
 
+    val commentImageOutputPath = System.getenv("COMMENT_IMAGE_OUTPUT_PATH")
+    if (StringUtils.isEmpty(commentImageOutputPath)) {
+      MemoryUsageTest.stdoutLog("No COMMENT_IMAGE_OUTPUT_PATH set. Aborting... ")
+      throw new IllegalArgumentException("No COMMENT_IMAGE_OUTPUT_PATH set")
+    }
 
     val ramMonitor = new RAMMonitor()
-    val writer = new OutputStreamWriter(new FileOutputStream(commentContentPath))
+    ramMonitor.startMonitorDaemon(commentImageOutputPath)
+    val writer = new OutputStreamWriter(new FileOutputStream(commentTextOutputPath))
 
     def writeCommentLine(line: String): Unit = {
       writer.write(line)
@@ -493,7 +508,7 @@ object MemoryUsageTest {
 
   // not thread-safe
   class RAMMonitor extends AutoCloseable {
-
+    val executor = Executors.newSingleThreadScheduledExecutor()
     var closed = false
 
     def getJVMHeapUsed(): Long = {
@@ -561,7 +576,61 @@ object MemoryUsageTest {
       return tok.nextToken().toLong
     }
 
+    def startMonitorDaemon(chartOutputPath: String): ScheduledFuture[_] = {
+      if (closed) {
+        throw new IllegalStateException()
+      }
+      val counter = new AtomicInteger(0)
+      val heapUsedBuffer = ArrayBuffer[Int]()
+      val heapTotalBuffer = ArrayBuffer[Int]()
+      val pidRamUsedBuffer = ArrayBuffer[Int]()
+      val osRamUsedBuffer = ArrayBuffer[Int]()
+
+      executor.scheduleAtFixedRate(new Runnable {
+        override def run(): Unit = {
+          val i = counter.getAndIncrement()
+          val pidRamUsed = getCurrentPIDRAMUsed()
+          val osRamUsed = getOSRAMUsed()
+          val heapUsed = getJVMHeapUsed()
+          val heapTotal = getJVMHeapTotal()
+
+          heapUsedBuffer.append((heapUsed / 1024).toInt)
+          heapTotalBuffer.append((heapTotal / 1024).toInt)
+          pidRamUsedBuffer.append((pidRamUsed / 1024).toInt)
+          osRamUsedBuffer.append((osRamUsed / 1024).toInt)
+
+
+          if (i % 10 == 0) {
+            val chart = new XYChartBuilder()
+                .width(768)
+                .height(512)
+                .title("RAM Usage History (TPC-H)")
+                .xAxisTitle("Up Time (Second)")
+                .yAxisTitle("RAM Used (MB)")
+                .theme(ChartTheme.XChart)
+                .build
+            chart.getStyler.setDefaultSeriesRenderStyle(XYSeriesRenderStyle.Scatter)
+
+            chart.addSeries("JVM Heap Used", heapUsedBuffer.toArray)
+            chart.addSeries("JVM Heap Total", heapTotalBuffer.toArray)
+            chart.addSeries("Process Res Total", pidRamUsedBuffer.toArray)
+            chart.addSeries("OS Used Total", osRamUsedBuffer.toArray)
+
+            val out = new FileOutputStream(chartOutputPath)
+            try {
+              BitmapEncoder.saveBitmap(chart, out, BitmapFormat.PNG)
+            } finally {
+              out.close()
+            }
+          }
+        }
+      }, 0L, 1000L, TimeUnit.MILLISECONDS)
+    }
+
+
     override def close(): Unit = {
+      executor.shutdown()
+      executor.awaitTermination(Long.MaxValue, TimeUnit.MILLISECONDS)
       closed = true
     }
   }

@@ -17,6 +17,9 @@ jobs:
         uses: actions/setup-java@v1
         with:
           java-version: 1.8
+      - uses: iterative/setup-cml@v1
+        with:
+          version: latest
       - run: sudo apt-get install cmake
       - run: sudo apt-get install libboost-all-dev
       - name: Install OAP optimized Arrow
@@ -32,13 +35,15 @@ jobs:
       - run: mvn test -DmembersOnlySuites=com.intel.oap.tpch -DtagsToInclude=com.intel.oap.tags.TestAndWriteLogs -pl oap-native-sql/core -am
         env:
           MAVEN_OPTS: "-Xmx2048m"
-          COMMENT_CONTENT_PATH: "/tmp/comment.txt"
+          COMMENT_TEXT_OUTPUT_PATH: "/tmp/comment_text.txt"
+          COMMENT_IMAGE_OUTPUT_PATH: "/tmp/comment_image.png"
+      - run: cml-publish /tmp/comment_image.png --md > /tmp/comment.md
       - run: echo "::set-output name=event_path::${GITHUB_EVENT_PATH}"
         id: output-envs
       - uses: actions/upload-artifact@v2
         with:
           name: comment_content
-          path: /tmp/comment.txt
+          path: /tmp/comment.md
       - uses: actions/upload-artifact@v2
         with:
           name: pr_event

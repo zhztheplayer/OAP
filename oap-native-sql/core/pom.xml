@@ -259,6 +259,12 @@
       <version>0.10.5</version>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.knowm.xchart</groupId>
+      <artifactId>xchart</artifactId>
+      <version>3.6.5</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
