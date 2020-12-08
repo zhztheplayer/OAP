@@ -31,7 +31,7 @@ jobs:
         with:
           workflow: tpch.yml
           run_id: ${{ github.event.workflow_run.id }}
-          name: pr_event_path
+          name: pr_event
           path: /tmp/previous_event.json
       - name: Install OAP optimized Arrow
         run: |
