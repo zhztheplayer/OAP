@@ -18,12 +18,6 @@ jobs:
         uses: actions/setup-java@v1
         with:
           java-version: 1.8
-      - name: Install OAP optimized Arrow
-        run: |
-          cd /tmp
-          git clone -b oap-master https://github.com/intel-bigdata/arrow.git
-          cd arrow/java
-          mvn clean install -P arrow-jni -am -Darrow.cpp.build.dir=/tmp/arrow/cpp/build/release/ -DskipTests -Dcheckstyle.skip
       - name: Download log
         uses: dawidd6/action-download-artifact@v2
         with:
@@ -38,6 +32,12 @@ jobs:
           run_id: ${{ github.event.workflow_run.id }}
           name: pr_event_path
           path: /tmp/previous_event.json
+      - name: Install OAP optimized Arrow
+        run: |
+          cd /tmp
+          git clone -b oap-master https://github.com/intel-bigdata/arrow.git
+          cd arrow/java
+          mvn clean install -P arrow-jni -am -Darrow.cpp.build.dir=/tmp/arrow/cpp/build/release/ -DskipTests -Dcheckstyle.skip
       - run: mvn test -DmembersOnlySuites=com.intel.oap.tpch -DtagsToInclude=com.intel.oap.tags.CommentOnContextPR -pl oap-native-sql/core -am -Dexec.skip=true
         env:
           MAVEN_OPTS: "-Xmx2048m"
