@@ -32,13 +32,13 @@ jobs:
       - run: mvn test -DmembersOnlySuites=com.intel.oap.tpch -DtagsToInclude=com.intel.oap.tags.TestAndWriteLogs -pl oap-native-sql/core -am
         env:
           MAVEN_OPTS: "-Xmx2048m"
-          RAM_USAGE_LOG_PATH: "/tmp/ram.log"
+          COMMENT_CONTENT_PATH: "/tmp/comment.txt"
       - run: echo "::set-output name=event_path::${GITHUB_EVENT_PATH}"
         id: output-envs
       - uses: actions/upload-artifact@v2
         with:
-          name: memory_usage_log
-          path: /tmp/ram.log
+          name: comment_content
+          path: /tmp/comment.txt
       - uses: actions/upload-artifact@v2
         with:
           name: pr_event

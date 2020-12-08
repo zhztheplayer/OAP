@@ -372,8 +372,8 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
   }
 
   test("comment on context pr", CommentOnContextPR) {
-    val logPath = System.getenv("RAM_USAGE_LOG_PATH")
-    if (StringUtils.isEmpty(logPath)) {
+    val commentContentPath = System.getenv("COMMENT_CONTENT_PATH")
+    if (StringUtils.isEmpty(commentContentPath)) {
       MemoryUsageTest.stdoutLog("No RAM_USAGE_LOG_PATH set. Aborting... ")
       throw new IllegalArgumentException("No RAM_USAGE_LOG_PATH set")
     }
@@ -403,29 +403,29 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
     val ghEventPayloadJson = new ObjectMapper().readTree(FileUtils.readFileToString(new File(eventPath)))
     val prId = ghEventPayloadJson.get("number").asInt()
 
-    commentOnContextPR(repoSlug, prId, token, FileUtils.readFileToString(new File(logPath)))
+    commentOnContextPR(repoSlug, prId, token, FileUtils.readFileToString(new File(commentContentPath)))
   }
 
   test("memory usage test long-run", TestAndWriteLogs) {
     LogManager.getRootLogger.setLevel(Level.WARN)
-    val logPath = System.getenv("RAM_USAGE_LOG_PATH")
-    if (StringUtils.isEmpty(logPath)) {
+    val commentContentPath = System.getenv("COMMENT_CONTENT_PATH")
+    if (StringUtils.isEmpty(commentContentPath)) {
       MemoryUsageTest.stdoutLog("No RAM_USAGE_LOG_PATH set. Aborting... ")
       throw new IllegalArgumentException("No RAM_USAGE_LOG_PATH set")
     }
 
 
     val ramMonitor = new RAMMonitor()
-    val writer = new OutputStreamWriter(new FileOutputStream(logPath))
+    val writer = new OutputStreamWriter(new FileOutputStream(commentContentPath))
 
-    def writeLog(line: String): Unit = {
+    def writeCommentLine(line: String): Unit = {
       writer.write(line)
       writer.write('\n')
       writer.flush()
       MemoryUsageTest.stdoutLog("Wrote log line: " + line)
     }
 
-    writeLog("Travis CI TPC-H RAM usage test starts to run. " +
+    writeCommentLine("Travis CI TPC-H RAM usage test starts to run. " +
         "Report will be continuously updated in following block.")
 
     def genReportLine(): String = {
@@ -452,20 +452,20 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
 
     try {
       createTPCHTables()
-      writeLog("```")
-      writeLog("Before suite starts: %s".format(genReportLine()))
+      writeCommentLine("```")
+      writeCommentLine("Before suite starts: %s".format(genReportLine()))
       (1 to 5).foreach { executionId =>
-        writeLog("Iteration %d:".format(executionId))
+        writeCommentLine("Iteration %d:".format(executionId))
         (1 to 22).foreach(i => {
           runTPCHQuery(i, executionId)
-          writeLog("  Query %d: %s".format(i, genReportLine()))
+          writeCommentLine("  Query %d: %s".format(i, genReportLine()))
         })
       }
     } catch {
       case e: Throwable =>
-        writeLog("Error executing TPC-H queries: %s".format(e.getMessage))
+        writeCommentLine("Error executing TPC-H queries: %s".format(e.getMessage))
     }
-    writeLog("```")
+    writeCommentLine("```")
     writer.close()
     ramMonitor.close()
   }
