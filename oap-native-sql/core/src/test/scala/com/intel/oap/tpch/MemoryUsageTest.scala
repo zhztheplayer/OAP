@@ -452,6 +452,7 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
 
     try {
       createTPCHTables()
+      writeLog("```")
       writeLog("Before suite starts: %s".format(genReportLine()))
       (1 to 5).foreach { executionId =>
         writeLog("Iteration %d:".format(executionId))
@@ -464,6 +465,7 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
       case e: Throwable =>
         writeLog("Error executing TPC-H queries: %s".format(e.getMessage))
     }
+    writeLog("```")
     writer.close()
     ramMonitor.close()
   }
