@@ -1,0 +1,45 @@
+# This workflow will build a Java project with Maven
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
+
+name: Report RAM Log
+
+on:
+  workflow_run:
+    workflows: ["Native SQL Engine TPC-H Suite"]
+    types:
+      - completed
+
+jobs:
+  comment-on-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up JDK 1.8
+        uses: actions/setup-java@v1
+        with:
+          java-version: 1.8
+      - name: Install OAP optimized Arrow
+        run: |
+          cd /tmp
+          git clone https://github.com/intel-bigdata/arrow.git
+          cd arrow/java
+          mvn clean install -P arrow-jni -am -Darrow.cpp.build.dir=/tmp/arrow/cpp/build/release/ -DskipTests -Dcheckstyle.skip
+      - name: Download log
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: tpch.yml
+          name: memory_usage_log
+          path: /tmp/ram.log
+      - name: Download previous event payload
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: tpch.yml
+          name: pr_event_path
+          path: /tmp/previous_event.json
+      - run: mvn test -DmembersOnlySuites=com.intel.oap.tpch -DtagsToInclude=com.intel.oap.tags.CommentOnContextPR -pl oap-native-sql/core -am
+        env:
+          MAVEN_OPTS: "-Xmx2048m"
+          RAM_USAGE_LOG_PATH: "/tmp/ram.log"
+          PREVIOUS_EVENT_PATH: "/tmp/previous_event.json"
+          GITHUB_TOKEN: ${{ github.token }}
+
