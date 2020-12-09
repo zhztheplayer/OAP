@@ -44,6 +44,7 @@ import org.knowm.xchart.BitmapEncoder.BitmapFormat
 import org.knowm.xchart.XYSeries.XYSeriesRenderStyle
 import org.knowm.xchart.style.Styler.ChartTheme
 import org.kohsuke.github.{GHIssueComment, GitHubBuilder}
+import sun.misc.IOUtils
 
 import scala.collection.mutable.ArrayBuffer
 
