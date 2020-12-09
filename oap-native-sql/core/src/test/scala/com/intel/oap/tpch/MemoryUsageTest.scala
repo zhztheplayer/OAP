@@ -430,7 +430,7 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
     }
 
     val ramMonitor = new RAMMonitor()
-    ramMonitor.startMonitorDaemon(commentImageOutputPath)
+    ramMonitor.startMonitorDaemon()
     val writer = new OutputStreamWriter(new FileOutputStream(commentTextOutputPath))
 
     def writeCommentLine(line: String): Unit = {
@@ -474,6 +474,7 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
         (1 to 22).foreach(i => {
           runTPCHQuery(i, executionId)
           writeCommentLine("  Query %d: %s".format(i, genReportLine()))
+          ramMonitor.writeImage(commentImageOutputPath)
         })
       }
     } catch {
@@ -507,9 +508,17 @@ object MemoryUsageTest {
   }
 
   // not thread-safe
-  class RAMMonitor extends AutoCloseable {
+  class RAMMonitor() extends AutoCloseable {
+
     val executor = Executors.newSingleThreadScheduledExecutor()
+
+    val heapUsedBuffer = ArrayBuffer[Int]()
+    val heapTotalBuffer = ArrayBuffer[Int]()
+    val pidRamUsedBuffer = ArrayBuffer[Int]()
+    val osRamUsedBuffer = ArrayBuffer[Int]()
+
     var closed = false
+
 
     def getJVMHeapUsed(): Long = {
       val heapTotalBytes = Runtime.getRuntime.totalMemory()
@@ -576,57 +585,53 @@ object MemoryUsageTest {
       return tok.nextToken().toLong
     }
 
-    def startMonitorDaemon(chartOutputPath: String): ScheduledFuture[_] = {
+    def startMonitorDaemon(): ScheduledFuture[_] = {
       if (closed) {
         throw new IllegalStateException()
       }
-      val counter = new AtomicInteger(0)
-      val heapUsedBuffer = ArrayBuffer[Int]()
-      val heapTotalBuffer = ArrayBuffer[Int]()
-      val pidRamUsedBuffer = ArrayBuffer[Int]()
-      val osRamUsedBuffer = ArrayBuffer[Int]()
-
       executor.scheduleAtFixedRate(new Runnable {
         override def run(): Unit = {
-          val i = counter.getAndIncrement()
           val pidRamUsed = getCurrentPIDRAMUsed()
           val osRamUsed = getOSRAMUsed()
           val heapUsed = getJVMHeapUsed()
           val heapTotal = getJVMHeapTotal()
 
-          heapUsedBuffer.append((heapUsed / 1024).toInt)
-          heapTotalBuffer.append((heapTotal / 1024).toInt)
-          pidRamUsedBuffer.append((pidRamUsed / 1024).toInt)
-          osRamUsedBuffer.append((osRamUsed / 1024).toInt)
-
-
-          if (i % 10 == 0) {
-            val chart = new XYChartBuilder()
-                .width(768)
-                .height(512)
-                .title("RAM Usage History (TPC-H)")
-                .xAxisTitle("Up Time (Second)")
-                .yAxisTitle("RAM Used (MB)")
-                .theme(ChartTheme.XChart)
-                .build
-            chart.getStyler.setDefaultSeriesRenderStyle(XYSeriesRenderStyle.Scatter)
-
-            chart.addSeries("JVM Heap Used", heapUsedBuffer.toArray)
-            chart.addSeries("JVM Heap Total", heapTotalBuffer.toArray)
-            chart.addSeries("Process Res Total", pidRamUsedBuffer.toArray)
-            chart.addSeries("OS Used Total", osRamUsedBuffer.toArray)
-
-            val out = new FileOutputStream(chartOutputPath)
-            try {
-              BitmapEncoder.saveBitmap(chart, out, BitmapFormat.PNG)
-            } finally {
-              out.close()
-            }
+          this.synchronized {
+            heapUsedBuffer.append((heapUsed / 1024).toInt)
+            heapTotalBuffer.append((heapTotal / 1024).toInt)
+            pidRamUsedBuffer.append((pidRamUsed / 1024).toInt)
+            osRamUsedBuffer.append((osRamUsed / 1024).toInt)
           }
         }
       }, 0L, 1000L, TimeUnit.MILLISECONDS)
     }
 
+
+    def writeImage(chartOutputPath: String): Unit = {
+      val chart = new XYChartBuilder()
+          .width(768)
+          .height(512)
+          .title("RAM Usage History (TPC-H)")
+          .xAxisTitle("Up Time (Second)")
+          .yAxisTitle("RAM Used (MB)")
+          .theme(ChartTheme.XChart)
+          .build
+      chart.getStyler.setDefaultSeriesRenderStyle(XYSeriesRenderStyle.Scatter)
+
+      this.synchronized {
+        chart.addSeries("JVM Heap Used", heapUsedBuffer.toArray)
+        chart.addSeries("JVM Heap Total", heapTotalBuffer.toArray)
+        chart.addSeries("Process Res Total", pidRamUsedBuffer.toArray)
+        chart.addSeries("OS Used Total", osRamUsedBuffer.toArray)
+      }
+
+      val out = new FileOutputStream(chartOutputPath)
+      try {
+        BitmapEncoder.saveBitmap(chart, out, BitmapFormat.PNG)
+      } finally {
+        out.close()
+      }
+    }
 
     override def close(): Unit = {
       executor.shutdown()
