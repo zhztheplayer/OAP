@@ -647,15 +647,6 @@ object MemoryUsageTest {
 
     val repository = inst.getRepository(repoSlug)
     val pr = repository.getPullRequest(prId)
-    val title = pr.getTitle
-    if (StringUtils.isEmpty(title)) {
-      stdoutLog("PR title is empty, ignoring")
-      return None
-    }
-    if (!title.contains("[oap-native-sql]") && !title.contains("[oap-data-source]")) {
-      stdoutLog("PR title <%s> not matching, ignoring".format(title))
-      return None
-    }
     val c = pr.comment(comment)
     stdoutLog("Comment successfully submitted. ")
     Some(c)
