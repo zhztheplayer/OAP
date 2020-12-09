@@ -382,8 +382,8 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
 
   test("comment on context pr", CommentOnContextPR) {
     def run(): Unit = {
-      val enableTPCHTests = System.getenv("ENABLE_TPCH_TESTS").toBoolean
-      if (!enableTPCHTests) {
+      val enableTPCHTests = Option(System.getenv("ENABLE_TPCH_TESTS"))
+      if (!enableTPCHTests.exists(_.toBoolean)) {
         MemoryUsageTest.stdoutLog("TPCH tests are not enabled, Skipping... ")
         return
       }
@@ -425,8 +425,8 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
 
   test("memory usage test long-run", TestAndWriteLogs) {
     def run(): Unit = {
-      val enableTPCHTests = System.getenv("ENABLE_TPCH_TESTS").toBoolean
-      if (!enableTPCHTests) {
+      val enableTPCHTests = Option(System.getenv("ENABLE_TPCH_TESTS"))
+      if (!enableTPCHTests.exists(_.toBoolean)) {
         MemoryUsageTest.stdoutLog("TPCH tests are not enabled, Skipping... ")
         return
       }
