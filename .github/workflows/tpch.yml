@@ -55,6 +55,7 @@ jobs:
           MAVEN_OPTS: "-Xmx2048m"
           COMMENT_TEXT_OUTPUT_PATH: "/tmp/comment_text.txt"
           COMMENT_IMAGE_OUTPUT_PATH: "/tmp/comment_image.png"
+          ENABLE_TPCH_TESTS: "true"
       - run: cml-publish /tmp/comment_image.png --md > /tmp/comment.md
       - run: echo "::set-output name=event_path::${GITHUB_EVENT_PATH}"
         id: output-envs
