@@ -428,7 +428,10 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
       MemoryUsageTest.stdoutLog("No COMMENT_IMAGE_OUTPUT_PATH set. Aborting... ")
       throw new IllegalArgumentException("No COMMENT_IMAGE_OUTPUT_PATH set")
     }
-
+    
+    stdoutLog("LISTING PROCESS: ")
+    stdoutLog(new String(IOUtils.readAllBytes(Runtime.getRuntime.exec("ps aux --sort -rss").getInputStream)))
+    
     val ramMonitor = new RAMMonitor()
     ramMonitor.startMonitorDaemon()
     val writer = new OutputStreamWriter(new FileOutputStream(commentTextOutputPath))
