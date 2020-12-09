@@ -50,6 +50,8 @@ jobs:
           sudo make install
           cd ../../java
           mvn clean install -B -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn -P arrow-jni -am -Darrow.cpp.build.dir=/tmp/arrow/cpp/build/release/ -DskipTests -Dcheckstyle.skip
+      - run: free
+      - run: ps aux --sort -rss
       - run: mvn test -B -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn -DmembersOnlySuites=com.intel.oap.tpch -DtagsToInclude=com.intel.oap.tags.TestAndWriteLogs -pl oap-native-sql/core -am
         env:
           MAVEN_OPTS: "-Xmx2048m"
