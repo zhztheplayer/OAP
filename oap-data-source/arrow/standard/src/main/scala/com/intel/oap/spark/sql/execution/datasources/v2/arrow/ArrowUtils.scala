@@ -185,6 +185,7 @@ object ArrowUtils {
     Option(options.filesystem match {
       case "local" => FileSystem.LOCAL
       case "hdfs" => FileSystem.HDFS
+      case "s3fs" => FileSystem.S3FS
       case _ => throw new IllegalArgumentException("Unrecognizable filesystem")
     })
   }
