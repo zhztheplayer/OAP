@@ -19,44 +19,20 @@ package org.apache.spark.sql.execution.datasources.v2.arrow
 
 import java.util.UUID
 
-import com.intel.oap.spark.sql.execution.datasources.v2.arrow.SparkManagedReservationListener
+import com.intel.oap.spark.sql.execution.datasources.v2.arrow.{NativeSQLMemoryConsumer, SparkManagedAllocationListener, SparkManagedReservationListener, Spiller}
 import org.apache.arrow.dataset.jni.NativeMemoryPool
-import org.apache.arrow.memory.{AllocationListener, BaseAllocator, BufferAllocator, DirectReservationListener, OutOfMemoryException, ReservationListener}
+import org.apache.arrow.memory.{BaseAllocator, BufferAllocator}
 
 import org.apache.spark.TaskContext
-import org.apache.spark.memory.{MemoryConsumer, MemoryMode, TaskMemoryManager}
+import org.apache.spark.memory.TaskMemoryManager
 import org.apache.spark.util.TaskCompletionListener
 
 object SparkMemoryUtils {
   private val taskToAllocatorMap = new java.util.IdentityHashMap[TaskContext, BufferAllocator]()
-  private val taskToMemoryPoolMap =
-    new java.util.IdentityHashMap[TaskContext, NativeMemoryPool]()
+  private val taskToMemoryPoolMap = new java.util.IdentityHashMap[TaskContext, NativeMemoryPool]()
 
-  private class ExecutionMemoryAllocationListener(mm: TaskMemoryManager)
-    extends MemoryConsumer(mm, mm.pageSizeBytes(), MemoryMode.OFF_HEAP) with AllocationListener {
-
-    override def onPreAllocation(size: Long): Unit = {
-      if (size == 0) {
-        return
-      }
-      val granted = acquireMemory(size)
-      if (granted < size) {
-        throw new OutOfMemoryException("Not enough spark off-heap execution memory. " +
-          "Acquired: " + size + ", granted: " + granted + ". " +
-          "Try tweaking config option spark.memory.offHeap.size to " +
-          "get larger space to run this application. ")
-      }
-    }
-
-    override def onRelease(size: Long): Unit = {
-      freeMemory(size)
-    }
-
-    override def spill(size: Long, trigger: MemoryConsumer): Long = {
-      // not spillable
-      0L
-    }
-  }
+  private val leakedAllocators = new java.util.Vector[BufferAllocator]()
+  private val leakedMemoryPools = new java.util.Vector[NativeMemoryPool]()
 
   private def getLocalTaskContext: TaskContext = TaskContext.get()
 
@@ -78,6 +54,29 @@ object SparkMemoryUtils {
     org.apache.spark.sql.util.ArrowUtils.rootAllocator
   }
 
+  def createSpillableAllocator(spiller: Spiller): BaseAllocator = {
+    if (!inSparkTask()) {
+      throw new IllegalStateException("Spiller must be used in a Spark task")
+    }
+    val al = new SparkManagedAllocationListener(
+      new NativeSQLMemoryConsumer(getTaskMemoryManager(), spiller))
+    val parent = globalAllocator()
+    val alloc = parent.newChildAllocator("Spark Managed Allocator - " +
+      UUID.randomUUID().toString, al, 0, parent.getLimit).asInstanceOf[BaseAllocator]
+    getLocalTaskContext.addTaskCompletionListener(
+      new TaskCompletionListener {
+        override def onTaskCompletion(context: TaskContext): Unit = {
+          val allocated = alloc.getAllocatedMemory
+          if (allocated == 0L) {
+            close(alloc)
+          } else {
+            softClose(alloc)
+          }
+        }
+      })
+    alloc
+  }
+
   def contextAllocator(): BaseAllocator = {
     val globalAlloc = globalAllocator()
     if (!inSparkTask()) {
@@ -88,7 +87,8 @@ object SparkMemoryUtils {
       if (taskToAllocatorMap.containsKey(tc)) {
         taskToAllocatorMap.get(tc).asInstanceOf[BaseAllocator]
       } else {
-        val al = new ExecutionMemoryAllocationListener(getTaskMemoryManager())
+        val al = new SparkManagedAllocationListener(
+          new NativeSQLMemoryConsumer(getTaskMemoryManager(), Spiller.NO_OP))
         val parent = globalAlloc
         val newInstance = parent.newChildAllocator("Spark Managed Allocator - " +
           UUID.randomUUID().toString, al, 0, parent.getLimit).asInstanceOf[BaseAllocator]
@@ -98,11 +98,10 @@ object SparkMemoryUtils {
             override def onTaskCompletion(context: TaskContext): Unit = {
               taskToAllocatorMap.synchronized {
                 if (taskToAllocatorMap.containsKey(context)) {
-                  val allocator = taskToAllocatorMap.get(context)
+                  val allocator = taskToAllocatorMap.remove(context)
                   val allocated = allocator.getAllocatedMemory
                   if (allocated == 0L) {
                     close(allocator)
-                    taskToAllocatorMap.remove(context)
                   } else {
                     softClose(allocator)
                   }
@@ -132,11 +131,34 @@ object SparkMemoryUtils {
    * @see org.apache.spark.executor.Executor.TaskRunner#run()
    */
   private def softClose(allocator: BufferAllocator): Unit = {
-    // do nothing
+    // move to leaked list
+    leakedAllocators.add(allocator)
   }
 
   def globalMemoryPool(): NativeMemoryPool = {
     NativeMemoryPool.getDefault
+  }
+
+  def createSpillableMemoryPool(spiller: Spiller): NativeMemoryPool = {
+    if (!inSparkTask()) {
+      throw new IllegalStateException("Spiller must be used in a Spark task")
+    }
+    val rl = new SparkManagedReservationListener(
+      new NativeSQLMemoryConsumer(getTaskMemoryManager(), spiller))
+    val pool = NativeMemoryPool.createListenable(rl)
+    getLocalTaskContext.addTaskCompletionListener(
+      new TaskCompletionListener {
+        override def onTaskCompletion(context: TaskContext): Unit = {
+          val pool = taskToMemoryPoolMap.remove(context)
+          val allocated = pool.getBytesAllocated()
+          if (allocated == 0L) {
+            close(pool)
+          } else {
+            softClose(pool)
+          }
+        }
+      })
+    pool
   }
 
   def contextMemoryPool(): NativeMemoryPool = {
@@ -148,7 +170,8 @@ object SparkMemoryUtils {
       if (taskToMemoryPoolMap.containsKey(tc)) {
         taskToMemoryPoolMap.get(tc)
       } else {
-        val rl = new SparkManagedReservationListener(getTaskMemoryManager())
+        val rl = new SparkManagedReservationListener(
+          new NativeSQLMemoryConsumer(getTaskMemoryManager(), Spiller.NO_OP))
         val pool = NativeMemoryPool.createListenable(rl)
         taskToMemoryPoolMap.put(tc, pool)
         getLocalTaskContext.addTaskCompletionListener(
@@ -156,12 +179,12 @@ object SparkMemoryUtils {
             override def onTaskCompletion(context: TaskContext): Unit = {
               taskToMemoryPoolMap.synchronized {
                 if (taskToMemoryPoolMap.containsKey(context)) {
-                  val pool = taskToMemoryPoolMap.get(context)
+                  val pool = taskToMemoryPoolMap.remove(context)
                   val allocated = pool.getBytesAllocated()
                   if (allocated == 0L) {
-                    taskToMemoryPoolMap.remove(context).close()
+                    close(pool)
                   } else {
-                    // do nothing
+                    softClose(pool)
                   }
                 }
               }
@@ -171,5 +194,14 @@ object SparkMemoryUtils {
       }
     }
     pool
+  }
+
+  private def close(pool: NativeMemoryPool): Unit = {
+    pool.close()
+  }
+
+  private def softClose(pool: NativeMemoryPool): Unit = {
+    // move to leaked list
+    leakedMemoryPools.add(pool)
   }
 }
