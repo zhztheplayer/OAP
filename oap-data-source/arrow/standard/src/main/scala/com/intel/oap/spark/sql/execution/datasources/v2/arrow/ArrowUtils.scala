@@ -93,6 +93,11 @@ object ArrowUtils {
       }
       return new URI(uri.getScheme, uri.getAuthority, uri.getPath, query, uri.getFragment).toString
     }
+    if (uri.getScheme == "s3a") {
+      val rewritten = new URI("s3", uri.getAuthority,
+        uri.getPath, uri.getQuery, uri.getFragment).toString
+      return rewritten
+    }
     file
   }
 
