@@ -375,7 +375,7 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
       try {
         spark.catalog.recoverPartitions(file.getName)
       } catch {
-        case _: Throwable =>
+        case t: Throwable => t.printStackTrace()
       }
     })
   }
@@ -492,13 +492,11 @@ class MemoryUsageTest extends QueryTest with SharedSparkSession {
             ramMonitor.writeImage(commentImageOutputPath)
           })
         }
-      } catch {
-        case e: Throwable =>
-          writeCommentLine("Error executing TPC-H queries: %s".format(e.getMessage))
+      } finally {
+        writeCommentLine("```")
+        writer.close()
+        ramMonitor.close()
       }
-      writeCommentLine("```")
-      writer.close()
-      ramMonitor.close()
     }
     run()
   }
